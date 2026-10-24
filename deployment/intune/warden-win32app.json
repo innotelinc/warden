@@ -1,0 +1,44 @@
+{
+  "@odata.type": "#microsoft.graph.win32LobApp",
+  "displayName": "WARDEN",
+  "description": "Privacy-first operations browser for security and network administrators. Cookies are blocked unless a site is explicitly allowed, trackers are filtered, and the browsing profile stays in memory. Installs per-machine to Program Files with an HKLM uninstall entry.",
+  "publisher": "WARDEN",
+  "developer": "WARDEN",
+  "owner": "IT Operations",
+  "notes": "Requirements: Windows 10 or later, x64. Electron 45 documents support for 'Windows 10 and up' and ships x64 binaries; no narrower build floor is claimed here because Electron does not document one. Detection reads the file version of %ProgramFiles%\\WARDEN\\WARDEN.exe rather than the uninstall DisplayName, which embeds the version and would break every release. The installer is unsigned, so SmartScreen may prompt on a first interactive launch; unattended installs are unaffected. Uninstall removes profile data (settings, allowlists, history) for all local profiles; add -KeepUserData to the uninstall command line to retain it. Installing per-machine requires the SYSTEM context this app uses; a per-user install under SYSTEM would land in the SYSTEM profile and is refused by the deploy script by design.",
+  "displayVersion": "0.1.0",
+  "fileName": "WARDEN-Setup-0.1.0.intunewin",
+  "setupFilePath": "WARDEN-Setup-0.1.0.exe",
+  "installCommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"deploy-warden.ps1\" -Action Install -Scope Machine",
+  "uninstallCommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"deploy-warden.ps1\" -Action Uninstall",
+  "applicableArchitectures": "x64",
+  "minimumSupportedWindowsRelease": "W10_1607",
+  "minimumFreeDiskSpaceInMB": 1536,
+  "minimumMemoryInMB": 4096,
+  "installExperience": {
+    "@odata.type": "#microsoft.graph.win32LobAppInstallExperience",
+    "runAsAccount": "system",
+    "deviceRestartBehavior": "basedOnReturnCode"
+  },
+  "detectionRules": [
+    {
+      "@odata.type": "#microsoft.graph.win32LobAppFileSystemDetection",
+      "path": "%ProgramFiles%\\WARDEN",
+      "fileOrFolderName": "WARDEN.exe",
+      "check32BitOn64System": false,
+      "detectionType": "version",
+      "operator": "greaterThanOrEqual",
+      "detectionValue": "0.1.0",
+      "enforceSignatureCheck": false
+    }
+  ],
+  "returnCodes": [
+    { "returnCode": 0, "type": "success" },
+    { "returnCode": 1707, "type": "success" },
+    { "returnCode": 3010, "type": "softReboot" },
+    { "returnCode": 1641, "type": "hardReboot" },
+    { "returnCode": 1618, "type": "retry" },
+    { "returnCode": 1603, "type": "failed" },
+    { "returnCode": 1, "type": "failed" }
+  ]
+}

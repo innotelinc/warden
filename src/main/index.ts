@@ -1,0 +1,619 @@
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  ipcMain,
+  protocol,
+  session,
+  shell
+} from 'electron'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { DEFAULT_SETTINGS, APP_NAME } from '@shared/defaults'
+import { sanitizeSettings } from '@shared/settings'
+import type {
+  AppState,
+  HistoryEntry,
+  Bookmark,
+  LayoutRequest,
+  ScryProgress,
+  ScryReport,
+  Settings,
+  CloneResult,
+  WorkspaceId
+} from '@shared/types'
+import { JsonStore } from './store/json-store'
+import { PrivacyService } from './privacy/privacy-service'
+import { TabManager, type ShortcutCommand } from './browser/tabs'
+import { MediaDock } from './media/media-dock'
+import { TerminalService } from './terminal/terminal-service'
+import { MailService, type MailStore } from './mail/mail-service'
+import { MessagingHub } from './messaging/hub'
+import { ScryService } from './scry/scry-service'
+import { GenieService } from './genie/genie-service'
+import { DownloadManager } from './browser/downloads'
+import { SecretVault } from './security/vault'
+import { errorHtml, newTabHtml, viewerHtml } from './internal-pages'
+import { registerIpc, type WardenContext } from './ipc'
+import { runSmoke } from './smoke'
+
+const isDev = !app.isPackaged
+
+// ---------------------------------------------------------------- privacy switches
+app.commandLine.appendSwitch('no-pings')
+app.commandLine.appendSwitch('disable-background-networking')
+app.commandLine.appendSwitch('disable-component-update')
+app.commandLine.appendSwitch('disable-domain-reliability')
+app.commandLine.appendSwitch('disable-breakpad')
+app.commandLine.appendSwitch('disable-client-side-phishing-detection')
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp')
+app.commandLine.appendSwitch('disable-features', [
+  'Translate',
+  'OptimizationHints',
+  'MediaRouter',
+  'DialMediaRouteProvider',
+  'CalculateNativeWinOcclusion',
+  'InterestFeedContentSuggestions',
+  'PrivacySandboxSettings4',
+  'AutofillServerCommunication',
+  'CertificateTransparencyComponentUpdater',
+  'AcceptCHFrame',
+  'AttributionReportingCrossAppWeb'
+].join(','))
+
+/**
+ * Self debug mode: expose WARDEN's own CDP endpoint on loopback so external
+ * tooling (REA, Chrome DevTools, `curl /json`) can inspect the tabs WARDEN is
+ * already running. Scry never needs this for WARDEN tabs, which it drives
+ * through webContents.debugger; this is for leaving WARDEN open to other tools.
+ *
+ * The switch only takes effect before the app is ready, so the setting is read
+ * from disk here rather than from the store built after startup. Loopback only:
+ * a remote-debugging port bound to all interfaces would let anything on the
+ * network drive the browser.
+ */
+function applySelfDebugPort(): void {
+  if (process.env.WARDEN_DEBUG_PORT && Number(process.env.WARDEN_DEBUG_PORT) > 0) {
+    app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+    app.commandLine.appendSwitch('remote-debugging-port', String(Number(process.env.WARDEN_DEBUG_PORT)))
+    return
+  }
+  try {
+    const file = path.join(app.getPath('userData'), 'settings.json')
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { debugPort?: unknown }
+    const port = Number(parsed.debugPort)
+    if (Number.isInteger(port) && port >= 1024 && port <= 65535) {
+      app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+      app.commandLine.appendSwitch('remote-debugging-port', String(port))
+    }
+  } catch {
+    /* first run, or no debug port configured */
+  }
+}
+
+applySelfDebugPort()
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'warden',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+  }
+])
+
+app.userAgentFallback = app.userAgentFallback
+  .replace(/Electron\/[\d.]+\s*/i, '')
+  .replace(new RegExp(`\\b${APP_NAME}\\/[\\d.]+\\s*`, 'i'), '')
+  .replace(/\s{2,}/g, ' ')
+
+let win: BrowserWindow | null = null
+let quitting = false
+let protocolRegistered = false
+
+interface Stores {
+  settings: JsonStore<Settings>
+  history: JsonStore<HistoryEntry[]>
+  bookmarks: JsonStore<Bookmark[]>
+}
+
+function buildStores(): Stores {
+  const root = app.getPath('userData')
+  return {
+    settings: new JsonStore<Settings>(path.join(root, 'settings.json'), DEFAULT_SETTINGS, sanitizeSettings),
+    history: new JsonStore<HistoryEntry[]>(path.join(root, 'history.json'), [], (value) =>
+      Array.isArray(value) ? (value as HistoryEntry[]).slice(0, 4000) : []
+    ),
+    bookmarks: new JsonStore<Bookmark[]>(path.join(root, 'bookmarks.json'), [], (value) =>
+      Array.isArray(value) ? (value as Bookmark[]) : []
+    )
+  }
+}
+
+async function createWindow(stores: Stores): Promise<void> {
+  win = new BrowserWindow({
+    width: 1480,
+    height: 940,
+    minWidth: 1040,
+    minHeight: 660,
+    show: false,
+    backgroundColor: '#080a0d',
+    title: 'WARDEN',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#080a0d', symbolColor: '#8fa1b5', height: 40 },
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+      backgroundThrottling: false
+    }
+  })
+
+  Menu.setApplicationMenu(null)
+
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  if (isDev && rendererUrl) {
+    await win.loadURL(rendererUrl)
+  } else {
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'))
+  }
+
+  win.once('ready-to-show', () => win?.show())
+
+  const settingsStore = stores.settings
+  const settings = settingsStore.get()
+
+  // ------------------------------------------------------------ services
+  let workspace: WorkspaceId = 'browse'
+  let layout: LayoutRequest = { surface: 'browse', tabBounds: null, mediaBounds: [], msgBounds: null }
+  let scryProgress: ScryProgress | null = null
+  let scryResult: CloneResult | null = null
+  let scryReport: ScryReport | null = null
+  let scryError: string | null = null
+  let scryTargets: AppState['scry']['targets'] = []
+  let drawerOpen = false
+  const mediaByTab = new Map<string, AppState['mediaAvailable']>()
+
+  let pushTimer: NodeJS.Timeout | null = null
+  const sendState = (): void => {
+    if (pushTimer) return
+    pushTimer = setTimeout(() => {
+      pushTimer = null
+      if (!win || win.isDestroyed()) return
+      win.webContents.send('warden:state', snapshot())
+    }, 40)
+  }
+
+  const privacy = new PrivacyService(settings, () => sendState())
+  await privacy.start()
+
+  const browserWindow = win
+  const tabs = new TabManager(browserWindow, privacy, {
+    onState: sendState,
+    onShortcut: (command, tabId) => handleShortcut(command, tabId),
+    onVisited: (url, title) => {
+      const list = stores.history.get()
+      const last = list[0]
+      if (last && last.url === url && Date.now() - last.visitedAt < 3000) return
+      stores.history.set(
+        [
+          {
+            id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            url,
+            title: title || url,
+            visitedAt: Date.now()
+          },
+          ...list
+        ].slice(0, 4000)
+      )
+    },
+    onCookiesCheck: () => {
+      void privacy.wipeCookies()
+    }
+  })
+
+  const media = new MediaDock(browserWindow, () => privacy.createIsolatedSession('media'))
+  const terminal = new TerminalService({
+    onData: (id, data) => browserWindow.webContents.send('warden:term:data', id, data),
+    onExit: (id, code) => {
+      browserWindow.webContents.send('warden:term:exit', id, code)
+      sendState()
+    }
+  })
+
+  const vault = new SecretVault(path.join(app.getPath('userData'), 'secrets.json'))
+  await vault.load()
+
+  const mailStore = new JsonStore<MailStore>(path.join(app.getPath('userData'), 'mail.json'), {
+    accounts: [],
+    activeAccountId: null,
+    activeFolder: 'INBOX'
+  })
+  await mailStore.load()
+  const mail = new MailService(mailStore, vault, sendState)
+  mail.load()
+
+  const messaging = new MessagingHub(browserWindow, privacy, sendState)
+  const downloads = new DownloadManager(sendState)
+  privacy.onDownload((item) => downloads.track(item))
+
+  const scry = new ScryService({
+    settings: () => stores.settings.get(),
+    outputRoot: () => {
+      const configured = stores.settings.get().scryOutputDir
+      if (configured) return configured
+      return path.join(app.getPath('documents'), 'WARDEN-Scry')
+    },
+    localTabs: () =>
+      tabs.list().map((tab) => ({ id: tab.id, title: tab.title, url: tab.url })),
+    localWebContents: (tabId) => tabs.getWebContents(tabId),
+    onProgress: (progress) => {
+      scryProgress = progress
+      browserWindow.webContents.send('warden:scry:progress', progress)
+      sendState()
+    },
+    onReport: (report) => {
+      scryReport = report
+      sendState()
+    },
+    blockedCount: () => privacy.snapshot().blockedTotal
+  })
+
+  // Genie reads the gateway key from the environment (development) or the OS
+  // keychain (set from Policy). It is never written to settings or sent to the
+  // renderer, and every call leaves from the main process.
+  const genie = new GenieService({
+    gatewayUrl: () => process.env.INNOTEL_GATEWAY_URL || 'https://gateway.innotel.us/v1',
+    apiKey: () => process.env.INNOTEL_GATEWAY_KEY || vault.get('innotel.gateway'),
+    model: () => process.env.GENIE_MODEL || 'auto/best-coding',
+    activeContext: async () => {
+      const tab = tabs.list().find((entry) => entry.id === tabs.activeTabId)
+      return { url: tab?.url ?? '', title: tab?.title ?? '' }
+    },
+    activeText: async () => {
+      const wc = tabs.activeTabId ? tabs.getWebContents(tabs.activeTabId) : null
+      if (!wc) return ''
+      const text = await wc
+        .executeJavaScript('document.body ? document.body.innerText : ""', true)
+        .catch(() => '')
+      return typeof text === 'string' ? text.slice(0, 8000) : ''
+    },
+    stats: () => {
+      const now = privacy.snapshot()
+      return {
+        blocked: now.blockedTotal,
+        rules: now.rulesLoaded,
+        cookiesStripped: now.cookiesStripped,
+        trackers: now.trackersBlocked
+      }
+    },
+    scrySummary: () => {
+      if (!scryReport) return null
+      return JSON.stringify({
+        url: scryReport.url,
+        title: scryReport.title,
+        requests: scryReport.requests,
+        technologies: scryReport.technologies.map((entry) => entry.name),
+        trackers: scryReport.trackers.map((entry) => entry.host),
+        missingSecurityHeaders: scryReport.server.missingSecurityHeaders
+      })
+    },
+    emit: (event) => {
+      browserWindow.webContents.send('warden:genie:event', event)
+    }
+  })
+
+  const snapshot = (): AppState => ({
+    tabs: tabs.list(),
+    activeTabId: tabs.activeTabId,
+    workspace,
+    settings: stores.settings.get(),
+    stats: privacy.snapshot(),
+    media: media.snapshot(),
+    mediaForTab: tabs.activeTabId,
+    mediaAvailable: tabs.activeTabId ? (mediaByTab.get(tabs.activeTabId) ?? []) : [],
+    terminal: terminal.active,
+    terminals: terminal.list(),
+    drawerOpen,
+    mail: mail.state,
+    messaging: {
+      services: messaging.services,
+      states: messaging.states(),
+      activeId: messaging.active
+    },
+    scry: { running: scry.busy, progress: scryProgress, result: scryResult, report: scryReport, targets: scryTargets, error: scryError },
+    downloads: downloads.list(),
+    history: stores.history.get().slice(0, 200),
+    bookmarks: stores.bookmarks.get(),
+    version: app.getVersion(),
+    platform: process.platform
+  })
+
+  const handleShortcut = (command: ShortcutCommand, tabId: string | null): void => {
+    const activeId = tabId ?? tabs.activeTabId
+    switch (command) {
+      case 'new-tab':
+        tabs.create('warden://newtab')
+        return
+      case 'close-tab':
+        tabs.closeActive()
+        return
+      case 'reload':
+        if (activeId) tabs.reload(activeId)
+        return
+      case 'reload-hard':
+        if (activeId) tabs.reload(activeId, true)
+        return
+      case 'back':
+        if (activeId) tabs.back(activeId)
+        return
+      case 'forward':
+        if (activeId) tabs.forward(activeId)
+        return
+      case 'devtools':
+        if (activeId) tabs.openDevTools(activeId)
+        return
+      case 'zoom-in':
+        if (activeId) tabs.setZoom(activeId, 0.1)
+        return
+      case 'zoom-out':
+        if (activeId) tabs.setZoom(activeId, -0.1)
+        return
+      case 'zoom-reset':
+        if (activeId) tabs.setZoom(activeId, 'reset')
+        return
+      case 'next-tab':
+        tabs.cycle(1)
+        return
+      case 'prev-tab':
+        tabs.cycle(-1)
+        return
+      case 'toggle-terminal':
+        drawerOpen = !drawerOpen
+        if (drawerOpen && !terminal.active) terminal.create(stores.settings.get().terminalShell)
+        sendState()
+        return
+      default:
+        browserWindow.webContents.send('warden:shortcut', command)
+    }
+  }
+
+  const context: WardenContext = {
+    win: browserWindow,
+    tabs,
+    privacy,
+    media,
+    terminal,
+    mail,
+    messaging,
+    scry,
+    genie,
+    downloads,
+    stores,
+    snapshot,
+    sendState,
+    getWorkspace: () => workspace,
+    setWorkspace: (next) => {
+      workspace = next
+      tabs.setVisible(next === 'browse')
+      messaging.setVisible(next === 'concourse')
+      if (next !== 'browse') media.setVisible(false)
+      else media.setVisible(true)
+      sendState()
+    },
+    getLayout: () => layout,
+    setLayout: (next) => {
+      layout = next
+      if (next.surface === 'browse' && next.tabBounds) tabs.setBounds(next.tabBounds)
+      media.setRects(next.mediaBounds)
+      media.setVisible(next.surface === 'browse' || next.mediaBounds.length > 0)
+      messaging.setBounds(next.msgBounds)
+      tabs.setVisible(next.surface === 'browse')
+      messaging.setVisible(next.surface === 'messages')
+    },
+    setGenieKey: (key) => {
+      try {
+        if (!key.trim()) {
+          vault.delete('innotel.gateway')
+          return { ok: true }
+        }
+        vault.set('innotel.gateway', key.trim())
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: (error as Error).message }
+      }
+    },
+    setSuppressed: (suppressed) => {
+      if (suppressed) {
+        tabs.setVisible(false)
+        messaging.setVisible(false)
+        media.setVisible(false)
+        return
+      }
+      tabs.setVisible(layout.surface === 'browse')
+      messaging.setVisible(layout.surface === 'messages')
+      media.setVisible(layout.mediaBounds.length > 0)
+    },
+    setDrawer: (open) => {
+      drawerOpen = open
+      sendState()
+    },
+    setScry: (patch) => {
+      if (patch.progress !== undefined) scryProgress = patch.progress
+      if (patch.result !== undefined) scryResult = patch.result
+      if (patch.report !== undefined) scryReport = patch.report
+      if (patch.targets !== undefined) scryTargets = patch.targets
+      if (patch.error !== undefined) scryError = patch.error
+      sendState()
+    }
+  }
+
+  registerIpc(context)
+
+  // ------------------------------------------------------------ protocol
+  if (!protocolRegistered) {
+    protocolRegistered = true
+    protocol.handle('warden', async (request) => {
+    const url = new URL(request.url)
+    const settingsNow = stores.settings.get()
+
+    if (url.hostname === 'newtab') {
+      return new Response(
+        newTabHtml({
+          stats: privacy.snapshot(),
+          bookmarks: stores.bookmarks.get().slice(0, 12),
+          version: app.getVersion(),
+          homepage: settingsNow.homepage
+        }),
+        { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
+      )
+    }
+
+    if (url.hostname === 'error') {
+      return new Response(
+        errorHtml(
+          url.searchParams.get('code') ?? 'ERR',
+          url.searchParams.get('desc') ?? 'Navigation failed',
+          url.searchParams.get('url') ?? ''
+        ),
+        { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
+      )
+    }
+
+    if (url.hostname === 'viewer') {
+      return new Response(
+        viewerHtml(
+          url.searchParams.get('src') ?? '',
+          url.searchParams.get('title') ?? '',
+          url.searchParams.get('kind') ?? 'video',
+          Number(url.searchParams.get('t') ?? 0)
+        ),
+        { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
+      )
+    }
+
+      return new Response('Not found', { status: 404 })
+    })
+  }
+
+  // ------------------------------------------------------------ page signals
+  ipcMain.removeAllListeners('warden:media:found')
+  ipcMain.removeAllListeners('warden:hover')
+
+  ipcMain.on('warden:media:found', (event, tabId: string, items: unknown) => {
+    if (!Array.isArray(items)) return
+    if (tabs.getWebContents(tabId)?.id !== event.sender.id) return
+    tabs.setMediaCount(tabId, items.length)
+    mediaByTab.set(tabId, items as AppState['mediaAvailable'])
+    sendState()
+
+    if (!stores.settings.get().autoDockMedia) return
+    if (tabId !== tabs.activeTabId) return
+
+    const playable = items.filter(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        (item as { playable?: boolean }).playable !== false &&
+        (item as { playing?: boolean }).playing === true
+    ) as { id: string; url: string }[]
+
+    for (const item of playable.slice(0, MediaDock.slotCount())) {
+      if (media.has(item as never)) continue
+      const slot = media.open(item as never, tabs.getTabUrl(tabId) ?? '')
+      if (slot === null) continue
+      tabs.getWebContents(tabId)?.send('warden:media:claim', (item as { url: string }).url)
+    }
+  })
+
+  ipcMain.on('warden:hover', (event, tabId: string, url: string) => {
+    if (tabs.getWebContents(tabId)?.id !== event.sender.id) return
+    if (typeof url !== 'string') return
+    browserWindow.webContents.send('warden:hover', url)
+  })
+
+  // ------------------------------------------------------------ window
+  // Links opened by the app UI (mail bodies, panels) become WARDEN tabs.
+  browserWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) tabs.create(url)
+    return { action: 'deny' }
+  })
+
+  browserWindow.on('resize', sendState)
+  browserWindow.on('closed', () => {
+    win = null
+  })
+
+  webContentsGuard()
+
+  // ------------------------------------------------------------ first run
+  await stores.settings.flush()
+  tabs.create(stores.settings.get().homepage || 'warden://newtab')
+  sendState()
+
+  if (process.env.WARDEN_SMOKE === '1') {
+    void runSmoke(context, process.env.WARDEN_SMOKE_URL ?? 'http://127.0.0.1:4321/')
+  }
+
+  // contexts for the IPC layer that need late binding
+  ;(globalThis as { __wardenContext?: WardenContext }).__wardenContext = context
+}
+
+function webContentsGuard(): void {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (event) => {
+      event.preventDefault()
+    })
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/i.test(url)) {
+        shell.openExternal(url).catch(() => undefined)
+      }
+      return { action: 'deny' }
+    })
+  })
+
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(
+      permission === 'clipboard-sanitized-write' || permission === 'clipboard-read' || permission === 'fullscreen'
+    )
+  })
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+    permission === 'clipboard-sanitized-write' || permission === 'clipboard-read' || permission === 'fullscreen'
+  )
+}
+
+app.whenReady().then(async () => {
+  app.setName(APP_NAME)
+  app.setAppUserModelId('com.warden.browser')
+
+  const stores = buildStores()
+  await stores.settings.load()
+  await stores.history.load()
+  await stores.bookmarks.load()
+
+  await createWindow(stores)
+
+  app.on('activate', async () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      await createWindow(stores)
+    }
+  })
+})
+
+app.on('before-quit', async (event) => {
+  if (quitting) return
+  event.preventDefault()
+  quitting = true
+  const context = (globalThis as { __wardenContext?: WardenContext }).__wardenContext
+  try {
+    context?.terminal.killAll()
+    await context?.mail.close()
+  } catch {
+    /* ignore */
+  }
+  app.quit()
+})
+
+app.on('window-all-closed', () => {
+  app.quit()
+})
