@@ -123,6 +123,18 @@ export class PrivacyService {
     return this.blockedByWc.get(id) ?? 0
   }
 
+  /**
+   * A window.open the browser refused. It belongs in the same count as a
+   * blocked request: from the visitor's side both are "something the page tried
+   * to load, and this browser said no".
+   */
+  noteBlockedPopup(id?: number): void {
+    this.stats.blockedTotal += 1
+    if (id !== undefined && id >= 0) {
+      this.blockedByWc.set(id, (this.blockedByWc.get(id) ?? 0) + 1)
+    }
+  }
+
   snapshot(): PrivacyStats {
     const topHosts = [...this.hostCounts.entries()]
       .sort((a, b) => b[1] - a[1])

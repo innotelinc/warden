@@ -440,9 +440,19 @@ export class TabManager {
       resolve({ matches: result.matches, active: result.activeMatchOrdinal })
     })
 
-    wc.setWindowOpenHandler(({ url }) => {
-      // Popups become app tabs, never OS windows with their own chrome.
-      if (/^https?:/i.test(url)) this.create(url, tab.burner)
+    wc.setWindowOpenHandler(({ url, disposition }) => {
+      // A target="_blank" link is a tab the visitor asked for. window.open() is
+      // not: it is how ads open a window the person never clicked, and the
+      // blank ones are worse — they open an about:blank tab that the script
+      // then tries to fill, which is why a popup used to appear and go nowhere.
+      const navigable = /^https?:/i.test(url)
+      const followedLink = disposition === 'foreground-tab' || disposition === 'background-tab'
+      if (navigable && followedLink) {
+        this.create(url, tab.burner)
+      } else {
+        this.privacy.noteBlockedPopup(wc.id)
+        update()
+      }
       return { action: 'deny' }
     })
 
@@ -513,20 +523,50 @@ export class TabManager {
         { type: 'separator' }
       ]
 
-      if (params.selectionText) {
-        template.push({ label: 'Copy', role: 'copy' })
+      // Editing roles act on whatever field has focus in the page. Without them
+      // a right click could only copy a selection, so nothing could be pasted
+      // into a form.
+      if (params.isEditable) {
+        template.push(
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'pasteAndMatchStyle' },
+          { role: 'delete' },
+          { role: 'selectAll' },
+          { type: 'separator' }
+        )
+      } else if (params.selectionText) {
+        template.push({ role: 'copy' }, { role: 'selectAll' }, { type: 'separator' })
       }
+
       if (params.linkURL) {
+        template.push({
+          label: 'Open link in new tab',
+          click: () => this.create(params.linkURL, tab.burner)
+        })
         template.push({
           label: 'Copy link address',
           click: () => clipboard.writeText(params.linkURL)
         })
-        template.push({
-          label: 'Scry this link',
-          click: () => this.hooks.onShortcut('scry', tab.id)
-        })
+        template.push({ type: 'separator' })
       }
-      template.push({ type: 'separator' })
+
+      if (params.mediaType === 'image' && params.srcURL) {
+        template.push({
+          label: 'Copy image',
+          click: () => wc.copyImageAt(params.x, params.y)
+        })
+        template.push({
+          label: 'Copy image address',
+          click: () => clipboard.writeText(params.srcURL)
+        })
+        template.push({ type: 'separator' })
+      }
+
       template.push({
         label: 'Scry this page',
         click: () => this.hooks.onShortcut('scry', tab.id)

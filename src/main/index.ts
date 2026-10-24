@@ -139,6 +139,7 @@ async function createWindow(stores: Stores): Promise<void> {
     title: 'WARDEN',
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#080a0d', symbolColor: '#8fa1b5', height: 40 },
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -149,7 +150,41 @@ async function createWindow(stores: Stores): Promise<void> {
     }
   })
 
-  Menu.setApplicationMenu(null)
+  // A menu bar is chrome a browser does not want, but the edit roles are what
+  // register Ctrl+C/V/X/A/Z at the application level: with the menu taken away
+  // the accelerators were gone too, so nothing could be copied or pasted in the
+  // address bar, a dialog or a page field on Windows. Install the roles, then
+  // keep the bar out of sight.
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          { role: 'forceReload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' }
+        ]
+      }
+    ])
+  )
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (isDev && rendererUrl) {
