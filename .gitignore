@@ -1,0 +1,18 @@
+node_modules/
+out/
+dist/
+release/
+.vite/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.local
+scry-output/
+
+# Intune packaging output (payload contains a full installer copy).
+deployment/intune/payload/
+deployment/intune/out/
+*.intunewin
+
+.tmp/

@@ -1,0 +1,36 @@
+import { DEFAULT_SETTINGS } from './defaults'
+import type { Settings } from './types'
+
+/** Coerce anything read from disk or the renderer into a valid Settings object. */
+export function sanitizeSettings(value: unknown): Settings {
+  const input = (value ?? {}) as Partial<Settings>
+  const merged: Settings = { ...DEFAULT_SETTINGS, ...input }
+  merged.cookieMode = input.cookieMode === 'first-party' ? 'first-party' : 'block'
+  merged.allowlist = Array.isArray(input.allowlist)
+    ? input.allowlist
+        .filter((host): host is string => typeof host === 'string' && host.trim().length > 0)
+        .map((host) => host.trim().toLowerCase())
+    : []
+  merged.customRules = typeof input.customRules === 'string' ? input.customRules.slice(0, 200_000) : ''
+  merged.terminalFontSize = Math.min(22, Math.max(10, Number(input.terminalFontSize) || 13))
+  merged.scryPort = Math.min(65535, Math.max(1024, Number(input.scryPort) || 9222))
+  // 0 keeps WARDEN's own debug endpoint closed; anything else is a usable port.
+  const debugPort = Number(input.debugPort)
+  merged.debugPort =
+    Number.isInteger(debugPort) && debugPort >= 1024 && debugPort <= 65535 ? debugPort : 0
+  merged.blockAds = Boolean(merged.blockAds)
+  merged.blockTrackers = Boolean(merged.blockTrackers)
+  merged.httpsOnly = Boolean(merged.httpsOnly)
+  merged.fingerprintHardening = Boolean(merged.fingerprintHardening)
+  merged.stripReferrer = Boolean(merged.stripReferrer)
+  merged.globalPrivacyControl = Boolean(merged.globalPrivacyControl)
+  merged.allowlist = [...new Set(merged.allowlist)].slice(0, 500)
+  if (typeof merged.homepage !== 'string' || !merged.homepage.trim()) {
+    merged.homepage = DEFAULT_SETTINGS.homepage
+  }
+  if (typeof merged.searchEngine !== 'string') merged.searchEngine = DEFAULT_SETTINGS.searchEngine
+  if (typeof merged.terminalShell !== 'string') merged.terminalShell = ''
+  if (typeof merged.scryOutputDir !== 'string' || !merged.scryOutputDir) merged.scryOutputDir = null
+  if (typeof merged.lastMailAccountId !== 'string') merged.lastMailAccountId = null
+  return merged
+}

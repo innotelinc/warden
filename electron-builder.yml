@@ -1,0 +1,67 @@
+appId: com.warden.browser
+productName: WARDEN
+copyright: Copyright © 2026 WARDEN
+
+directories:
+  output: release
+  buildResources: build
+
+# Ship the compiled app and its production dependencies. Sources, tests and the
+# harness stay out of the package.
+files:
+  - "!src/**"
+  - "!tests/**"
+  - "!scripts/**"
+  - "!build/**"
+  - "!release/**"
+  - "!electron.vite.config.ts"
+  - "!vitest.config.mts"
+  - "!tsconfig*.json"
+  - "!**/*.map"
+  - "!**/*.ts"
+  - "!**/tsconfig*.json"
+  - "!**/.github/**"
+
+asar: true
+# node-pty loads a native .node binary at runtime, so it cannot live inside the archive.
+asarUnpack:
+  - node_modules/node-pty/**
+
+# The prebuilt binaries were verified against Electron 45; rebuilding them
+# without a full MSVC toolchain would fail and is unnecessary.
+npmRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  icon: build/icon.ico
+  requestedExecutionLevel: asInvoker
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  fileAssociations: []
+
+nsis:
+  # Local hooks; adds InstallLocation to the Apps & Features key (see file).
+  include: build/installer.nsh
+  artifactName: "${productName}-Setup-${version}.${ext}"
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: WARDEN
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+
+portable:
+  artifactName: "${productName}-Portable-${version}.${ext}"
+  unpackDirName: WARDEN
+  requestExecutionLevel: user
