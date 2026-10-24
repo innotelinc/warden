@@ -70,14 +70,14 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function stripScripts(html: string): string {
+export function stripScripts(html: string): string {
   return html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<script\b[^>]*\/>/gi, '')
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
 }
 
-function stripInlineHandlers(html: string): string {
+export function stripInlineHandlers(html: string): string {
   return html
     .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
     .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
@@ -85,7 +85,7 @@ function stripInlineHandlers(html: string): string {
     .replace(/<base\b[^>]*>/gi, '')
 }
 
-function rewriteReferences(text: string, map: Map<string, string>): string {
+export function rewriteReferences(text: string, map: Map<string, string>): string {
   let output = text
   const entries = [...map.entries()].sort((a, b) => b[0].length - a[0].length)
   for (const [absolute, local] of entries) {
@@ -126,7 +126,7 @@ function rewriteCss(css: string, base: string, map: Map<string, string>): string
   return rewriteReferences(output, map)
 }
 
-function rewriteHtml(html: string, base: string, map: Map<string, string>): string {
+export function rewriteHtml(html: string, base: string, map: Map<string, string>): string {
   let output = html.replace(
     /\b(src|href|poster|data-src|action)\s*=\s*("([^"]*)"|'([^']*)')/gi,
     (match, attr: string, _quoted: string, double: string, single: string) => {
@@ -153,19 +153,26 @@ function rewriteHtml(html: string, base: string, map: Map<string, string>): stri
   return rewriteReferences(output, map)
 }
 
+export function buildAssetMap(capture: CaptureResult, includeScripts = false): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const resource of capture.resources) {
+    if (!resource.body || resource.kind === 'document') continue
+    if (!includeScripts && resource.kind === 'script') continue
+    map.set(
+      resource.url,
+      `assets/${resource.kind}/${shortHash(resource.url)}${extensionFor(resource.url, resource.mimeType)}`
+    )
+  }
+  return map
+}
+
 export function buildClonePlan(capture: CaptureResult, options: CloneOptions = {}): ClonePlan {
   const includeScripts = options.includeScripts ?? false
   const warnings: string[] = []
   const files: PlannedFile[] = []
-  const map = new Map<string, string>()
+  const map = buildAssetMap(capture, includeScripts)
   let bytes = 0
   let assetCount = 0
-
-  for (const resource of capture.resources) {
-    if (!resource.body || resource.kind === 'document') continue
-    if (!includeScripts && resource.kind === 'script') continue
-    map.set(resource.url, `assets/${resource.kind}/${shortHash(resource.url)}${extensionFor(resource.url, resource.mimeType)}`)
-  }
 
   for (const resource of capture.resources) {
     if (!resource.body || resource.kind === 'document') continue

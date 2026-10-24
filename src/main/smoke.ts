@@ -1,4 +1,7 @@
 import { app } from 'electron'
+import { existsSync } from 'node:fs'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import type { WardenContext } from './ipc'
 
 const emit = (payload: unknown): void => {
@@ -53,6 +56,25 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       tokens: report.designTokens.colors.length
     }
 
+    // Innovate end to end: the rebuilt page must not load the site's own scripts.
+    const rebuilt = await ctx.scry.innovate({ source: 'local', id: tabId })
+    const modernDir = rebuilt.modernPath ?? ''
+    const modernHtml = modernDir ? await fs.readFile(path.join(modernDir, 'index.html'), 'utf8') : ''
+    const scriptSources = [...modernHtml.matchAll(/<script[^>]*\ssrc="([^"]+)"/gi)].map((match) => match[1] ?? '')
+    result.innovate = {
+      modernDir: Boolean(modernDir),
+      files: ['index.html', 'theme.css', 'app.js', 'innovations.json'].filter((name) =>
+        existsSync(path.join(modernDir, name))
+      ),
+      scriptSources,
+      originalScripts: rebuilt.innovation?.scripts ?? 0,
+      droppedScripts: rebuilt.innovation?.droppedScripts ?? 0,
+      behaviors: rebuilt.innovation?.behaviors ?? 0,
+      rewrittenBehaviors: rebuilt.innovation?.rewrittenBehaviors ?? 0,
+      inlineHandlersLeft: /\son[a-z]+\s*=/i.test(modernHtml),
+      themeTokens: (modernHtml.match(/theme\.css/) ?? []).length > 0
+    }
+
     // Drive the real renderer: click every rail workspace and read the DOM back.
     result.ui = await ctx.win.webContents.executeJavaScript(
       `(async () => {
@@ -75,6 +97,56 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
         await wait(200);
         out.workspaceTitles = titles;
         out.hasDock = Boolean(document.querySelector('.dock'));
+
+        // Address bar: a single click selects the whole URL instead of parking a caret.
+        const addr = document.querySelector('.address input');
+        addr.blur();
+        addr.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        addr.focus();
+        addr.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        await wait(80);
+        out.addressSelection = {
+          value: addr.value,
+          all: addr.value.length > 0 && addr.selectionStart === 0 && addr.selectionEnd === addr.value.length
+        };
+
+        // Find bar: same button opens it and collapses it.
+        const findBtn = document.querySelector('.toolbar button[title^="Find in page"]');
+        findBtn.click();
+        await wait(260);
+        const bar = document.querySelector('.findbar');
+        out.findBar = {
+          present: Boolean(bar),
+          radius: bar ? getComputedStyle(bar).borderTopLeftRadius : null,
+          bottom: bar ? Math.round(bar.getBoundingClientRect().bottom) : null,
+          stripLimit: bar ? Math.round(bar.closest('.content').getBoundingClientRect().top) + 48 : null
+        };
+        findBtn.click();
+        await wait(260);
+        out.findClosed = !document.querySelector('.findbar');
+
+        // Scry: one button per mode, and the tab handed to it is already selected.
+        buttons[4]?.click();
+        await wait(260);
+        out.scryModes = Array.from(document.querySelectorAll('.scry-mode')).map((el) => ({
+          name: el.querySelector('b')?.textContent ?? '',
+          disabled: el.disabled
+        }));
+
+        // Policy: switching palette rewrites the live tokens.
+        buttons[buttons.length - 1]?.click();
+        await wait(260);
+        const cards = Array.from(document.querySelectorAll('.theme-card'));
+        out.themeCards = cards.length;
+        const before = getComputedStyle(document.documentElement).getPropertyValue('--mint').trim();
+        cards[1]?.click();
+        await wait(320);
+        const after = getComputedStyle(document.documentElement).getPropertyValue('--mint').trim();
+        out.theme = { name: cards[1]?.querySelector('b')?.textContent ?? '', before, after, changed: before !== after };
+        cards[0]?.click();
+        await wait(260);
+        buttons[0]?.click();
+        await wait(200);
         return out;
       })()`,
       true

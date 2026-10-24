@@ -6,7 +6,8 @@ import type { CloneResult, ScryProgress, ScryReport, ScryTarget, Settings } from
 import { DebuggerSession, connectRemoteTarget, listRemoteTargets, type ProtocolSession } from './cdp'
 import { capturePage, type CaptureResult } from './capture'
 import { buildReport } from './recon'
-import { buildClonePlan, buildScaffold, slugFor, writeJson, writePlan } from './clone'
+import { buildAssetMap, buildClonePlan, buildScaffold, slugFor, writeJson, writePlan } from './clone'
+import { buildInnovation, legacyScripts, stylesheetFiles } from './innovate'
 
 export interface ScryDeps {
   settings: () => Settings
@@ -147,8 +148,133 @@ export class ScryService {
     })
   }
 
+  /**
+   * Innovate: capture, clone, then rebuild the page as a modern, script-light
+   * site. The clone is kept so the original can still be compared side by side.
+   */
+  async innovate(
+    target: ScryTargetRef,
+    options: { label?: string } = {}
+  ): Promise<CloneResult> {
+    return this.run('innovate', target, options, async (capture, progress, blocked) => {
+      const report = buildReport(capture, blocked)
+      const stem = `${slugFor(capture.finalUrl)}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`
+      const root = path.join(this.deps.outputRoot(), stem)
+
+      progress('writing', 'cloning the original', capture.requests.length, 0)
+      const plan = buildClonePlan(capture, { includeScripts: true, label: options.label })
+      const clonePath = path.join(root, 'clone')
+      await writePlan(clonePath, plan)
+
+      progress('writing', 'rebuilding markup, styles and behaviour', capture.requests.length, plan.bytes)
+      const innovation = buildInnovation(capture, report, { label: options.label })
+      const modernPath = path.join(root, 'modern')
+      await writePlan(modernPath, { files: innovation.files, warnings: [], assetCount: 0, bytes: 0 })
+
+      // Everything the rebuilt page needs, minus scripts: those are either
+      // dropped or quarantined under modern/legacy for reference only.
+      const assets = plan.files.filter(
+        (file) => file.path.startsWith('assets/') && !file.path.startsWith('assets/script/')
+      )
+      await writePlan(modernPath, { files: assets, warnings: [], assetCount: 0, bytes: 0 })
+
+      const corrected = stylesheetFiles(capture, buildAssetMap(capture, false))
+      await writePlan(modernPath, { files: corrected, warnings: [], assetCount: 0, bytes: 0 })
+
+      const legacy = legacyScripts(capture, innovation.summary.scripts)
+      if (legacy.length) {
+        await writePlan(modernPath, { files: legacy, warnings: [], assetCount: 0, bytes: 0 })
+      }
+
+      progress('writing', 'generating React scaffold', capture.requests.length, plan.bytes)
+      const scaffoldPath = path.join(root, 'scaffold')
+      for (const file of buildScaffold(capture, report, plan, options.label ?? stem)) {
+        const targetPath = path.join(scaffoldPath, file.path)
+        await fs.mkdir(path.dirname(targetPath), { recursive: true })
+        await fs.writeFile(targetPath, file.content)
+      }
+
+      await writeJson(root, 'report.json', report)
+      await writeJson(root, 'capture.json', {
+        url: capture.finalUrl,
+        title: capture.title,
+        capturedAt: capture.capturedAt,
+        durationMs: capture.durationMs,
+        htmlBytes: capture.html.length,
+        resources: capture.resources.map((resource) => ({
+          url: resource.url,
+          kind: resource.kind,
+          status: resource.status,
+          size: resource.size,
+          headers: resource.headers
+        })),
+        requests: capture.requests,
+        cookies: capture.cookies,
+        warnings: plan.warnings
+      })
+
+      if (capture.screenshot) {
+        await fs.writeFile(path.join(root, 'screenshot.png'), Buffer.from(capture.screenshot, 'base64'))
+      }
+
+      await fs.writeFile(
+        path.join(root, 'README.md'),
+        [
+          `# Scry innovate — ${capture.title || capture.finalUrl}`,
+          '',
+          `Source: ${capture.finalUrl}`,
+          `Captured: ${new Date(capture.capturedAt).toISOString()}`,
+          '',
+          '## Contents',
+          '',
+          '- `modern/` — rebuilt site with modern markup, tokens and behaviour. Open `modern/index.html`.',
+          '- `clone/` — verbatim static copy, kept for side-by-side comparison.',
+          '- `scaffold/` — Vite + React project shaped around the captured blocks.',
+          '- `report.json` — technologies, security headers, third parties, trackers, endpoints.',
+          '',
+          '## Innovation pass',
+          '',
+          `- ${innovation.summary.scripts.length} script(s) analysed`,
+          `- ${innovation.summary.scripts.filter((s) => s.decision === 'dropped').length} dropped (${innovation.summary.droppedBytes} bytes)`,
+          `- ${innovation.summary.behaviors.filter((b) => b.rewritten).length} inline handler(s) rewritten to data attributes`,
+          '',
+          '## Warnings',
+          '',
+          ...(innovation.summary.warnings.length
+            ? innovation.summary.warnings.map((warning) => `- ${warning}`)
+            : ['- none'])
+        ].join('\n'),
+        'utf8'
+      )
+
+      progress('report', 'innovate complete', capture.requests.length, plan.bytes)
+      this.deps.onReport(report)
+
+      const rewrittenHandlers = innovation.summary.behaviors.filter((behavior) => behavior.rewritten).length
+      return {
+        outputDir: root,
+        capturePath: path.join(root, 'capture.json'),
+        clonePath,
+        scaffoldPath,
+        reportPath: path.join(root, 'report.json'),
+        pages: 1,
+        files: innovation.files.length + assets.length + legacy.length,
+        bytes: innovation.files.reduce((total, file) => total + Buffer.byteLength(file.content), 0),
+        modernPath,
+        innovation: {
+          scripts: innovation.summary.scripts.length,
+          droppedScripts: innovation.summary.scripts.filter((script) => script.decision === 'dropped').length,
+          behaviors: innovation.summary.behaviors.length,
+          rewrittenBehaviors: rewrittenHandlers,
+          features: innovation.summary.features,
+          warnings: innovation.summary.warnings
+        }
+      }
+    })
+  }
+
   private async run<T>(
-    mode: 'capture' | 'clone',
+    mode: 'capture' | 'clone' | 'innovate',
     target: ScryTargetRef,
     options: { label?: string; includeScripts?: boolean },
     finish: (
@@ -164,7 +290,7 @@ export class ScryService {
       this.deps.onProgress({ phase, message, requests, bytes })
     }
 
-    progress('queued', mode === 'clone' ? 'queued clone' : 'queued capture', 0, 0)
+    progress('queued', `queued ${mode}`, 0, 0)
 
     let session: ProtocolSession | null = null
     try {

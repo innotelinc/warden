@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS } from './defaults'
+import { DEFAULT_THEME, isThemeId } from './themes'
 import type { Settings } from './types'
 
 /** Coerce anything read from disk or the renderer into a valid Settings object. */
@@ -32,5 +33,6 @@ export function sanitizeSettings(value: unknown): Settings {
   if (typeof merged.terminalShell !== 'string') merged.terminalShell = ''
   if (typeof merged.scryOutputDir !== 'string' || !merged.scryOutputDir) merged.scryOutputDir = null
   if (typeof merged.lastMailAccountId !== 'string') merged.lastMailAccountId = null
+  merged.theme = isThemeId(input.theme) ? input.theme : DEFAULT_THEME
   return merged
 }

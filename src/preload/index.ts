@@ -93,6 +93,7 @@ const api: WardenApi = {
     listTargets: (port) => invoke('warden:scry:targets', port),
     capture: (target, options) => invoke('warden:scry:capture', target, options ?? {}),
     clone: (target, options) => invoke('warden:scry:clone', target, options ?? {}),
+    innovate: (target, options) => invoke('warden:scry:innovate', target, options ?? {}),
     reconLocalTab: (tabId) => invoke('warden:scry:reconLocal', tabId),
     cloneLocalTab: (tabId, options) => invoke('warden:scry:cloneLocal', tabId, options ?? {}),
     cancel: () => invoke('warden:scry:cancel'),

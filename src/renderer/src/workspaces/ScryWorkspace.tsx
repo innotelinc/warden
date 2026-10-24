@@ -5,7 +5,37 @@ import { formatBytes, formatCount, useWarden } from '../state'
 
 type TargetRef = { source: 'remote' | 'local'; id: string }
 
-export function ScryWorkspace() {
+const MODES = [
+  {
+    id: 'recon' as const,
+    name: 'Recon',
+    verb: 'capture & inspect',
+    blurb: 'Reload with the recorder armed. Report technologies, headers, third parties, trackers and endpoints.',
+    icon: IconCrosshair
+  },
+  {
+    id: 'clone' as const,
+    name: 'Clone',
+    verb: 'clone the whole site',
+    blurb: 'Write a standalone static copy of every captured asset, plus a React scaffold of the page blocks.',
+    icon: IconFolder
+  },
+  {
+    id: 'innovate' as const,
+    name: 'Innovate',
+    verb: 'clone & rebuild',
+    blurb: 'Clone, then rebuild it: scripts analysed and dropped or regenerated, handlers rewritten, modern design system.',
+    icon: IconSpark
+  }
+]
+
+export function ScryWorkspace({
+  focus,
+  onFocusHandled
+}: {
+  focus?: TargetRef | null
+  onFocusHandled?: () => void
+}) {
   const { state, notify } = useWarden()
   const [port, setPort] = useState(String(state?.settings.scryPort ?? 9222))
   const [selected, setSelected] = useState<TargetRef | null>(null)
@@ -40,6 +70,13 @@ export function ScryWorkspace() {
     }
   }, [localTargets, selected])
 
+  // A tab handed over from the toolbar lands here already selected.
+  useEffect(() => {
+    if (!focus) return
+    setSelected(focus)
+    onFocusHandled?.()
+  }, [focus, onFocusHandled])
+
   const scan = (): void => {
     void window.warden.scry
       .listTargets(Number(port) || 9222)
@@ -63,6 +100,14 @@ export function ScryWorkspace() {
     if (!selected) return
     void window.warden.scry.clone(selected, { includeScripts }).then(
       (next) => notify(`Clone written to ${next.outputDir}`, 'ok'),
+      (error: Error) => notify(error.message, 'err')
+    )
+  }
+
+  const innovate = (): void => {
+    if (!selected) return
+    void window.warden.scry.innovate(selected).then(
+      (next) => notify(`Rebuilt into ${next.modernPath ?? next.outputDir}`, 'ok'),
       (error: Error) => notify(error.message, 'err')
     )
   }
@@ -154,19 +199,38 @@ export function ScryWorkspace() {
         </aside>
 
         <div className="ws-col" style={{ flex: 1 }}>
-          <div className="row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--line-soft)', gap: 8 }}>
-            <button className="btn primary" disabled={!selected || running} onClick={capture}>
-              <IconCrosshair size={12} /> capture & recon
-            </button>
-            <button className="btn" disabled={!selected || running} onClick={clone}>
-              <IconSpark size={12} /> clone + scaffold
-            </button>
+          <div className="scry-modes">
+            {MODES.map((mode) => {
+              const ModeIcon = mode.icon
+              return (
+                <button
+                  key={mode.id}
+                  className={`scry-mode ${mode.id}`}
+                  disabled={!selected || running}
+                  onClick={() => (mode.id === 'recon' ? capture() : mode.id === 'clone' ? clone() : innovate())}
+                >
+                  <ModeIcon size={16} />
+                  <b>{mode.name}</b>
+                  <span>{mode.blurb}</span>
+                  <em>{mode.verb}</em>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="row" style={{ padding: '8px 16px', borderBottom: '1px solid var(--line-soft)', gap: 8 }}>
+            <span className="tiny faint">
+              {selected
+                ? `target: ${selected.source === 'local' ? 'WARDEN tab' : 'Chrome'} · ${selected.id.slice(0, 16)}`
+                : 'no target selected'}
+            </span>
+            <span style={{ flex: 1 }} />
             <button
               className={`btn sm ${includeScripts ? 'danger' : ''}`}
               onClick={() => setIncludeScripts(!includeScripts)}
-              title="Scripts are stripped by default; including them produces a runnable but unsafe copy"
+              title="Applies to Clone. Innovate always analyses and rebuilds scripts instead of copying them."
             >
-              scripts {includeScripts ? 'included' : 'stripped'}
+              clone scripts {includeScripts ? 'included' : 'stripped'}
             </button>
             <button
               className="btn sm"
@@ -176,7 +240,6 @@ export function ScryWorkspace() {
             >
               rea analyze
             </button>
-            <span style={{ flex: 1 }} />
             {running ? (
               <button className="btn sm danger" onClick={() => void window.warden.scry.cancel()}>
                 cancel
@@ -208,19 +271,30 @@ export function ScryWorkspace() {
 
           {result ? (
             <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-soft)' }} className="row wrap">
-              <span className="tag mint">clone ready</span>
+              <span className="tag mint">{result.modernPath ? 'rebuild ready' : 'clone ready'}</span>
               <span className="mono tiny selectable" style={{ maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {result.outputDir}
               </span>
               <button className="btn sm" onClick={() => void window.warden.scry.openOutput(result.outputDir)}>
                 <IconFolder size={11} /> open folder
               </button>
+              {result.modernPath ? (
+                <button className="btn sm primary" onClick={() => void window.warden.scry.openOutput(result.modernPath as string)}>
+                  <IconSpark size={11} /> modern build
+                </button>
+              ) : null}
               <button className="btn sm" onClick={() => void window.warden.scry.openOutput(result.scaffoldPath)}>
                 scaffold
               </button>
               <button className="btn sm" onClick={() => void window.warden.scry.openOutput(result.clonePath)}>
                 static clone
               </button>
+              {result.innovation ? (
+                <span className="tiny faint" style={{ width: '100%' }}>
+                  {result.innovation.scripts} scripts analysed · {result.innovation.droppedScripts} dropped ·{' '}
+                  {result.innovation.rewrittenBehaviors}/{result.innovation.behaviors} handlers rewritten
+                </span>
+              ) : null}
             </div>
           ) : null}
 

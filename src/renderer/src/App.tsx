@@ -21,6 +21,7 @@ import {
   SLOT_FOOT,
   SLOT_GAP
 } from './layout'
+import { applyTheme } from '@shared/themes'
 import { WardenProvider, useAnimatedNumber, useElementRect, useWarden } from './state'
 import { TerminalPane } from './workspaces/TerminalPane'
 import { MailWorkspace } from './workspaces/MailWorkspace'
@@ -39,6 +40,8 @@ function Shell() {
   const [dockWidth, setDockWidth] = useState(DOCK_DEFAULT)
   const [drawerHeight, setDrawerHeight] = useState(DRAWER_DEFAULT)
   const [hover, setHover] = useState('')
+  // A tab handed to Scry from the rail button. Scry reads it once and clears it.
+  const [scryFocus, setScryFocus] = useState<{ source: 'local' | 'remote'; id: string } | null>(null)
 
   const [contentRef, rect] = useElementRect<HTMLDivElement>()
 
@@ -62,6 +65,12 @@ function Shell() {
   useEffect(() => {
     void window.warden.setWorkspace(workspace)
   }, [workspace])
+
+  // The palette lives in one shared list; applying it is a handful of custom
+  // properties on <html>, so switching theme never reloads the app.
+  useEffect(() => {
+    applyTheme(state?.settings.theme, document.documentElement)
+  }, [state?.settings.theme])
 
   useEffect(() => {
     if (slots.length) setDockOpen(true)
@@ -357,6 +366,12 @@ function Shell() {
                 onToggleDock={() => setDockOpen((current) => !current)}
                 onToggleTerminal={() => void window.warden.terminal.setDrawer(!state.drawerOpen)}
                 onShield={() => setShieldOpen((current) => !current)}
+                onSendToScry={() => {
+                  if (!activeTab) return
+                  setScryFocus({ source: 'local', id: activeTab.id })
+                  setWorkspace('scry')
+                  notify(`Sent ${activeTab.title || activeTab.url} to Scry`)
+                }}
               />
               <TabStrip tabs={state.tabs} activeId={state.activeTabId} />
             </>
@@ -433,7 +448,7 @@ function Shell() {
             ) : workspace === 'relay' ? (
               <MailWorkspace />
             ) : workspace === 'scry' ? (
-              <ScryWorkspace />
+              <ScryWorkspace focus={scryFocus} onFocusHandled={() => setScryFocus(null)} />
             ) : workspace === 'genie' ? (
               <GenieWorkspace />
             ) : (

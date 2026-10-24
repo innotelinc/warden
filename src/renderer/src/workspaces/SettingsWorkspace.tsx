@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { SEARCH_ENGINES } from '@shared/defaults'
+import { THEMES, themeSwatch } from '@shared/themes'
 import type { Settings } from '@shared/types'
-import { IconGear, IconShield, IconTrash } from '../icons'
+import { IconGear, IconShield, IconSpark, IconTrash } from '../icons'
 import { formatCount, useWarden } from '../state'
 
 function Toggle({
@@ -57,6 +58,38 @@ export function SettingsWorkspace() {
 
       <div className="scroll-y" style={{ padding: 18 }}>
         <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', alignItems: 'start' }}>
+          <section className="panel panel-pad" style={{ gridColumn: '1 / -1' }}>
+            <div className="panel-title">
+              <IconSpark size={11} /> Theme
+            </div>
+            <div className="theme-grid">
+              {THEMES.map((theme) => {
+                const active = settings.theme === theme.id
+                return (
+                  <button
+                    key={theme.id}
+                    className={`theme-card ${active ? 'on' : ''}`}
+                    onClick={() => update({ theme: theme.id })}
+                    title={theme.blurb}
+                  >
+                    <span className="swatches">
+                      {themeSwatch(theme).map((color, index) => (
+                        <i key={index} style={{ background: color }} />
+                      ))}
+                    </span>
+                    <b>{theme.name}</b>
+                    <span>{theme.blurb}</span>
+                    {active ? <em>active</em> : null}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="faint tiny" style={{ marginTop: 10 }}>
+              Palettes are applied live to the chrome only — page content is never restyled, so nothing a site renders can
+              be mistaken for WARDEN's own interface.
+            </div>
+          </section>
+
           <section className="panel panel-pad">
             <div className="panel-title">
               <IconShield size={11} /> Cookies & tracking

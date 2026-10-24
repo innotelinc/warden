@@ -299,6 +299,21 @@ export function registerIpc(warden: WardenContext): void {
     }
   )
 
+  handle(
+    'warden:scry:innovate',
+    async (target: { source: 'remote' | 'local'; id: string }, options?: { label?: string }) => {
+      try {
+        const result = await context().scry.innovate(target, options ?? {})
+        context().setScry({ result, report: context().snapshot().scry.report })
+        return result
+      } catch (error) {
+        const message = (error as Error).message
+        context().setScry({ error: message })
+        throw new Error(message)
+      }
+    }
+  )
+
   handle('warden:scry:reconLocal', async (tabId: string) => {
     const report = await context().scry.capture({ source: 'local', id: tabId })
     context().setScry({ report })

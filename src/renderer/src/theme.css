@@ -1680,3 +1680,134 @@ code.swatchline i {
 .tiny { font-size: 10px; }
 .nowrap { white-space: nowrap; }
 .selectable { user-select: text; }
+
+/* ------------------------------------------------------------ theme chooser */
+.theme-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+
+.theme-card {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.theme-card:hover {
+  border-color: var(--line-bright);
+}
+
+.theme-card.on {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mint) 35%, transparent) inset;
+}
+
+.theme-card b {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.theme-card span:not(.swatches) {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.theme-card em {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font: 600 9px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mint);
+}
+
+.theme-card .swatches {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.theme-card .swatches i {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* ------------------------------------------------------------- scry modes */
+.scry-modes {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.scry-mode {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  padding: 12px 13px 26px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-dim);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.scry-mode svg { color: var(--mint); }
+
+.scry-mode b {
+  font-size: 13px;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+
+.scry-mode span {
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.scry-mode em {
+  position: absolute;
+  bottom: 9px;
+  left: 13px;
+  font: 600 9px/1 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--mint);
+  opacity: 0.85;
+}
+
+.scry-mode:hover:not(:disabled) {
+  border-color: var(--line-bright);
+  transform: translateY(-1px);
+}
+
+.scry-mode:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.scry-mode.innovate {
+  border-color: color-mix(in srgb, var(--violet) 40%, var(--line));
+}
+
+.scry-mode.innovate svg,
+.scry-mode.innovate em { color: var(--violet); }

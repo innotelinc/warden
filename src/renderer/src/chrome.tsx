@@ -87,6 +87,7 @@ export function Toolbar({
   onToggleDock,
   onToggleTerminal,
   onShield,
+  onSendToScry,
   dockOpen,
   drawerOpen,
   busy
@@ -97,6 +98,7 @@ export function Toolbar({
   onToggleDock: () => void
   onToggleTerminal: () => void
   onShield: () => void
+  onSendToScry: () => void
   dockOpen: boolean
   drawerOpen: boolean
   busy: boolean
@@ -105,6 +107,8 @@ export function Toolbar({
   const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const focused = useRef(false)
+  // First click on an unfocused address bar selects the whole URL, like Chrome.
+  const selectOnRelease = useRef(false)
 
   useEffect(() => {
     if (!focused.current) setDraft(tab?.url ?? '')
@@ -172,8 +176,16 @@ export function Toolbar({
           value={draft}
           spellCheck={false}
           placeholder="Search DuckDuckGo or enter a target"
+          onMouseDown={() => {
+            selectOnRelease.current = document.activeElement !== inputRef.current
+          }}
           onFocus={() => {
             focused.current = true
+          }}
+          onMouseUp={() => {
+            if (!selectOnRelease.current) return
+            selectOnRelease.current = false
+            inputRef.current?.select()
           }}
           onBlur={() => {
             focused.current = false
@@ -210,7 +222,20 @@ export function Toolbar({
         <b>{tab ? formatCount(tab.blocked) : '0'}</b>
       </button>
 
-      <button className={`icon-btn ${dockOpen ? 'on' : ''}`} onClick={onToggleDock} title="Splay video dock (Ctrl+J)">
+      <button
+        className="icon-btn scry-send"
+        disabled={!tab}
+        onClick={onSendToScry}
+        title="Send this tab to Scry — recon, clone or innovate (Ctrl+Shift+S)"
+      >
+        <IconCrosshair size={15} />
+      </button>
+
+      <button
+        className={`icon-btn ${dockOpen ? 'on' : ''}`}
+        onClick={onToggleDock}
+        title="Splay video dock (Ctrl+J)"
+      >
         <IconPanelRight />
       </button>
       <button className={`icon-btn ${drawerOpen ? 'on' : ''}`} onClick={onToggleTerminal} title="Trench terminal (Ctrl+`)">
