@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lastMailAccountId: null,
   scryPort: 9222,
   scryOutputDir: null,
+  theme: 'ops',
   debugPort: 0
 }
 

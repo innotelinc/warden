@@ -65,6 +65,8 @@ export interface Settings {
   lastMailAccountId: string | null
   scryPort: number
   scryOutputDir: string | null
+  /** Admin palette id from the shared theme list. */
+  theme: string
   /**
    * Expose WARDEN's own CDP endpoint on loopback so external tooling can
    * inspect its tabs. 0 = off. Applied at startup, so changing it needs a
@@ -272,6 +274,15 @@ export interface ScryProgress {
   error?: string
 }
 
+export interface InnovationReport {
+  scripts: number
+  droppedScripts: number
+  behaviors: number
+  rewrittenBehaviors: number
+  features: string[]
+  warnings: string[]
+}
+
 export interface CloneResult {
   outputDir: string
   capturePath: string
@@ -281,6 +292,9 @@ export interface CloneResult {
   pages: number
   files: number
   bytes: number
+  /** Innovate output, present only for the innovate mode. */
+  modernPath?: string | null
+  innovation?: InnovationReport | null
 }
 
 export interface TerminalInfo {
@@ -455,6 +469,7 @@ export interface WardenApi {
     listTargets(port?: number): Promise<ScryTarget[]>
     capture(target: { source: 'remote' | 'local'; id: string }, options?: { label?: string }): Promise<ScryReport>
     clone(target: { source: 'remote' | 'local'; id: string }, options?: { label?: string; includeScripts?: boolean }): Promise<CloneResult>
+    innovate(target: { source: 'remote' | 'local'; id: string }, options?: { label?: string }): Promise<CloneResult>
     reconLocalTab(tabId: string): Promise<ScryReport>
     cloneLocalTab(tabId: string, options?: { includeScripts?: boolean }): Promise<CloneResult>
     cancel(): Promise<void>

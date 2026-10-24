@@ -126,6 +126,25 @@ const verify = (report) => {
       (report.ui?.workspaceTitles ?? []).map((title) => title.toLowerCase()).includes(name)
     ),
     'ui has no runtime errors': Array.isArray(report.ui?.errors) && report.ui.errors.length === 0,
+    'innovate wrote a modern build':
+      report.innovate?.modernDir === true &&
+      report.innovate?.files?.length === 4 &&
+      report.innovate?.themeTokens === true,
+    'innovate loads no original scripts':
+      Array.isArray(report.innovate?.scriptSources) &&
+      report.innovate.scriptSources.every((src) => src.startsWith('./')) &&
+      report.innovate?.inlineHandlersLeft === false,
+    'address bar selects the whole URL on click': report.ui?.addressSelection?.all === true,
+    'find bar opens fully inside its strip':
+      report.ui?.findBar?.present === true &&
+      report.ui?.findBar?.bottom <= report.ui?.findBar?.stripLimit &&
+      parseFloat(report.ui?.findBar?.radius ?? '0') > 0,
+    'find button collapses the bar again': report.ui?.findClosed === true,
+    'scry offers recon, clone and innovate':
+      JSON.stringify((report.ui?.scryModes ?? []).map((mode) => mode.name)) ===
+      JSON.stringify(['Recon', 'Clone', 'Innovate']),
+    'theme chooser lists palettes and applies one':
+      (report.ui?.themeCards ?? 0) >= 2 && report.ui?.theme?.changed === true,
     // A page can load and run script while its view is 0x0 and invisible.
     'tab surface has real geometry': (report.view?.bounds?.width ?? 0) > 200 &&
       (report.view?.bounds?.height ?? 0) > 200,
