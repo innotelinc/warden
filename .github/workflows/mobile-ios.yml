@@ -65,7 +65,7 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" \
             -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerPath "$ISSUER_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             archive
 
