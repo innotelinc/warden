@@ -125,6 +125,15 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
         await wait(260);
         out.findClosed = !document.querySelector('.findbar');
 
+        // Bastion has to expose the compatibility escape hatch for this site.
+        document.querySelector('.shield-pill')?.click();
+        await wait(320);
+        out.bastionButtons = Array.from(document.querySelectorAll('.dock .btn')).map((el) =>
+          (el.textContent ?? '').trim()
+        );
+        document.querySelector('.dock .chip')?.click();
+        await wait(200);
+
         // The toolbar button must carry the current tab into Scry by itself.
         buttons[0]?.click();
         await wait(200);
@@ -193,6 +202,42 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
     // The tab surface must actually be on screen, not just addressable by IPC.
     result.view = ctx.tabs.viewState(tabId)
 
+    // Compatibility mode: the same page with its host exempted has to behave
+    // like a plain browser — no injected shims, cookies written and kept, and
+    // its tracker requests left alone.
+    const compatHost = new URL(url).hostname
+    const originalSettings = ctx.privacy.getSettings()
+    ctx.privacy.applySettings({ ...originalSettings, compatibility: [compatHost] })
+    const compatTab = ctx.tabs.create(url)
+    const compatWc = ctx.tabs.getWebContents(compatTab)
+    if (compatWc) {
+      await waitForLoad(compatWc)
+      const blockedAtStart = ctx.privacy.snapshot().blockedTotal
+      await compatWc.executeJavaScript(
+        `(() => {
+          const probe = new Image();
+          probe.src = 'https://www.google-analytics.com/collect?v=compat&t=' + Date.now();
+          document.body.appendChild(probe);
+          return true;
+        })()`,
+        true
+      )
+      await new Promise((resolve) => setTimeout(resolve, 1600))
+      result.compat = {
+        site: compatHost,
+        hardened: await compatWc.executeJavaScript('Boolean(window.__wardenHardened)', true),
+        cores: await compatWc.executeJavaScript('navigator.hardwareConcurrency', true),
+        cookie: await compatWc.executeJavaScript(
+          "(() => { document.cookie = 'compat_probe=1; path=/'; return document.cookie })()",
+          true
+        ),
+        stored: (await ctx.privacy.browsingSession.cookies.get({ domain: compatHost })).length,
+        trackerBlocked: ctx.privacy.snapshot().blockedTotal - blockedAtStart
+      }
+    }
+    ctx.tabs.close(compatTab)
+    ctx.privacy.applySettings(originalSettings)
+
     const purged = await ctx.privacy.wipeCookies()
     result.purged = purged
     result.cookieCountAfter = (await ctx.privacy.browsingSession.cookies.get({})).length
@@ -205,6 +250,7 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       Number(result.cookieCount) === 0 &&
       Number(result.cookieCountAfter) === 0 &&
       String(result.heading).includes('smoke') &&
+      Number((result.compat as { trackerBlocked?: number } | undefined)?.trackerBlocked) === 0 &&
       report.requests > 0
   } catch (error) {
     result.error = (error as Error).stack ?? (error as Error).message

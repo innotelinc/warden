@@ -140,6 +140,8 @@ const verify = (report) => {
       report.ui?.findBar?.bottom <= report.ui?.findBar?.stripLimit &&
       parseFloat(report.ui?.findBar?.radius ?? '0') > 0,
     'find button collapses the bar again': report.ui?.findClosed === true,
+    'bastion offers compatibility mode for the current site':
+      (report.ui?.bastionButtons ?? []).some((label) => /compatibility mode/i.test(label)),
     'send to scry carries the tab into scry':
       report.ui?.sendButton === true &&
       report.ui?.sendToScry?.workspace === 'Scry' &&
@@ -156,6 +158,13 @@ const verify = (report) => {
     'tab surface attached and visible': report.view?.attached === true && report.view?.visible === true,
     'ui terminal drawer sized': (report.ui?.terminalHeight ?? 0) > 150 && report.ui?.drawerHead === true,
     'terminal started': Boolean(report.terminal?.backend),
+    // Compatibility mode is the escape hatch for challenge pages, so it has to
+    // be genuinely inert in the same run that proves the default is not.
+    'compatibility skips page shims':
+      report.compat?.hardened === false && report.compat?.cores !== 4,
+    'compatibility lets the site write cookies':
+      String(report.compat?.cookie ?? '').includes('compat_probe') && (report.compat?.stored ?? 0) >= 1,
+    'compatibility does not filter requests': report.compat?.trackerBlocked === 0,
     'stats counted blocks': (report.stats?.blockedTotal ?? 0) > 0
   }
   console.log('\n--- WARDEN smoke checks ---')

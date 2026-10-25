@@ -35,6 +35,7 @@ export function SettingsWorkspace() {
   const { state, notify } = useWarden()
   const settings = state?.settings
   const [allowInput, setAllowInput] = useState('')
+  const [compatInput, setCompatInput] = useState('')
   const [rules, setRules] = useState<string | null>(null)
   const [homepage, setHomepage] = useState<string | null>(null)
   const [shell, setShell] = useState<string | null>(null)
@@ -217,6 +218,59 @@ export function SettingsWorkspace() {
                 <span className="faint small">No site may store cookies. That is the default.</span>
               )}
             </div>
+
+            <div className="panel-title" style={{ marginTop: 18 }}>Compatibility mode</div>
+            <div className="row" style={{ marginBottom: 10 }}>
+              <input
+                className="input"
+                style={{ flex: 1 }}
+                placeholder="challenge.example.com"
+                value={compatInput}
+                onChange={(event) => setCompatInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  const host = compatInput.trim().toLowerCase()
+                  if (!host) return
+                  void window.warden.privacy.compatibility(host, true)
+                  setCompatInput('')
+                }}
+              />
+              <button
+                className="btn sm"
+                onClick={() => {
+                  const host = compatInput.trim().toLowerCase()
+                  if (!host) return
+                  void window.warden.privacy.compatibility(host, true)
+                  setCompatInput('')
+                }}
+              >
+                exempt
+              </button>
+            </div>
+            <div className="row wrap" style={{ minHeight: 26 }}>
+              {settings.compatibility.length ? (
+                settings.compatibility.map((host) => (
+                  <button
+                    key={host}
+                    className="tag amber"
+                    onClick={() => void window.warden.privacy.compatibility(host, false)}
+                    title="Return this site to the full privacy stack"
+                  >
+                    {host} ✕
+                  </button>
+                ))
+              ) : (
+                <span className="faint small">
+                  No exemptions. Every site gets filtering, header rewriting and cookie blocking.
+                </span>
+              )}
+            </div>
+            <p className="faint small" style={{ marginTop: 8 }}>
+              A compatible site is loaded as if WARDEN were a plain browser: no ad or
+              tracker filtering, no Referer trimming, no cookie stripping, no injected
+              fingerprint shims, and its cookies are kept rather than purged. Use it for
+              challenge pages, banking portals and SSO — never as a default.
+            </p>
 
             <div className="panel-title" style={{ marginTop: 18 }}>Search & start</div>
             <div className="grid-2">

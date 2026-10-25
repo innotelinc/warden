@@ -19,6 +19,7 @@ import type {
 import type { JsonStore } from './store/json-store'
 import type { TabManager } from './browser/tabs'
 import { resolveInput } from './browser/tabs'
+import { hostMatches, hostOfUrl } from '@shared/urls'
 import type { PrivacyService } from './privacy/privacy-service'
 import type { MediaDock } from './media/media-dock'
 import type { TerminalService } from './terminal/terminal-service'
@@ -174,6 +175,31 @@ export function registerIpc(warden: WardenContext): void {
     context().privacy.applySettings(next)
     if (!allowed) await context().privacy.wipeCookies()
     context().sendState()
+  })
+
+  /**
+   * Per-site compatibility mode.
+   *
+   * Turning it on stops filtering, header rewriting and cookie stripping for
+   * that host and reloads every tab on it, because the page preload decides at
+   * document start whether to inject the hardening shims.
+   */
+  handle('warden:privacy:compatibility', (host: string, on: boolean) => {
+    const normalized = host.trim().toLowerCase()
+    const current = context().privacy.getSettings()
+    if (!normalized) return current
+    const next = context().stores.settings.update((settings) => {
+      const set = new Set(settings.compatibility)
+      if (on) set.add(normalized)
+      else set.delete(normalized)
+      return { ...settings, compatibility: [...set].slice(0, 100) }
+    })
+    context().privacy.applySettings(next)
+    for (const tab of context().tabs.list()) {
+      if (hostMatches(hostOfUrl(tab.url), [normalized])) context().tabs.reload(tab.id)
+    }
+    context().sendState()
+    return next
   })
 
   handle('warden:privacy:clearCookies', () => context().privacy.wipeCookies())
@@ -417,6 +443,13 @@ export function registerIpc(warden: WardenContext): void {
       opened: false,
       reason: 'WARDEN does not hand pages to another browser. Open it in a burner tab instead.'
     }
+  })
+
+  // The content preload asks this before any page script runs, so the answer
+  // has to be synchronous: a reload after the operator flips the toggle must
+  // land on a document that knows the site is compatible.
+  ipcMain.on('warden:compat:sync', (event, host: unknown) => {
+    event.returnValue = context().privacy.isCompatible(typeof host === 'string' && host ? host : null)
   })
 
   ipcMain.on('warden:window:minimize', () => context().win.minimize())

@@ -36,6 +36,24 @@ Also enforced: every permission request is denied (geolocation, notifications, m
 
 Toolbar shield → **Allow cookies for this site** (or Policy → allowlist). The allowance is in-memory for the session and never written to a cookie database. Revoking it purges that site's cookies immediately.
 
+### Compatibility mode (per site)
+
+Some sites will not load through a privacy stack at all: Cloudflare challenge pages, bank portals, SSO. For those, the shield panel has **Reload in compatibility mode**, and Policy carries the same list for hosts an admin wants to seed before anyone visits them.
+
+A compatible host is loaded as if WARDEN were a plain browser:
+
+| Layer | Default | Compatibility |
+| --- | --- | --- |
+| Ad / tracker filtering | on | off, including third-party scripts |
+| HTTPS-only upgrade | on | still on (top-level only, never breaks a page) |
+| `Cookie`, `Referer` rewriting, `DNT` / `Sec-GPC`, client-hint removal | on | off — headers go as the page built them |
+| `Set-Cookie` stripping and the cookie-store guard | on | off — the site's cookies are kept, and are not purged by *Purge all cookies* |
+| Page preload: fingerprint shims and the `document.cookie` lock | on | off — nothing is injected into the page |
+
+Matching is on the host and its subdomains (`neowin.net` covers `www.neowin.net`), stored in `settings.json` alongside the allowlist, and capped at 100 entries. Toggling reloads every tab already on that host, because the preload asks the main process at document start rather than reading a value fixed when the tab was created. Revoking the exemption returns the site to the full stack on the next load; it does not retroactively undo cookies the site already set, so purge them if that matters.
+
+**Honest limit:** compatibility mode removes *WARDEN's* obstacles, not Cloudflare's. A managed challenge that refuses Electron itself still refuses it with every layer off — verified against `neowin.net`, which reaches "Verification successful" and is then handed another 403 with no `cf_clearance` cookie. Blaming the privacy stack for that would be wrong; the browser engine is the variable, and stock Chrome is the only workaround for those specific sites.
+
 ---
 
 ## Running it
@@ -53,7 +71,7 @@ Requires Node 20+ (verified on 22.23.3). `node-pty` ships prebuilds for `win32-x
 
 ```bash
 npm run typecheck     # main, preload and renderer projects
-npm test              # 67 unit tests over the privacy engine, clone writer, recon, sanitizers
+npm test              # unit tests over the privacy engine, clone writer, recon, sanitizers
 npm run build
 npm run smoke         # boots the real app, drives the UI, asserts privacy behaviour
 npm run verify:remote # headless Chrome + CDP capture + clone + REA CLI probe

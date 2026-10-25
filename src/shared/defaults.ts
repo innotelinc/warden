@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imagesEnabled: true,
   webrtcLeakProtection: true,
   allowlist: [],
+  compatibility: [],
   customRules: '',
   searchEngine: 'duckduckgo',
   homepage: 'warden://newtab',
