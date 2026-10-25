@@ -125,6 +125,19 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
         await wait(260);
         out.findClosed = !document.querySelector('.findbar');
 
+        // The toolbar button must carry the current tab into Scry by itself.
+        buttons[0]?.click();
+        await wait(200);
+        const send = document.querySelector('.toolbar .scry-send');
+        out.sendButton = Boolean(send);
+        send?.click();
+        await wait(420);
+        out.sendToScry = {
+          workspace: (document.querySelector('.ws-head h1')?.textContent ?? '').trim(),
+          modesArmed: Array.from(document.querySelectorAll('.scry-mode')).every((el) => !el.disabled),
+          target: (document.querySelector('.scry-target.active b')?.textContent ?? '').trim()
+        };
+
         // Scry: one button per mode, and the tab handed to it is already selected.
         buttons[4]?.click();
         await wait(260);
