@@ -421,6 +421,8 @@ export interface AppState {
     targets: ScryTarget[]
     error: string | null
   }
+  /** Drives the restore/maximize glyph, and mirrors what Windows actually did. */
+  maximized: boolean
   downloads: DownloadItem[]
   history: HistoryEntry[]
   bookmarks: Bookmark[]

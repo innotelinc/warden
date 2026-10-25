@@ -86,6 +86,21 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
         out.hasToolbar = Boolean(document.querySelector('.toolbar'));
         out.hasStatus = Boolean(document.querySelector('.statusbar'));
         out.addressBar = Boolean(document.querySelector('.address input'));
+        out.windowControls = {
+          count: document.querySelectorAll('.win-controls .win-btn').length,
+          labels: [...document.querySelectorAll('.win-controls .win-btn')].map((b) =>
+            b.getAttribute('aria-label')
+          ),
+          hoverStyled: [...document.styleSheets].some((sheet) => {
+            try {
+              return [...sheet.cssRules].some(
+                (rule) => rule.selectorText && /\.win-btn(\.close)?:hover/.test(rule.selectorText)
+              )
+            } catch {
+              return false
+            }
+          })
+        };
         out.tabCount = document.querySelectorAll('.tab').length;
         const buttons = Array.from(document.querySelectorAll('.rail-btn'));
         const titles = [];
@@ -377,6 +392,7 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       (result.lock as { stillLocked?: boolean })?.stillLocked === true &&
       (result.lock as { cleared?: boolean })?.cleared === true &&
       result.privateTab === true &&
+      (result.ui as { windowControls?: { count?: number } })?.windowControls?.count === 3 &&
       Number((result.sensors as { video?: number } | undefined)?.video) >= 1 &&
       (result.sensors as { state?: { camera?: string } } | undefined)?.state?.camera === 'pixelate' &&
       report.requests > 0
