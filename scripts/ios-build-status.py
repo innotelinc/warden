@@ -351,8 +351,7 @@ def newest_version(bearer: str, app: str) -> dict:
         bearer,
         {
             "filter[platform]": "IOS",
-            "sort": "-createdDate",
-            "limit": "1",
+            "limit": "50",
             "include": "build,appStoreVersionLocalizations,appStoreReviewDetail",
         },
     )
@@ -362,7 +361,14 @@ def newest_version(bearer: str, app: str) -> dict:
             "no iOS version page exists yet. App Store Connect -> Apps -> WARDEN -> "
             "the iOS version must exist before a build can be attached to it."
         )
-    version = data[0]
+    # The sub-collection refuses `sort`, so the newest is chosen here.
+    # `included` holds every version's children, so pick the one being reported.
+    version = max(data, key=lambda item: item["attributes"].get("createdDate") or "")
+    payload = get(
+        f"/v1/appStoreVersions/{version['id']}",
+        bearer,
+        {"include": "build,appStoreVersionLocalizations,appStoreReviewDetail"},
+    )
     included = payload.get("included") or []
 
     def first(kind: str) -> dict | None:
