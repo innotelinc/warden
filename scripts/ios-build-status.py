@@ -13,6 +13,14 @@ disk rather than taken as an argument so it never lands in a process list.
     APP_STORE_CONNECT_KEY_ID=... APP_STORE_CONNECT_ISSUER_ID=... \
       ASC_KEY_PATH=/path/AuthKey.p8 python3 scripts/ios-build-status.py
 
+A build that is VALID still reaches nobody until a TestFlight group holds it, so
+`--groups` reports which groups exist and what they contain, and `--add-build-to`
+puts the build in one. `hasAccessToAllBuilds` is Apple's "Enable automatic
+distribution": when it is set, an upload joins the group on its own.
+
+    ... python3 scripts/ios-build-status.py --build-number 10 --groups
+    ... python3 scripts/ios-build-status.py --build-number 10 --add-build-to 'Internal'
+
 The token is signed here with `openssl`, so the runner installs nothing.
 
 Exit status: 0 everything looked fine, 1 the API call or configuration failed,
@@ -164,6 +172,7 @@ def builds(bearer: str, app: str, limit: int) -> list[dict]:
         relation = (build.get("relationships") or {}).get("preReleaseVersion", {}).get("data") or {}
         rows.append(
             {
+                "id": build["id"],
                 "marketing": marketing.get(relation.get("id"), "?"),
                 "number": attributes.get("version") or "?",
                 "state": attributes.get("processingState") or "?",
@@ -201,6 +210,125 @@ def summarise(rows: list[dict], wait_minutes: int) -> None:
             summary.write(f"\nWaited up to {wait_minutes} minutes for processing to finish.\n")
 
 
+def post(path: str, bearer: str, payload: dict) -> None:
+    request = urllib.request.Request(
+        API + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {bearer}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45):
+            return
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", "replace")
+        if error.code == 409:
+            raise SystemExit(
+                "App Store Connect refused the change (409): the build is already in "
+                "that group, or it is not VALID yet.\n" + body
+            )
+        raise SystemExit(f"App Store Connect returned {error.code} for {path}:\n{body}")
+
+
+def beta_groups(bearer: str, app: str) -> list[dict]:
+    """TestFlight groups, each with the build numbers currently assigned to it.
+
+    `hasAccessToAllBuilds` is the API's name for "Enable automatic distribution":
+    with it set, an upload reaches the group without anyone adding it by hand.
+    """
+    payload = get(
+        "/v1/betaGroups",
+        bearer,
+        {
+            "filter[app]": app,
+            "limit": "50",
+            "include": "builds",
+            "fields[builds]": "version",
+            "limit[builds]": "50",
+        },
+    )
+
+    numbered = {
+        item["id"]: item["attributes"].get("version")
+        for item in payload.get("included") or []
+        if item.get("type") == "builds"
+    }
+
+    groups = []
+    for group in payload.get("data") or []:
+        attributes = group["attributes"]
+        assigned = (group.get("relationships") or {}).get("builds", {}).get("data") or []
+        groups.append(
+            {
+                "id": group["id"],
+                "name": attributes.get("name") or "?",
+                "internal": bool(attributes.get("isInternalGroup")),
+                "all_builds": bool(attributes.get("hasAccessToAllBuilds")),
+                "builds": sorted(
+                    (numbered.get(item["id"], "?") for item in assigned),
+                    key=lambda value: (len(value), value),
+                ),
+            }
+        )
+    return groups
+
+
+def testers(bearer: str, group: str) -> list[str]:
+    """The people in a group. Only App Store Connect users can be internal
+    testers, and a build reaches nobody whose Apple ID is not on this list."""
+    payload = get(
+        f"/v1/betaGroups/{group}/betaTesters",
+        bearer,
+        {"limit": "200", "fields[betaTesters]": "email,firstName,lastName"},
+    )
+    people = []
+    for person in payload.get("data") or []:
+        attributes = person["attributes"]
+        name = " ".join(filter(None, [attributes.get("firstName"), attributes.get("lastName")]))
+        email = attributes.get("email") or "?"
+        people.append(f"{name} <{email}>" if name else email)
+    return sorted(people)
+
+
+def describe_groups(groups: list[dict]) -> str:
+    if not groups:
+        return (
+            "no TestFlight groups yet. TestFlight -> Internal Testing -> + creates one; "
+            "without a group no build is visible in the TestFlight app."
+        )
+    lines = []
+    for group in groups:
+        kind = "internal" if group["internal"] else "external"
+        if group["all_builds"]:
+            delivery = "automatic (every build joins it on its own)"
+        else:
+            delivery = "manual (builds must be added)"
+        assigned = ", ".join(group["builds"]) if group["builds"] else "none"
+        lines.append(f"{group['name']}  [{kind}]")
+        lines.append(f"  distribution: {delivery}")
+        lines.append(f"  builds: {assigned}")
+        people = group.get("testers") or []
+        lines.append("  testers: " + (", ".join(people) if people else "none — nobody can install it yet"))
+    return "\n".join(lines)
+
+
+def assign_to_group(groups: list[dict], name: str, build: dict, bearer: str) -> None:
+    wanted = [group for group in groups if group["name"].casefold() == name.casefold()]
+    if not wanted:
+        known = ", ".join(group["name"] for group in groups) or "none"
+        raise SystemExit(f"no TestFlight group called {name!r}. Existing groups: {known}")
+    group = wanted[0]
+    if group["all_builds"] or build["number"] in group["builds"]:
+        print(f"{build['marketing']} ({build['number']}) is already in {group['name']}.")
+        return
+    post(
+        f"/v1/betaGroups/{group['id']}/relationships/builds",
+        bearer,
+        {"data": [{"type": "builds", "id": build["id"]}]},
+    )
+    print(f"Added {build['marketing']} ({build['number']}) to {group['name']}.")
+
+
 def select_target(rows: list[dict], build_number: str) -> dict | None:
     """The build the caller is asking about, or None if it is not listed yet."""
     if not build_number:
@@ -219,6 +347,16 @@ def main() -> int:
         help="follow this build number, waiting even before Apple lists it",
     )
     parser.add_argument("--limit", type=int, default=5, help="how many builds to list")
+    parser.add_argument(
+        "--groups",
+        action="store_true",
+        help="also report the TestFlight groups and which builds they hold",
+    )
+    parser.add_argument(
+        "--add-build-to",
+        default="",
+        help="add the reported build to this TestFlight group (needs a VALID build)",
+    )
     args = parser.parse_args()
 
     key_id = os.environ.get("APP_STORE_CONNECT_KEY_ID", "").strip()
@@ -280,6 +418,26 @@ def main() -> int:
             "checking again in 60s…\n"
         )
         time.sleep(60)
+
+    # A VALID build is only installable once a TestFlight group holds it, so the
+    # group is where the answer to "can a tester see it yet" actually lives.
+    if args.add_build_to:
+        if target is None or target["state"] != "VALID":
+            label = args.build_number or (target["number"] if target else "newest")
+            state = target["state"] if target else "not listed"
+            raise SystemExit(f"build {label} is {state}; only a VALID build can join a group.")
+        groups = beta_groups(bearer, app)
+        assign_to_group(groups, args.add_build_to, target, bearer)
+        groups = beta_groups(bearer, app)
+    elif args.groups:
+        groups = beta_groups(bearer, app)
+    else:
+        groups = []
+
+    if groups:
+        for group in groups:
+            group["testers"] = testers(bearer, group["id"])
+        print("\n" + describe_groups(groups))
 
     summarise(rows, args.wait_minutes)
 

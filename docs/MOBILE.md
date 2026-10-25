@@ -150,9 +150,21 @@ with `web/landing/privacy.html` as the policy URL.
    `destination=upload` and lands in **TestFlight**; no `altool` or Transporter
    step exists any more. A manual run exports a signed `.ipa` and attaches it to
    the `warden-ios` artifact unless `upload_to_testflight` is ticked.
-5. In App Store Connect, attach the TestFlight build to the version, answer the
-   privacy form and submit. Internal testing needs no review; external testing
-   and the App Store do.
+5. Put the build in front of a phone. A `VALID` build reaches nobody until a
+   **TestFlight group** holds it and an **internal tester** sits in that group,
+   so: Apps → WARDEN → TestFlight → Internal Testing → a group (create one with
+   `+` if the sidebar is empty), then **Add Builds** to choose the build and
+   **Invite Testers** to add App Store Connect users by role. Tick *Enable
+   automatic distribution* on the group and later uploads join it on their own,
+   which is what the `Dev` group does. Internal testing needs no Beta App Review;
+   external testing and the App Store do.
+6. On the phone, install **TestFlight** from the App Store, sign in with the
+   Apple ID that is a tester on the group, open WARDEN and tap **Install**. The
+   build is listed as `0.2.4 (10)` — the number in brackets is the build number.
+   Nothing appears under another Apple ID, and the iPhone must run at least the
+   deployment target of 15.0.
+7. When the binary is final, attach the build to the App Store version, fill in
+   the listing (see *Submitting to the App Store*), and submit for review.
 
 "Upload succeeded" only means App Store Connect took the file. It processes a
 build for 5–15 minutes afterwards and can still reject it, so **iOS build
@@ -162,7 +174,16 @@ status** asks Apple what actually became of it:
 gh workflow run ios-build-status.yml                      # report once
 gh workflow run ios-build-status.yml -f wait_minutes=20   # poll until settled
 gh workflow run ios-build-status.yml -f build_version=0.2.4
+gh workflow run ios-build-status.yml -f build_number=10   # follow one build
+gh workflow run ios-build-status.yml -f build_number=10 -f groups=true
+gh workflow run ios-build-status.yml -f build_number=10 -f add_build_to_group=Dev
 ```
+
+`groups=true` also reports every TestFlight group: whether it is internal or
+external, whether it takes builds automatically, the build numbers it holds and
+the testers in it — the difference between "Apple accepted the build" and
+"somebody can install it". `add_build_to_group` does the *Add Builds* step from
+the command line, and refuses unless the build is `VALID`.
 
 It prints the marketing version, build number, upload time in UTC and the
 processing state (`PROCESSING`, `VALID`, `FAILED`, `INVALID`) with what each one
