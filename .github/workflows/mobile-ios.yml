@@ -23,6 +23,9 @@ permissions:
 jobs:
   archive:
     runs-on: macos-15
+    # Secrets cannot be tested in a step `if:`; hoist the key id and gate on that.
+    env:
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
     defaults:
       run:
         working-directory: mobile
@@ -43,6 +46,7 @@ jobs:
         run: pod install --repo-update
 
       - name: Write App Store Connect key
+        if: env.ASC_KEY_ID != ''
         env:
           KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -57,19 +61,29 @@ jobs:
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         working-directory: mobile/ios/App
         run: |
-          xcodebuild -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/WARDEN.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            archive
+          # Without an App Store Connect key there is nothing to sign or fetch a
+          # profile with, so a fresh clone still archives — unsigned, for
+          # inspection — rather than failing on an empty authenticationKeyID.
+          args=(-workspace App.xcworkspace
+                -scheme App
+                -configuration Release
+                -destination 'generic/platform=iOS'
+                -archivePath "$RUNNER_TEMP/WARDEN.xcarchive")
+          if [ -n "${KEY_ID:-}" ] && [ -n "${ISSUER_ID:-}" ] \
+             && [ -f "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" ]; then
+            args+=(-allowProvisioningUpdates
+                   -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8"
+                   -authenticationKeyID "$KEY_ID"
+                   -authenticationKeyIssuerID "$ISSUER_ID"
+                   DEVELOPMENT_TEAM="$TEAM_ID")
+          else
+            echo "::notice::no App Store Connect key configured — archiving unsigned"
+            args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
+          fi
+          xcodebuild "${args[@]}" archive
 
       - name: Export ipa
+        if: env.ASC_KEY_ID != ''
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         working-directory: mobile/ios/App
@@ -91,8 +105,11 @@ jobs:
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -allowProvisioningUpdates
 
+      # An unsigned archive has no .ipa; keep the archive for inspection instead.
       - uses: actions/upload-artifact@v4
         with:
-          name: warden-ios-ipa
-          path: ${{ runner.temp }}/export/*.ipa
+          name: warden-ios
+          path: |
+            ${{ runner.temp }}/export/*.ipa
+            ${{ runner.temp }}/WARDEN.xcarchive
           if-no-files-found: error
