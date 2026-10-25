@@ -205,6 +205,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--wait-minutes", type=int, default=0, help="poll until the build leaves PROCESSING")
     parser.add_argument("--build-version", default="", help="only report this marketing version")
+    parser.add_argument(
+        "--build-number",
+        default="",
+        help="follow this build number, waiting even before Apple lists it",
+    )
     parser.add_argument("--limit", type=int, default=5, help="how many builds to list")
     args = parser.parse_args()
 
@@ -232,6 +237,7 @@ def main() -> int:
     app = app_id(bearer)
 
     deadline = time.monotonic() + args.wait_minutes * 60
+    target: dict | None = None
     while True:
         rows = builds(bearer, app, args.limit)
         if args.build_version:
@@ -242,25 +248,39 @@ def main() -> int:
             return 1
 
         print(describe(rows))
-        # The newest build is the one somebody just uploaded and is waiting on.
-        # An older build of the same version being VALID says nothing about it,
-        # and stopping there reports yesterday's answer.
-        newest = rows[0]
-        if newest["state"] != "PROCESSING" or time.monotonic() >= deadline or not args.wait_minutes:
+
+        # Which build is being asked about? A named one if the caller named one,
+        # otherwise the newest — the one somebody just uploaded. An older build
+        # of the same version being VALID says nothing about the new one, and
+        # treating it as the answer reports yesterday's state.
+        wanted = [row for row in rows if row["number"] == str(args.build_number)]
+        target = wanted[0] if args.build_number else rows[0]
+
+        if target is None:
+            # Apple lists a build only once it has begun processing it, so a
+            # build that was just uploaded is missing rather than failed.
+            if not args.wait_minutes or time.monotonic() >= deadline:
+                print(f"\nbuild {args.build_number} is not listed yet.")
+                return 3
+            print(f"\nbuild {args.build_number} is not listed yet, checking again in 60s…\n")
+            time.sleep(60)
+            continue
+
+        if target["state"] != "PROCESSING" or time.monotonic() >= deadline or not args.wait_minutes:
             break
         print(
-            f"\n{newest['marketing']} ({newest['number']}) is still processing, "
+            f"\n{target['marketing']} ({target['number']}) is still processing, "
             "checking again in 60s…\n"
         )
         time.sleep(60)
 
     summarise(rows, args.wait_minutes)
 
-    if rows[0]["state"] in ("FAILED", "INVALID"):
-        return 2
-    if rows[0]["state"] == "PROCESSING":
+    if target is None or target["state"] == "PROCESSING":
         print("\nStill processing. Run this again in a few minutes, or with --wait-minutes.")
         return 3
+    if target["state"] in ("FAILED", "INVALID"):
+        return 2
     return 0
 
 

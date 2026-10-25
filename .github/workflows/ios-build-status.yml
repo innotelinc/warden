@@ -23,6 +23,10 @@ on:
         description: Only report this marketing version, e.g. 0.2.4
         type: string
         default: ''
+      build_number:
+        description: Follow this build number, waiting even before Apple lists it
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -58,9 +62,13 @@ jobs:
           ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
           WAIT_MINUTES: ${{ inputs.wait_minutes || 0 }}
           BUILD_VERSION: ${{ inputs.build_version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           args=(--wait-minutes "${WAIT_MINUTES:-0}")
           if [ -n "${BUILD_VERSION:-}" ]; then
             args+=(--build-version "$BUILD_VERSION")
+          fi
+          if [ -n "${BUILD_NUMBER:-}" ]; then
+            args+=(--build-number "$BUILD_NUMBER")
           fi
           python3 scripts/ios-build-status.py "${args[@]}"
