@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppState, LockState, ScryProgress, UpdateState, WardenApi } from '../shared/types'
+import type { AppState, LockHelloReport, LockState, ScryProgress, UpdateState, WardenApi } from '../shared/types'
 
 interface LockBootstrap {
   lock: LockState
@@ -35,6 +35,8 @@ const api: WardenApi = {
     create: (url, burner) => invoke<string>('warden:tab:create', url, burner ?? false),
     close: (id) => invoke('warden:tab:close', id),
     activate: (id) => invoke('warden:tab:activate', id),
+    dismissChallenge: (id, host) => invoke('warden:tab:dismissChallenge', id, host),
+    cloak: (id, on) => invoke('warden:tab:cloak', id, on),
     move: (id, index) => invoke('warden:tab:move', id, index),
     navigate: (id, url) => invoke('warden:tab:navigate', id, url),
     back: (id) => invoke('warden:tab:back', id),
@@ -55,6 +57,7 @@ const api: WardenApi = {
     compatibility: (host, on) => invoke('warden:privacy:compatibility', host, on),
     allowSignIn: (url) => invoke('warden:privacy:allowSignIn', url),
     clearCookies: () => invoke<number>('warden:privacy:clearCookies'),
+    probeEgress: () => invoke<'unknown' | 'up' | 'down'>('warden:privacy:probeEgress'),
     syncLists: () => invoke<{ rules: number }>('warden:privacy:sync'),
     refresh: () => invoke('warden:privacy:refresh')
   },
@@ -88,6 +91,7 @@ const api: WardenApi = {
     openMessage: (uid) => invoke('warden:mail:open', uid),
     send: (input) => invoke('warden:mail:send', input),
     setFlag: (uid, flag, value) => invoke('warden:mail:flag', uid, flag, value),
+    checkFraud: () => invoke('warden:mail:fraud'),
     refresh: () => invoke('warden:mail:refresh')
   },
 
@@ -143,6 +147,8 @@ const api: WardenApi = {
   lock: {
     lock: () => invoke('warden:lock:lock'),
     unlock: (password) => invoke<{ ok: boolean; error?: string }>('warden:lock:unlock', password),
+    hello: () => invoke<{ ok: boolean; error?: string }>('warden:lock:hello'),
+    helloStatus: () => invoke<LockHelloReport>('warden:lock:helloStatus'),
     bootstrap: () => invoke<LockBootstrap>('warden:lock:bootstrap'),
     onState: (listener) => subscribe<[LockState]>('warden:lock:state', listener)
   },

@@ -86,6 +86,25 @@ export function isCookieKeptByAllowlist(cookieHost: string, allowlist: string[])
 }
 
 /**
+ * Does compatibility mode cover this cookie's domain?
+ *
+ * Compatibility is granted for the host the operator was on (`www.amazon.com`),
+ * while a site's session cookies are written to the parent domain
+ * (`.amazon.com`). Judging the cookie by its own domain alone meant a challenge
+ * page in compatibility mode had the session it had just been given purged on
+ * the next navigation, so the exemption never helped the sites it exists for.
+ */
+export function isCookieKeptByCompatibility(cookieHost: string, compatibility: string[]): boolean {
+  const host = normalizeHost(cookieHost)
+  if (!host) return false
+  return compatibility.some((entry) => {
+    const allowed = normalizeHost(entry)
+    if (!allowed) return false
+    return hostMatches(host, allowed) || coversCookieDomain(allowed, host)
+  })
+}
+
+/**
  * May a Set-Cookie header from this response be kept?
  * `cookieDomain` is the Domain attribute if present, otherwise the response host.
  */

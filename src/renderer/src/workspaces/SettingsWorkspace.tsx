@@ -4,8 +4,33 @@ import { DOH_PROVIDERS } from '@shared/dns'
 import { LOCK_TIMEOUTS, timeoutLabel } from '@shared/lock-policy'
 import { CAMERA_MODES, VOICE_MODES } from '@shared/sensors'
 import { THEMES, themeSwatch } from '@shared/themes'
-import type { Settings, UpdateState } from '@shared/types'
+import type { LockHelloStatus, Settings, UpdateState } from '@shared/types'
 import { IconDownload, IconGear, IconLock, IconShield, IconSpark, IconTrash } from '../icons'
+
+/**
+ * The lock screen is judged before it is needed: this is the line that says
+ * whether the PIN will work, so nobody discovers a Hello gap while locked out.
+ */
+function helloLabel(status: LockHelloStatus): string {
+  switch (status) {
+    case 'available':
+      return 'Windows Hello ready — PIN, fingerprint or face unlocks'
+    case 'enrolled':
+      return 'Hello enrolled — verifier did not answer; try it, the password is the fallback'
+    case 'not-configured':
+      return 'no Hello enrolment on this account — account password unlocks'
+    case 'not-present':
+      return 'no Hello device here — account password unlocks'
+    case 'disabled':
+      return 'Hello disabled by policy — account password unlocks'
+    case 'busy':
+      return 'Hello busy with another prompt — password still works'
+    case 'unavailable':
+      return 'Hello could not be queried — account password unlocks'
+    case 'unknown':
+      return 'Hello not checked yet'
+  }
+}
 
 function updateStatus(update: UpdateState): string {
   switch (update.phase) {
@@ -466,8 +491,8 @@ export function SettingsWorkspace() {
               </select>
             </div>
             <Toggle
-              title="Private tab by default"
-              detail="Every new tab gets its own in-memory session, so nothing follows it"
+              title="Cloak new tabs by default"
+              detail="Every new tab gets its own in-memory session, so nothing follows it; the cape on the tab turns it off for that tab"
               on={settings.privateByDefault}
               onChange={(next) => update({ privateByDefault: next })}
             />
@@ -485,6 +510,39 @@ export function SettingsWorkspace() {
               on={settings.vpnEnabled}
               onChange={(next) => update({ vpnEnabled: next })}
             />
+            <Toggle
+              title="Kill switch — refuse traffic while the tunnel is down"
+              detail="If the endpoint stops answering, pages are blocked instead of quietly going out direct"
+              on={settings.vpnKillSwitch}
+              onChange={(next) => update({ vpnKillSwitch: next })}
+            />
+            <div className="row wrap" style={{ marginTop: 8 }}>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  void window.warden.privacy.probeEgress().then((health) => {
+                    notify(
+                      health === 'up'
+                        ? 'Tunnel endpoint answered'
+                        : health === 'down'
+                          ? 'Tunnel endpoint is not answering — page traffic is blocked'
+                          : 'Nothing to probe: no tunnel endpoint configured',
+                      health === 'up' ? 'ok' : health === 'down' ? 'err' : 'info'
+                    )
+                  })
+                }}
+                title="Open a TCP connection to the configured endpoint; no request goes through it"
+              >
+                <IconShield size={11} /> test endpoint
+              </button>
+              <span
+                className="faint tiny mono"
+                style={{ alignSelf: 'center', color: state.egress.health === 'down' ? 'var(--danger)' : undefined }}
+              >
+                {state.egress.label}
+                {state.egress.health === 'down' && state.egress.killSwitch ? ' · blocking' : ''}
+              </span>
+            </div>
             <div className="grid-2" style={{ marginTop: 8 }}>
               <div className="field">
                 <label>Transport</label>
@@ -527,9 +585,11 @@ export function SettingsWorkspace() {
             </div>
             <div className="faint tiny" style={{ marginTop: 10, lineHeight: 1.7 }}>
               WARDEN does not sell or bundle a VPN: a tunnel needs an endpoint you control. Point this at the local SOCKS
-              port of a WireGuard/OpenVPN client, or at a corporate proxy. With no endpoint the toggle is on but the status
-              reads <span className="mono">direct egress</span> — it never pretends a tunnel exists. WebRTC is already
-              pinned to non-proxied UDP off, so a live peer connection cannot leak the real address around it.
+              port of a WireGuard/OpenVPN client, or at a corporate proxy. With no endpoint the status reads{' '}
+              <span className="mono">no endpoint configured</span> — it never pretends a tunnel exists. The kill switch
+              is the part that matters once one is configured: WARDEN checks the endpoint every twenty seconds and, when
+              it stops answering, refuses page traffic rather than letting Chromium fall back to direct egress. WebRTC is
+              already pinned to non-proxied UDP off, so a live peer connection cannot leak the real address around it.
             </div>
           </section>
 
@@ -624,11 +684,29 @@ export function SettingsWorkspace() {
                     : `${Math.round(state.lock.idleSeconds / 60)} min idle`}
               </span>
             </div>
+            <div className="row wrap" style={{ marginTop: 8 }}>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  void window.warden.lock.helloStatus().then((report) => {
+                    notify(report.note, report.hello === 'available' ? 'ok' : 'err')
+                  })
+                }}
+                title="Ask Windows whether Hello is enrolled here, without locking or prompting"
+              >
+                <IconLock size={11} /> check Windows Hello
+              </button>
+              <span className="faint tiny" style={{ alignSelf: 'center' }}>
+                {helloLabel(state.lock.hello)}
+              </span>
+            </div>
             <div className="faint tiny" style={{ marginTop: 10, lineHeight: 1.7 }}>
-              Ctrl + \ covers the window with a blurred capture of the page and disables the app underneath. Only this
-              Windows account's password clears it; the lock also comes down on its own when the machine has been idle
-              for the selected time, and when the Windows session locks. Use your Windows sign-in password, not a
-              WARDEN passphrase — the check runs through LogonUser, so Microsoft accounts need the account email.
+              Ctrl + \ covers the window with a blurred capture of the page and disables the app underneath. Windows
+              Hello clears it — the same PIN, fingerprint or face you sign in with, verified by Windows and never by
+              WARDEN. Machines without Hello fall back to the account password through LogonUser, so Microsoft accounts
+              need the account email; a PIN is not an account password. Check here first, not while the screen is
+              covered. The lock also comes down on its own when the machine has been idle for the selected time, and
+              when the Windows session locks.
             </div>
 
             <div className="panel-title" style={{ marginTop: 18 }}>

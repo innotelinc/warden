@@ -47,6 +47,23 @@ describe('signInHostsFor', () => {
     expect(signInHostsFor('not a url')).toBeNull()
   })
 
+  /**
+   * The control plane opens its own start route in a popup before the provider
+   * is named; that popup is where WARDEN has to start allowing cookies, or the
+   * state cookie is thrown away before the first redirect.
+   */
+  it('recognises an application-side OIDC start route', () => {
+    expect(signInHostsFor('https://distro.innotel.us/api/auth/oidc/start')).toEqual({
+      provider: 'distro.innotel.us',
+      application: null
+    })
+  })
+
+  it('does not mistake an ordinary path that starts with the same letters', () => {
+    expect(signInHostsFor('https://example.com/author/jane')).toBeNull()
+    expect(signInHostsFor('https://example.com/authors')).toBeNull()
+  })
+
   it('does not report the provider as its own application', () => {
     expect(
       signInHostsFor(

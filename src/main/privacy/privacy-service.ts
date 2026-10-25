@@ -12,6 +12,7 @@
  */
 
 import { session, type DownloadItem, type Session } from 'electron'
+import net from 'node:net'
 import type { PrivacyStats, Settings } from '@shared/types'
 import { builtinRules } from './builtin-lists'
 import { parseFilterList, safeHost, FilterEngine, type RequestInfo, type ResourceType } from './filter-engine'
@@ -20,6 +21,7 @@ import {
   filterResponseHeaders,
   isAllowlisted,
   isCookieKeptByAllowlist,
+  isCookieKeptByCompatibility,
   shouldAcceptCookie,
   shouldSendCookies,
   upgradeToHttps,
@@ -27,7 +29,7 @@ import {
   type CookieMode
 } from './cookie-policy'
 import { readListCache, rulesFromCache, syncLists } from './lists'
-import { proxyRule, type ProxyState } from '@shared/network'
+import { egressLabel, egressVerdict, normalizeProxy, proxyRule, type EgressHealth, type ProxyState } from '@shared/network'
 
 const REQUEST_FILTER = { urls: ['*://*/*', 'ws://*/*', 'wss://*/*'] }
 
@@ -51,6 +53,8 @@ export class PrivacyService {
   private warnedHosts = new Set<string>()
   private blockedByWc = new Map<number, number>()
   private egress: ProxyState = { kind: 'direct', reason: 'unconfigured' }
+  private health: EgressHealth = 'unknown'
+  private probeTimer: NodeJS.Timeout | null = null
 
   constructor(settings: Settings, onStats: (stats: PrivacyStats) => void) {
     this.settings = settings
@@ -75,6 +79,14 @@ export class PrivacyService {
     this.wire(this.browsing)
     await this.wipeCookies(this.browsing)
     await this.applyProxy()
+    // Re-check the endpoint while a tunnel is configured: a WireGuard client
+    // that dies mid-session must not leave WARDEN quietly going direct.
+    if (!this.probeTimer) {
+      this.probeTimer = setInterval(() => {
+        if (this.egress.kind === 'proxy') void this.probeEgress()
+      }, 20_000)
+      this.probeTimer.unref?.()
+    }
   }
 
   /**
@@ -94,6 +106,10 @@ export class PrivacyService {
     const state = proxyRule(configured)
     const active = settings.vpnEnabled && state.kind === 'proxy' ? state : { kind: 'direct' as const, reason: 'disabled' as const }
     this.egress = active
+    // A changed endpoint has not been checked yet: `unknown` keeps the kill
+    // switch from blocking pages before the first probe can answer.
+    this.health = 'unknown'
+    void this.probeEgress()
     const sessions = [this.browsing, ...this.burners].filter((entry): entry is Session => Boolean(entry))
     await Promise.all(
       sessions.map((ses) =>
@@ -109,12 +125,85 @@ export class PrivacyService {
     return this.egress
   }
 
+  /** Whether the configured endpoint is answering, and the one-line label. */
+  egressReport(): { state: ProxyState; health: EgressHealth; label: string; killSwitch: boolean } {
+    const settings = this.settings
+    const configured = {
+      mode: settings.vpnMode,
+      host: settings.vpnHost,
+      port: settings.vpnPort,
+      bypass: settings.vpnBypass
+    }
+    return {
+      state: this.egress,
+      health: this.health,
+      label: egressLabel(configured, this.health),
+      killSwitch: settings.vpnKillSwitch
+    }
+  }
+
+  /**
+   * Is the tunnel endpoint alive?
+   *
+   * A TCP connect to the configured host and port, nothing more: it opens no
+   * page and leaks no request, and a WireGuard client answering on its local
+   * proxy is exactly what this sees. A tunnel that is down is the case the kill
+   * switch exists for, so this answer decides whether traffic is allowed.
+   */
+  probeEgressNow(): Promise<EgressHealth> {
+    return this.probeEgress()
+  }
+
+  private probeEgress(): Promise<EgressHealth> {
+    if (this.egress.kind !== 'proxy') {
+      this.health = 'unknown'
+      return Promise.resolve(this.health)
+    }
+    const configured = normalizeProxy({
+      mode: this.settings.vpnMode,
+      host: this.settings.vpnHost,
+      port: this.settings.vpnPort,
+      bypass: this.settings.vpnBypass
+    })
+    if (!configured.port) {
+      this.health = 'down'
+      this.emit(true)
+      return Promise.resolve(this.health)
+    }
+    return new Promise<EgressHealth>((resolve) => {
+      let settled = false
+      const finish = (value: EgressHealth): void => {
+        if (settled) return
+        settled = true
+        this.health = value
+        this.emit(true)
+        resolve(value)
+      }
+      const socket = net.connect({ host: configured.host || '127.0.0.1', port: configured.port })
+      const timer = setTimeout(() => {
+        socket.destroy()
+        finish('down')
+      }, 1500)
+      timer.unref?.()
+      socket.once('connect', () => {
+        clearTimeout(timer)
+        socket.destroy()
+        finish('up')
+      })
+      socket.once('error', () => {
+        clearTimeout(timer)
+        socket.destroy()
+        finish('down')
+      })
+    })
+  }
+
   get browsingSession(): Session {
     if (!this.browsing) throw new Error('privacy service not started')
     return this.browsing
   }
 
-  /** A throwaway session for a burner tab. Nothing survives the tab. */
+  /** A throwaway session for a cloaked tab. Nothing survives the tab. */
   createBurnerSession(): Session {
     const ses = session.fromPartition(`warden-burn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
     this.burners.push(ses)
@@ -214,8 +303,10 @@ export class PrivacyService {
         for (const cookie of cookies) {
           const host = cookie.domain?.replace(/^\./, '') || ''
           // Compatibility sites are policy-accepted, exactly like allowlisted
-          // ones; purging them would just break the site again.
-          if (this.isCompatible(host)) continue
+          // ones; purging them would just break the site again. Both accept a
+          // cookie written to the parent of the exempted host, because that is
+          // where a session cookie lands (`www.amazon.com` → `.amazon.com`).
+          if (this.keepsCookieForCompatibility(host)) continue
           // A parent-domain cookie belongs to the allowlisted site that set it
           // (`auth.example.com` → `.example.com`), so the purge keeps it too.
           if (isCookieKeptByAllowlist(host, this.settings.allowlist)) continue
@@ -247,6 +338,17 @@ export class PrivacyService {
    */
   isCompatible(host: string | null): boolean {
     return host !== null && hostMatches(host, this.settings.compatibility)
+  }
+
+  /**
+   * Does compatibility mode keep a cookie stored on `cookieHost`?
+   *
+   * `isCompatible` answers for the host the operator exempted. A cookie's domain
+   * can be the parent of that host, so the store guard and the purge ask this
+   * instead of judging the cookie by its own domain alone.
+   */
+  private keepsCookieForCompatibility(cookieHost: string): boolean {
+    return this.isCompatible(cookieHost) || isCookieKeptByCompatibility(cookieHost, this.settings.compatibility)
   }
 
   /**
@@ -392,12 +494,12 @@ export class PrivacyService {
       } catch {
         host = ''
       }
-      if (this.isCompatible(host)) {
-        return original(details)
-      }
       // The site setting the cookie is the request's own host when the store is
       // written outside a tracked tab navigation.
       const siteHost = (details.url ? safeHost(details.url) : '') || host
+      if (this.keepsCookieForCompatibility(host) || this.isCompatible(siteHost)) {
+        return original(details)
+      }
       if (!host || !shouldAcceptCookie(this.cookieContext(siteHost, mode), host, details.domain)) {
         this.stats.cookiesStripped += 1
         this.emit()
@@ -451,6 +553,24 @@ export class PrivacyService {
 
   private inspect(details: Electron.OnBeforeRequestListenerDetails): { cancel?: boolean; redirectURL?: string } {
     this.stats.requestsSeen += 1
+
+    // The kill switch comes before everything else. When a tunnel is configured
+    // and its endpoint is not answering, letting the request out would send it
+    // direct — the exact leak the operator believes they are protected from.
+    const verdict = egressVerdict({
+      state: this.egress,
+      health: this.health,
+      killSwitch: this.settings.vpnKillSwitch
+    })
+    if (!verdict.allow) {
+      if (details.resourceType === 'mainFrame') {
+        return {
+          redirectURL: `warden://error?code=EGRESS_BLOCKED&desc=${encodeURIComponent(verdict.reason)}&url=${encodeURIComponent(details.url)}`
+        }
+      }
+      this.stats.blockedTotal += 1
+      return { cancel: true }
+    }
 
     if (details.resourceType === 'mainFrame' && this.settings.httpsOnly) {
       const upgraded = upgradeToHttps(details.url)

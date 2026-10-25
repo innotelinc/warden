@@ -29,6 +29,7 @@ import type {
 import { JsonStore } from './store/json-store'
 import { PrivacyService } from './privacy/privacy-service'
 import { TabManager, type ShortcutCommand } from './browser/tabs'
+import { readDoc } from './browser/local-doc'
 import { MediaDock } from './media/media-dock'
 import { TerminalService } from './terminal/terminal-service'
 import { MailService, type MailStore } from './mail/mail-service'
@@ -90,7 +91,7 @@ app.commandLine.appendSwitch('disable-features', [
  * falling back to the system resolver: a site that cannot be resolved is a
  * visible failure, not a quiet leak to the ISP's nameserver.
  */
-function splashFacts(settings: Settings, egress: ProxyState): string[] {
+function splashFacts(settings: Settings, egress: ProxyState, health: 'unknown' | 'up' | 'down' = 'unknown'): string[] {
   const facts: string[] = []
   if (settings.dnsOverHttps) {
     const provider = DOH_PROVIDERS.find((entry) => entry.id === settings.dnsProvider)
@@ -100,7 +101,9 @@ function splashFacts(settings: Settings, egress: ProxyState): string[] {
   }
   facts.push(
     egress.kind === 'proxy'
-      ? `Tunnel · ${egress.rule.replace('://', ' ')}`
+      ? health === 'down'
+        ? 'Tunnel down · traffic blocked'
+        : `Tunnel · ${egress.rule.replace('://', ' ')}`
       : settings.vpnEnabled
         ? 'No tunnel endpoint'
         : 'Direct egress'
@@ -349,7 +352,29 @@ async function createWindow(stores: Stores): Promise<void> {
         source: 'direct',
         pageUrl: page
       }
-      media.open(item, page)
+      media.open(item, page, tabs.getSession(tabId) ?? undefined)
+      sendState()
+    },
+    /**
+     * Cookies for a sign-in flow, granted by the click that started it.
+     *
+     * WARDEN refuses cookies everywhere by default, and an SSO login needs two
+     * hosts to keep state: the application and the provider. The operator
+     * pressed "Sign in"; this allows exactly the hosts that flow names — never
+     * a wildcard, never another site — so the callback can find its state
+     * cookie and the provider can keep a session.
+     */
+    onSignInHosts: (hosts) => {
+      const current = privacy.getSettings()
+      const missing = hosts
+        .map((host) => host.trim().toLowerCase())
+        .filter((host) => host.length > 0 && !current.allowlist.includes(host))
+      if (!missing.length) return
+      const next = stores.settings.update((settings) => ({
+        ...settings,
+        allowlist: [...new Set([...settings.allowlist, ...missing])].slice(0, 500)
+      }))
+      privacy.applySettings(next)
       sendState()
     }
   })
@@ -372,7 +397,7 @@ async function createWindow(stores: Stores): Promise<void> {
     activeFolder: 'INBOX'
   })
   await mailStore.load()
-  const mail = new MailService(mailStore, vault, sendState)
+  const mail = new MailService(mailStore, vault, sendState, () => stores.settings.get().autoFraudCheck)
   mail.load()
 
   const messaging = new MessagingHub(browserWindow, privacy, sendState)
@@ -405,6 +430,10 @@ async function createWindow(stores: Stores): Promise<void> {
       sendState()
     }
   })
+
+  // Find out now, not while the screen is covered: this is the answer Policy
+  // shows next to "check Windows Hello", and it costs one short-lived process.
+  void lock.helloReport()
 
   const update = new UpdateService({
     enabled: () => stores.settings.get().autoUpdate,
@@ -481,12 +510,29 @@ async function createWindow(stores: Stores): Promise<void> {
     }
   })
 
+  // Genie exists by now, and its key can appear or vanish mid-session, so the
+  // mail service asks both questions at call time.
+  mail.setFraudChecker(
+    (input) => genie.assessFraud(input),
+    () => genie.configured
+  )
+
   const snapshot = (): AppState => ({
     tabs: tabs.list(),
     activeTabId: tabs.activeTabId,
+    challenge: tabs.challengeHint(),
     workspace,
     settings: stores.settings.get(),
     stats: privacy.snapshot(),
+    egress: (() => {
+      const report = privacy.egressReport()
+      return {
+        kind: report.state.kind,
+        label: report.label,
+        health: report.health,
+        killSwitch: report.killSwitch
+      }
+    })(),
     media: media.snapshot(),
     mediaForTab: tabs.activeTabId,
     mediaAvailable: tabs.activeTabId ? (mediaByTab.get(tabs.activeTabId) ?? []) : [],
@@ -642,7 +688,7 @@ async function createWindow(stores: Stores): Promise<void> {
       return new Response(
         newTabHtml({
           stats: privacy.snapshot(),
-          facts: splashFacts(settingsNow, privacy.egressState()),
+          facts: splashFacts(settingsNow, privacy.egressState(), privacy.egressReport().health),
           bookmarks: stores.bookmarks.get().slice(0, 12),
           version: app.getVersion(),
           homepage: settingsNow.homepage
@@ -665,6 +711,19 @@ async function createWindow(stores: Stores): Promise<void> {
           url.searchParams.get('url') ?? ''
         ),
         { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
+      )
+    }
+
+    if (url.hostname === 'doc') {
+      const doc = readDoc(url.searchParams.get('path') ?? '')
+      if (doc) {
+        return new Response(doc.html, {
+          headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+        })
+      }
+      return new Response(
+        errorHtml('DOC', 'That file cannot be shown here', url.searchParams.get('path') ?? ''),
+        { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
     }
 

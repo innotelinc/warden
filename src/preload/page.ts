@@ -10,6 +10,7 @@
 import { ipcRenderer, webFrame } from 'electron'
 import { HARDENING_SCRIPT } from '../main/privacy/hardening'
 import { sensorScript, type SensorConfig } from '../main/privacy/sensor-script'
+import { containsWallPhrase, looksLikeChallengeWall, WALL_SELECTORS } from '../shared/challenge-wall'
 import type { MediaItem, MediaKind } from '../shared/types'
 
 function argValue(name: string): string {
@@ -142,6 +143,116 @@ function installHardening(): void {
 installHardening()
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', installHardening, { once: true })
+}
+
+/**
+ * Answer whether this document is a human-verification wall.
+ *
+ * The main process owns what to do with the answer; here it only reports on the
+ * document in front of it, and it reports on every load — a solved wall clears
+ * the prompt instead of leaving it behind. A compatible site is skipped: it has
+ * already been granted everything the prompt would offer.
+ */
+const CHALLENGE_MARKUP = WALL_SELECTORS.join(',')
+
+function rawText(): string {
+  try {
+    // textContent, unlike innerText, does not force a layout pass.
+    return document.body ? (document.body.textContent || '').slice(0, 12_000) : ''
+  } catch {
+    return ''
+  }
+}
+
+function visibleText(): string {
+  try {
+    return document.body ? (document.body.innerText || '').slice(0, 4000) : ''
+  } catch {
+    return ''
+  }
+}
+
+function reportChallengeWall(): void {
+  if (compatibilitySite || !tabId) return
+  if (location.protocol !== 'https:' && location.protocol !== 'http:') return
+
+  let title = ''
+  let hasChallengeMarkup = false
+  try {
+    title = document.title || ''
+    hasChallengeMarkup = Boolean(document.querySelector(CHALLENGE_MARKUP))
+  } catch {
+    return
+  }
+
+  // Title and markup answer without touching the layout. Only when those come
+  // back empty is the visible text read, and only if the raw text already looks
+  // like a wall — a single-page app re-renders constantly and cannot pay for an
+  // innerText pass on every mutation.
+  let reason = looksLikeChallengeWall({ title, text: '', hasChallengeMarkup })
+  if (!reason && containsWallPhrase(rawText())) {
+    reason = looksLikeChallengeWall({ title, text: visibleText(), hasChallengeMarkup })
+  }
+
+  try {
+    ipcRenderer.send('warden:challenge:wall', tabId, reason)
+  } catch {
+    /* the window may be gone already */
+  }
+}
+
+/**
+ * A wall can arrive without a navigation: a single-page app swaps its own view,
+ * or swaps the sheet in once the page has settled. Watch the body for a
+ * substantial replacement and ask again, throttled, so a busy page costs one
+ * debounced probe rather than a probe per mutation.
+ */
+const SPA_CHANGE_CHARS = 80
+const SPA_PROBE_DELAY_MS = 900
+
+let spaProbeTimer = 0
+
+function scheduleSpaProbe(): void {
+  if (spaProbeTimer) return
+  spaProbeTimer = window.setTimeout(() => {
+    spaProbeTimer = 0
+    reportChallengeWall()
+  }, SPA_PROBE_DELAY_MS)
+}
+
+function watchForSpaChanges(): void {
+  if (typeof MutationObserver !== 'function') return
+  const body = document.body
+  if (!body) return
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      let added = 0
+      for (const node of Array.from(record.addedNodes)) {
+        added += node.textContent?.length ?? 0
+        if (added >= SPA_CHANGE_CHARS) break
+      }
+      // A wall replaces the page; a badge, a spinner or a counter does not.
+      if (added >= SPA_CHANGE_CHARS || record.removedNodes.length > 1) {
+        scheduleSpaProbe()
+        return
+      }
+    }
+  })
+  observer.observe(body, { childList: true, subtree: true })
+}
+
+function scheduleWallProbe(): void {
+  if (location.protocol !== 'https:' && location.protocol !== 'http:') return
+  reportChallengeWall()
+  watchForSpaChanges()
+  // Some walls are injected after load, so ask again once the page has settled.
+  window.setTimeout(reportChallengeWall, 2500)
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', scheduleWallProbe, { once: true })
+} else {
+  scheduleWallProbe()
 }
 
 function hash(input: string): string {

@@ -314,7 +314,7 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
     // Private by default: a tab created without an explicit choice must land in
     // its own in-memory session, not the shared browsing one.
     const privateTab = ctx.tabs.create(url)
-    result.privateTab = ctx.tabs.list().find((entry) => entry.id === privateTab)?.isBurner === true
+    result.privateTab = ctx.tabs.list().find((entry) => entry.id === privateTab)?.cloaked === true
     ctx.tabs.close(privateTab)
 
     // Sensors: an allowlisted site gets a processed track from the fake capture

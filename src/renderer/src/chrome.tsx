@@ -6,6 +6,7 @@ import {
   IconBack,
   IconBug,
   IconChat,
+  IconCloak,
   IconClose,
   IconCrosshair,
   IconDownload,
@@ -109,6 +110,23 @@ export function Toolbar({
 }) {
   const { state, notify } = useWarden()
   const [draft, setDraft] = useState('')
+
+  // The three quick switches act on the page's own host, and only on a real one:
+  // an internal warden:// surface has nothing to exempt or allow.
+  const quickHost = (() => {
+    if (!tab || !/^https?:/i.test(tab.url)) return ''
+    try {
+      return new URL(tab.url).hostname.toLowerCase()
+    } catch {
+      return ''
+    }
+  })()
+  const settingsNow = state?.settings
+  const matches = (list: string[] | undefined): boolean =>
+    Boolean(quickHost && list?.some((entry) => quickHost === entry || quickHost.endsWith(`.${entry}`)))
+  const privacyOff = matches(settingsNow?.compatibility)
+  const cookiesAllowed = matches(settingsNow?.allowlist)
+  const genieOn = settingsNow?.autoFraudCheck ?? false
   const inputRef = useRef<HTMLInputElement>(null)
   const focused = useRef(false)
   // First click on an unfocused address bar selects the whole URL, like Chrome.
@@ -239,6 +257,58 @@ export function Toolbar({
         </button>
       </div>
 
+      {/* One click each, next to the address: the three switches an operator
+          reaches for while a page is being diagnosed. */}
+      {quickHost ? (
+        <>
+          <button
+            className={`quick-toggle ${privacyOff ? 'off' : 'on'}`}
+            onClick={() => {
+              void window.warden.privacy.compatibility(quickHost, !privacyOff)
+              notify(privacyOff ? `Privacy stack restored for ${quickHost}` : `${quickHost} reloaded as a plain browser`, privacyOff ? 'info' : 'ok')
+            }}
+            title={
+              privacyOff
+                ? `Privacy stack is off for ${quickHost} — click to restore filtering and cookie stripping`
+                : `Turn the privacy stack off for ${quickHost}: compatibility mode, no filtering, cookies kept`
+            }
+          >
+            <IconShield size={12} />
+            {privacyOff ? 'privacy off' : 'privacy'}
+          </button>
+          <button
+            className={`quick-toggle ${cookiesAllowed ? 'on' : ''}`}
+            onClick={() => {
+              void window.warden.privacy.allow(quickHost, !cookiesAllowed)
+              notify(cookiesAllowed ? `Cookies blocked again for ${quickHost}` : `Cookies allowed for ${quickHost} (memory only)`, cookiesAllowed ? 'info' : 'ok')
+            }}
+            title={
+              cookiesAllowed
+                ? `Cookies are allowed for ${quickHost} (memory only) — click to block them again`
+                : `Allow cookies for ${quickHost}: kept in memory, never on disk`
+            }
+          >
+            <IconLock size={12} />
+            cookies
+          </button>
+        </>
+      ) : null}
+      <button
+        className={`quick-toggle ${genieOn ? 'on' : ''}`}
+        onClick={() => {
+          void window.warden.settings.update({ autoFraudCheck: !genieOn })
+          notify(genieOn ? 'Genie fraud checks off' : 'Genie will check opened mail for fraud', genieOn ? 'info' : 'ok')
+        }}
+        title={
+          genieOn
+            ? 'Genie reads every mail message it opens for fraud — click to stop that'
+            : 'Automatic Genie fraud checks are off — click to have it read opened mail'
+        }
+      >
+        <IconSpark size={12} />
+        genie
+      </button>
+
       <button
         className={`shield-pill ${tab && tab.blocked > 0 ? '' : 'warn'}`}
         onClick={onShield}
@@ -331,13 +401,23 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
           }}
           title={`${tab.title}\n${tab.url}\nDrag to reorder`}
         >
-          {tab.loading ? (
-            <span className="spin" />
-          ) : (
-            <span className={`fav ${tab.isBurner ? 'burner' : ''}`} title={tab.isBurner ? 'Burner tab — discarded on close' : ''} />
-          )}
+          {tab.loading ? <span className="spin" /> : <span className="fav" />}
           <span className="title">{tab.title || 'Untitled'}</span>
-          {tab.isBurner ? <span className="tag amber tiny">burn</span> : null}
+          <button
+            className={`cloak ${tab.cloaked ? 'on' : ''}`}
+            draggable={false}
+            title={
+              tab.cloaked
+                ? 'Cloak on — throwaway memory session, discarded on close. Click to reload this page in the shared session.'
+                : 'Cloak off — shared browsing session. Click to reload this page in a throwaway one.'
+            }
+            onClick={(event) => {
+              event.stopPropagation()
+              void window.warden.tab.cloak(tab.id, !tab.cloaked)
+            }}
+          >
+            <IconCloak size={11} />
+          </button>
           <span
             className="close"
             onClick={(event) => {
@@ -355,13 +435,6 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
         title="New tab (Ctrl+T)"
       >
         <IconPlus size={14} />
-      </button>
-      <button
-        className="tab-new"
-        onClick={() => void window.warden.tab.create('warden://newtab', true)}
-        title="Burner tab — isolated memory session, discarded on close"
-      >
-        <span className="tag amber tiny">burn</span>
       </button>
     </div>
   )
@@ -634,6 +707,53 @@ export function BastionPanel({
           window.addEventListener('mouseup', up)
         }}
       />
+    </div>
+  )
+}
+
+/**
+ * The dead end, with a way out.
+ *
+ * A challenge loop is the one failure the operator cannot fix from the page:
+ * the wall keeps returning the same document, so nothing on screen says that
+ * WARDEN's own cookie policy is the obstacle. The bar names the host, offers the
+ * exemption the shield panel would, and stays quiet for that tab once dismissed.
+ */
+export function ChallengeBar({
+  host,
+  kind,
+  attempts,
+  onCompatibility,
+  onDismiss
+}: {
+  host: string
+  kind: 'loop' | 'wall'
+  attempts?: number
+  onCompatibility: () => void
+  onDismiss: () => void
+}) {
+  return (
+    <div className="challenge-bar fade-in" role="status">
+      <IconAlert size={13} />
+      <span className="challenge-text">
+        {kind === 'wall' ? (
+          <>
+            <b>{host}</b> is showing a security check — let WARDEN act as a plain browser here and try
+            again.
+          </>
+        ) : (
+          <>
+            <b>{host}</b> keeps reloading this page ({attempts ?? 0} loads) — if it is a challenge you
+            cannot get past, let WARDEN act as a plain browser here.
+          </>
+        )}
+      </span>
+      <button className="btn primary" onClick={onCompatibility} title="Exempt this host from filtering and cookie stripping, then reload">
+        Reload in compatibility mode
+      </button>
+      <button className="btn" onClick={onDismiss} title="Keep the full privacy stack for this tab">
+        Dismiss
+      </button>
     </div>
   )
 }

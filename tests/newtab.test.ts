@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { newTabHtml } from '../src/main/internal-pages'
+import { lockPageHtml, newTabHtml } from '../src/main/internal-pages'
 
 const html = newTabHtml({
   stats: {
@@ -53,5 +53,45 @@ describe('new tab splash', () => {
       homepage: 'warden://newtab'
     })
     expect(escaped).not.toContain('<script>alert(1)</script>')
+  })
+})
+
+describe('lock screen', () => {
+  const lock = lockPageHtml()
+
+  /**
+   * The PIN is the credential people actually sign in with, and it can only be
+   * verified by Windows Hello. A lock screen that offers nothing but a password
+   * box rejects the one thing the operator knows.
+   */
+  it('offers Windows Hello first and the password second', () => {
+    expect(lock).toContain('id="hello"')
+    expect(lock).toContain('Unlock with Windows Hello')
+    expect(lock).toContain('api.lock.hello()')
+    expect(lock.indexOf('id="hello"')).toBeLessThan(lock.indexOf('id="form"'))
+    expect(lock).toContain('PIN, fingerprint or face')
+  })
+
+  /**
+   * The overlay asks the verifier as it opens, so a missing Hello enrolment is
+   * reported while the operator can still read it — not after a dead button.
+   */
+  it('checks Hello availability on the way in', () => {
+    expect(lock).toContain('api.lock.helloStatus()')
+    expect(lock).toContain('id="helloNote"')
+  })
+
+  it('keeps the Hello button live when the verifier is silent but Hello is enrolled', () => {
+    expect(lock).toContain("report.hello === 'enrolled'")
+  })
+
+  it('leaves the password field masked and empty in the markup', () => {
+    expect(lock).toContain('type="password"')
+    expect(lock).not.toMatch(/value="/)
+  })
+
+  it('cannot be dismissed with a key', () => {
+    expect(lock).toContain("event.key === 'Escape'")
+    expect(lock).toContain('event.preventDefault()')
   })
 })

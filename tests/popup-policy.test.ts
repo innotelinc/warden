@@ -19,6 +19,25 @@ describe('popup policy', () => {
     expect(popupDecision({ url: 'https://yts.gg/home', disposition: 'foreground-tab', pageUrl: page })).toBe('block')
   })
 
+  /**
+   * OIDC sign-in opens a sized window and then waits on the handle: a tab gives
+   * the page null, so the page reports "sign-in window was blocked" and the
+   * flow never starts. Same site only — a third party asking for a window is
+   * still an ad.
+   */
+  it('gives a sized same-site window a real popup', () => {
+    expect(
+      popupDecision({ url: 'https://distro.innotel.us/api/auth/oidc/start', disposition: 'new-window', pageUrl: 'https://distro.innotel.us/admin' })
+    ).toBe('window')
+    expect(
+      popupDecision({
+        url: 'https://net.geo.opera.com/opera/stable/windows',
+        disposition: 'new-window',
+        pageUrl: page
+      })
+    ).toBe('block')
+  })
+
   it('honours a middle or ctrl click wherever it points', () => {
     expect(
       popupDecision({
