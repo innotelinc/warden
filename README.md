@@ -55,10 +55,11 @@ page-level cookie lock), on a browsing session created without the `persist:` pa
 and there is no cookie database, no page cache and no session file to recover. Cloaked tabs get their
 own throwaway session, and every messaging service runs in its own isolated one.
 
-Currently at **v0.2.2**: all seven workspaces are functional, the filter engine parses Adblock-Plus
-syntax, Scry captures and rebuilds sites, the terminal runs a real PTY, mail speaks IMAP and SMTP, and
-the Windows installer plus portable build are produced by `npm run dist`. Verified by unit tests over
-the decision surfaces and a smoke suite that drives the real UI and the packaged binary.
+Currently at **v0.2.3**: all seven workspaces are functional, the filter engine parses Adblock-Plus
+syntax, Scry captures and rebuilds sites, the terminal runs a real PTY, mail speaks IMAP and SMTP, the
+Windows installer plus portable build are produced by `npm run dist`, and a Capacitor shell carries the
+same private surfaces to Android and iOS ([docs/MOBILE.md](docs/MOBILE.md)). Verified by unit tests
+over the decision surfaces and a smoke suite that drives the real UI and the packaged binary.
 
 **Deliberate limits, stated up front:** no bundled VPN and no IP hiding of its own (it routes through an endpoint you supply, and refuses traffic when that endpoint is down), no TLS or DNS fingerprint defence, and
 no promise that a hostile challenge page can be bypassed — [compatibility mode](#compatibility-mode-per-site)
@@ -326,19 +327,19 @@ npm run icon           # regenerate build/icon.ico + icon.png
 
 | Output | What it is |
 | --- | --- |
-| `release/WARDEN-Setup-0.2.0.exe` | Per-user NSIS installer. Not one-click: the operator picks the directory, and it creates Start menu + desktop shortcuts named WARDEN. |
-| `release/WARDEN-Portable-0.2.0.exe` | Single executable. Extracts to a temp directory at launch, keeps its own profile, leaves no installed state. |
+| `release/WARDEN-Setup-0.2.3.exe` | Per-user NSIS installer. Not one-click: the operator picks the directory, and it creates Start menu + desktop shortcuts named WARDEN. |
+| `release/WARDEN-Portable-0.2.3.exe` | Single executable. Extracts to a temp directory at launch, keeps its own profile, leaves no installed state. |
 | `release/win-unpacked/` | Raw app directory, useful for smoke tests and for copying to a lab share. |
 
 The packaged app is verified, not just built: `npm run smoke:dist` runs the same 17 checks as `npm run smoke` (cookies inert, trackers blocked, PTY shell, all six workspaces) against `release/win-unpacked/WARDEN.exe`. Point it at the portable artifact to test that instead:
 
 ```bash
-WARDEN_SMOKE_BIN=release/WARDEN-Portable-0.2.0.exe npm run smoke:dist
+WARDEN_SMOKE_BIN=release/WARDEN-Portable-0.2.3.exe npm run smoke:dist
 ```
 
 Both were run through the suite last build, 32/32. `node-pty` is unpacked from the asar archive (`asarUnpack`) because it loads a native `.node` binary; `npmRebuild` is off because the shipped prebuilds are the ones that were tested against Electron 45.
 
-App metadata is embedded in both executables: `ProductName` WARDEN, `FileDescription` from the package description, version 0.2.0, company WARDEN, and the generated shield icon at 16–256px.
+App metadata is embedded in both executables: `ProductName` WARDEN, `FileDescription` from the package description, version 0.2.3, company WARDEN, and the generated shield icon at 16–256px.
 
 **The builds are unsigned as shipped today.** Windows SmartScreen warns on first run until a certificate backs them. There are two routes, and only one of them is both free and publicly trusted.
 
@@ -378,10 +379,10 @@ Both actions are per-user and need no administrator rights, so they work under a
 
 ```bash
 # Silent install, default path (%LOCALAPPDATA%\Programs\WARDEN)
-WARDEN-Setup-0.2.0.exe /S
+WARDEN-Setup-0.2.3.exe /S
 
 # Silent install to a chosen directory: /D= must be last, unquoted, no trailing backslash
-WARDEN-Setup-0.2.0.exe /S /D=C:\Tools\WARDEN
+WARDEN-Setup-0.2.3.exe /S /D=C:\Tools\WARDEN
 
 # Silent uninstall
 "%LOCALAPPDATA%\Programs\WARDEN\Uninstall WARDEN.exe" /currentuser /S
@@ -425,9 +426,9 @@ A release makes the feed work only when the metadata goes up with the installers
 ```bash
 npm run dist:release            # builds and publishes with GH_TOKEN set
 # or, when uploading by hand:
-gh release upload v0.2.0 release/WARDEN-Setup-0.2.0.exe \
-  release/WARDEN-Portable-0.2.0.exe release/latest.yml \
-  release/WARDEN-Setup-0.2.0.exe.blockmap --clobber
+gh release upload v0.2.3 release/WARDEN-Setup-0.2.3.exe \
+  release/WARDEN-Portable-0.2.3.exe release/latest.yml \
+  release/WARDEN-Setup-0.2.3.exe.blockmap --clobber
 ```
 
 `latest.yml` and the `.blockmap` files are not optional: without `latest.yml` no client sees an
@@ -436,7 +437,7 @@ SmartScreen may warn once per release and `electron-updater` accepts the install
 content hash rather than a publisher signature — decide deliberately before pointing a fleet at
 `latest`.
 
-**The installed 0.1.0 build has no updater**, so it cannot pick 0.2.0 up on its own: install 0.2.0
+**The installed 0.1.0 build has no updater**, so it cannot pick 0.2.3 up on its own: install 0.2.3
 once by hand (or through Intune), and every release after that is automatic.
 
 **Portable caveat:** the portable exe extracts a full Electron tree to
@@ -467,6 +468,21 @@ Microsoft's Content Prep Tool — so [`scripts/package-intune.ps1`](scripts/pack
 stages the payload with both the setup exe and the deploy script (the command lines use
 relative paths, so both must sit at the content root) and builds the package when the
 tool is available.
+
+---
+
+## Mobile (Android and iOS)
+
+Electron has no mobile runtime, so `mobile/` is a Capacitor shell over WARDEN's own React surfaces,
+rendered by the Android WebView and the iOS WKWebView; the platform engines do the filtering from
+`src/main/privacy/filter-engine.ts` on one side and a compiled `WKContentRuleList` on the other. The
+shell opens pages in the platform's private browser surface, keeps no cookie jar of its own, ships no
+analytics or ad SDK, and requests no camera or microphone.
+
+`.github/workflows/mobile-android.yml` builds a signed `.aab` when the keystore secrets exist (an
+unsigned bundle otherwise), and `mobile-ios.yml` archives on a macOS runner, signed when an App Store
+Connect key is configured. Store listing text, the data-safety answers and the roadmap are in
+[docs/MOBILE.md](docs/MOBILE.md) and `mobile/store/`.
 
 ---
 
