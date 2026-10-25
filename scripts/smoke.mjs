@@ -140,6 +140,11 @@ const verify = (report) => {
       report.ui?.findBar?.bottom <= report.ui?.findBar?.stripLimit &&
       parseFloat(report.ui?.findBar?.radius ?? '0') > 0,
     'find button collapses the bar again': report.ui?.findClosed === true,
+    'send to scry carries the tab into scry':
+      report.ui?.sendButton === true &&
+      report.ui?.sendToScry?.workspace === 'Scry' &&
+      report.ui?.sendToScry?.modesArmed === true &&
+      (report.ui?.sendToScry?.target ?? '').length > 0,
     'scry offers recon, clone and innovate':
       JSON.stringify((report.ui?.scryModes ?? []).map((mode) => mode.name)) ===
       JSON.stringify(['Recon', 'Clone', 'Innovate']),
