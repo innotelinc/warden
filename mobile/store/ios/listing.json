@@ -15,7 +15,7 @@
     "expected": "4+",
     "notes": "No user-generated content, no web search of its own, no ads, no purchases. The app opens pages in SFSafariViewController, which is rated 17+ in isolation; the listing declares that the app itself contains no objectionable material, and review should be answered accordingly."
   },
-  "reviewNotes": "Sign-in is not required. Reviewers can open any public site from the address field. The app hands URLs to SFSafariViewController; it does not embed a custom engine in this release.",
+  "reviewNotes": "Sign-in is not required. Reviewers can open any public site from the address field. The app hands URLs to SFSafariViewController; it does not embed a custom engine in this release. It is not a shortcut to one website: it ships no bundled site, no account and no server of its own, and the session posture and quick destinations screens are the app's own UI. No permissions are requested at any point.",
   "exportCompliance": "ITSAppUsesNonExemptEncryption is false in Info.plist: the app uses only OS-provided HTTPS, no custom cryptography.",
   "graphics": {
     "appIcon": "icon-1024.png",
@@ -24,5 +24,5 @@
       "ipad-13": ["ipad-1.png", "ipad-2.png"]
     }
   },
-  "notes": "Archive with .github/workflows/mobile-ios.yml, then upload the .ipa with Transporter or `xcrun altool`. Fill the App Privacy form as 'Data Not Collected'."
+  "notes": "Push a v* tag: .github/workflows/mobile-ios.yml archives, exports and uploads the build to TestFlight. A manual run exports a signed .ipa instead unless upload_to_testflight is ticked. Fill the App Privacy form as 'Data Not Collected' — App/PrivacyInfo.xcprivacy says the same inside the bundle."
 }

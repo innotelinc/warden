@@ -24,13 +24,22 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<!-- Paired with ios.limitsNavigationsToAppBoundDomains in capacitor.config.ts:
+	     the bridge WebView may only stay on the shell's own local origin, so a
+	     page can never be navigated into a context that holds the Capacitor bridge. -->
+	<key>WKAppBoundDomains</key>
+	<array>
+		<string>localhost</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

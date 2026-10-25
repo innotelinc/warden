@@ -89,20 +89,49 @@ Versioning: bump `versionCode` and `versionName` in
 ### iOS
 
 1. Create the app record in App Store Connect with bundle id
-   `us.innotel.warden`.
+   `us.innotel.warden`. Automatic signing can register the bundle id and fetch a
+   profile, but it cannot create this record, and an upload with nowhere to land
+   fails.
 2. Create an App Store Connect API key (Users and Access → Integrations) with
    the App Manager role, and add repository secrets: `APPLE_TEAM_ID`,
    `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`,
    `APP_STORE_CONNECT_KEY_P8`.
-3. Run **Mobile (iOS)**. The workflow archives on a macOS runner with automatic
-   signing (`-allowProvisioningUpdates`) and uploads an `.ipa` artifact.
-4. Upload it with Transporter, or
-   `xcrun altool --upload-app -f WARDEN.ipa -t ios --apiKey … --apiIssuer …`,
-   then attach the build to the version in App Store Connect and submit.
+3. Push a `v*` tag (or run **Mobile (iOS)** by hand). The workflow stamps the
+   version from the tag — the manual run uses `mobile/package.json` — and the
+   build number from the run number, which only ever increases, so every upload
+   of 0.2.4 is accepted.
+4. A tag push archives with automatic signing, exports with
+   `destination=upload` and lands in **TestFlight**; no `altool` or Transporter
+   step exists any more. A manual run exports a signed `.ipa` and attaches it to
+   the `warden-ios` artifact unless `upload_to_testflight` is ticked.
+5. In App Store Connect, attach the TestFlight build to the version, answer the
+   privacy form and submit. Internal testing needs no review; external testing
+   and the App Store do.
 
-The App Privacy form is *Data Not Collected*; export compliance is answered by
+Without the four secrets the job still archives (unsigned) so a fresh clone has
+something to inspect; it prints a notice instead of failing.
+
+The App Privacy form is *Data Not Collected*, which `App/PrivacyInfo.xcprivacy`
+states in the app bundle as well. Export compliance is answered by
 `ITSAppUsesNonExemptEncryption = false` in `Info.plist`, so no exemption
 paperwork is needed.
+
+What is already in the repository, so nobody regenerates it by hand:
+
+- `App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` — the WARDEN mark
+  flattened onto its own background and cropped past the macOS-style rounding,
+  because iOS applies the mask itself. 1024×1024, no alpha channel.
+- `App/Assets.xcassets/Splash.imageset/` — the same art on a 2732×2732 launch
+  background, and `LaunchScreen.storyboard` paints that background rather than
+  the system colour, so there is no white flash on launch.
+- `App/PrivacyInfo.xcprivacy` — no tracking, no collected data, and the two
+  required-reason APIs Capacitor's bridge touches (UserDefaults, file
+  timestamps).
+- `App/Info.plist` — `WKAppBoundDomains` listing `localhost`, which is what
+  `ios.limitsNavigationsToAppBoundDomains` needs so the bridge WebView can never
+  be navigated off the shell's own origin.
+- `App.xcodeproj/xcshareddata/xcschemes/App.xcscheme` — a shared scheme, without
+  which `xcodebuild -scheme App` has nothing to build on a fresh checkout.
 
 ## Store metadata
 
@@ -111,21 +140,28 @@ text that goes into both consoles: titles, descriptions, category, contact and
 privacy URLs, data-safety answers, rating expectations and review notes. Copy
 them in verbatim so the two listings and this repository agree.
 
-Icons and screenshots are the remaining graphics: 512×512 and 1024×1024 icons,
-a 1024×500 feature graphic, and phone/tablet screenshots. They are not in the
-repository yet; generate them from the running shell once the first internal
-build exists, so the screenshots show the real UI.
+App icons are in the repository for iOS (above); Android's launcher icons are
+still Capacitor's generated set. Screenshots are the remaining graphics:
+they have to come from the running app, so they are captured once the first
+internal build exists and show the real UI rather than a mockup.
 
 ## What the owner still has to do
 
 - Google Play: account existence, identity verification and the one-time $25
   fee. The Play Console app record cannot be created by automation without that
   account, and the first `.aab` upload has to come from a signed build.
-- Apple: nothing blocking, since the developer account exists. Confirm the team
-  id and create the App Store Connect API key, then set the four secrets above.
+- Apple: the developer account exists. Three things are still only doable from
+  the account: create the app record in App Store Connect for
+  `us.innotel.warden`, create the App Store Connect API key, and set the four
+  secrets above. Everything after that runs from a tag.
 - Both stores: confirm the developer name, support email and privacy-policy URL
   (`https://innotelinc.github.io/warden/privacy.html`, deployed by the Pages
   workflow from `web/landing/`).
+- App Review, worth answering before it is asked: 4.2 (minimum functionality)
+  is the guideline a browser shell gets questioned under. The listing's review
+  notes should say plainly what the app is for and why it is not a shortcut to a
+  website — the session posture and quick destinations are the app's own, and it
+  collects nothing.
 
 ## Non-goals
 

@@ -21,6 +21,10 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: 'automatic',
+    // Pairs with WKAppBoundDomains in ios/App/App/Info.plist: the bridge WebView
+    // may only stay on the shell's own local origin, so no page can be navigated
+    // into a context holding the Capacitor bridge. Capacitor requires both halves
+    // or the setting does nothing useful.
     limitsNavigationsToAppBoundDomains: true
   }
 }

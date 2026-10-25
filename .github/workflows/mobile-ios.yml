@@ -1,6 +1,8 @@
 name: Mobile (iOS)
 
-# Archives and exports an .ipa on a macOS runner. Needs, from repository secrets:
+# Archives, exports and (when asked) uploads WARDEN for iOS on a macOS runner.
+#
+# Needs, from repository secrets:
 #   APPLE_TEAM_ID                10-character Apple Developer team id
 #   APP_STORE_CONNECT_KEY_ID     App Store Connect API key id
 #   APP_STORE_CONNECT_ISSUER_ID  API key issuer id
@@ -8,11 +10,19 @@ name: Mobile (iOS)
 # Automatic signing then fetches the distribution profile, so no provisioning
 # profile or .p12 belongs in the repository or in chat.
 #
-# Upload to TestFlight/App Store is left as a manual `xcrun altool`/Transporter
-# step (or fastlane lane `ios beta`), because an upload is a publish action.
+# A push of a v* tag builds that tag's version and uploads it to TestFlight. A
+# manual run builds the version in mobile/package.json and only uploads when the
+# `upload_to_testflight` box is ticked, so a dry run never publishes.
+# Without the App Store Connect key the job still archives — unsigned, for
+# inspection — instead of failing on empty credentials.
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_to_testflight:
+        description: Upload the finished build to TestFlight
+        type: boolean
+        default: false
   push:
     tags:
       - 'v*'
@@ -38,6 +48,38 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
+      # The tag names the version for a release build; a manual run uses the
+      # version committed in mobile/package.json. The build number is the run
+      # number, which only ever increases, so App Store Connect accepts every
+      # upload of the same marketing version.
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "WARDEN ${VERSION} (${GITHUB_RUN_NUMBER})"
+
+      - name: Decide whether to upload
+        id: upload
+        env:
+          REQUESTED: ${{ github.event_name == 'push' || inputs.upload_to_testflight }}
+        run: |
+          if [ -z "${ASC_KEY_ID:-}" ]; then
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No App Store Connect key configured — archiving unsigned, skipping the .ipa and TestFlight."
+          elif [ "${REQUESTED}" = "true" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Build will be uploaded to TestFlight."
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Upload not requested — exporting a signed .ipa for manual upload."
+          fi
+
       - name: Install
         run: npm ci && npm run build && npx cap sync ios
 
@@ -59,16 +101,17 @@ jobs:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
         working-directory: mobile/ios/App
         run: |
-          # Without an App Store Connect key there is nothing to sign or fetch a
-          # profile with, so a fresh clone still archives — unsigned, for
-          # inspection — rather than failing on an empty authenticationKeyID.
           args=(-workspace App.xcworkspace
                 -scheme App
                 -configuration Release
                 -destination 'generic/platform=iOS'
-                -archivePath "$RUNNER_TEMP/WARDEN.xcarchive")
+                -archivePath "$RUNNER_TEMP/WARDEN.xcarchive"
+                MARKETING_VERSION="$VERSION"
+                CURRENT_PROJECT_VERSION="$BUILD")
           if [ -n "${KEY_ID:-}" ] && [ -n "${ISSUER_ID:-}" ] \
              && [ -f "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" ]; then
             args+=(-allowProvisioningUpdates
@@ -82,10 +125,16 @@ jobs:
           fi
           xcodebuild "${args[@]}" archive
 
+      # `destination=upload` hands the build to App Store Connect from the same
+      # export Xcode already does, so TestFlight needs no altool/Transporter step.
       - name: Export ipa
         if: env.ASC_KEY_ID != ''
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DESTINATION: ${{ steps.upload.outputs.value == 'true' && 'upload' || 'export' }}
         working-directory: mobile/ios/App
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
@@ -96,14 +145,29 @@ jobs:
             <key>signingStyle</key><string>automatic</string>
             <key>teamID</key><string>$TEAM_ID</string>
             <key>uploadSymbols</key><true/>
-            <key>destination</key><string>export</string>
+            <key>destination</key><string>$DESTINATION</string>
           </dict></plist>
           EOF
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/WARDEN.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      # A stable name for the artifact, and for the human who has to pick it out
+      # of the Downloads folder.
+      - name: Name the build
+        if: env.ASC_KEY_ID != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -f "$RUNNER_TEMP/export/App.ipa" ]; then
+            mv "$RUNNER_TEMP/export/App.ipa" "$RUNNER_TEMP/export/WARDEN-${VERSION}.ipa"
+          fi
+          ls -la "$RUNNER_TEMP/export"
 
       # An unsigned archive has no .ipa; keep the archive for inspection instead.
       - uses: actions/upload-artifact@v4
