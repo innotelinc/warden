@@ -55,7 +55,7 @@ page-level cookie lock), on a browsing session created without the `persist:` pa
 and there is no cookie database, no page cache and no session file to recover. Burner tabs get their
 own throwaway session, and every messaging service runs in its own isolated one.
 
-Currently at **v0.2.1**: all seven workspaces are functional, the filter engine parses Adblock-Plus
+Currently at **v0.2.2**: all seven workspaces are functional, the filter engine parses Adblock-Plus
 syntax, Scry captures and rebuilds sites, the terminal runs a real PTY, mail speaks IMAP and SMTP, and
 the Windows installer plus portable build are produced by `npm run dist`. Verified by unit tests over
 the decision surfaces and a smoke suite that drives the real UI and the packaged binary.
