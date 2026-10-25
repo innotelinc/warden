@@ -36,6 +36,7 @@ import { SecretVault } from './security/vault'
 import { errorHtml, newTabHtml, viewerHtml } from './internal-pages'
 import { registerIpc, type WardenContext } from './ipc'
 import { runSmoke } from './smoke'
+import { buildChromeMenu } from './chrome-menu'
 
 const isDev = !app.isPackaged
 
@@ -185,6 +186,15 @@ async function createWindow(stores: Stores): Promise<void> {
       }
     ])
   )
+
+  // Chromium only raises `context-menu` on the web contents it happens in, so
+  // the chrome needs its own handler: without this, right clicking the address
+  // bar showed nothing at all and a URL could not be pasted with the mouse.
+  win.webContents.on('context-menu', (_event, params) => {
+    const template = buildChromeMenu(params)
+    if (!template.length) return
+    Menu.buildFromTemplate(template).popup({ window: win ?? undefined })
+  })
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (isDev && rendererUrl) {
