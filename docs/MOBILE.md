@@ -108,6 +108,23 @@ Versioning: bump `versionCode` and `versionName` in
    privacy form and submit. Internal testing needs no review; external testing
    and the App Store do.
 
+"Upload succeeded" only means App Store Connect took the file. It processes a
+build for 5–15 minutes afterwards and can still reject it, so **iOS build
+status** asks Apple what actually became of it:
+
+```
+gh workflow run ios-build-status.yml                      # report once
+gh workflow run ios-build-status.yml -f wait_minutes=20   # poll until settled
+gh workflow run ios-build-status.yml -f build_version=0.2.4
+```
+
+It prints the marketing version, build number, upload time in UTC and the
+processing state (`PROCESSING`, `VALID`, `FAILED`, `INVALID`) with what each one
+means, runs on Ubuntu in seconds, and exits non-zero when a build is still
+processing when the wait runs out or has failed. `scripts/ios-build-status.py`
+signs its own App Store Connect token with `openssl`, so nothing is installed on
+the runner.
+
 Without the four secrets the job still archives (unsigned) so a fresh clone has
 something to inspect; it prints a notice instead of failing.
 
