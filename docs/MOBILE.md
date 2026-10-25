@@ -123,6 +123,15 @@ is generated: revoke it and make a new key, then update
 `APP_STORE_CONNECT_KEY_ID` and `APP_STORE_CONNECT_KEY_P8`. The issuer id and team
 id do not change.
 
+The SDK is the other half of the upload. App Store Connect accepts nothing built
+with an SDK older than **iOS 26** (Xcode 26 or later), and the `macos-15` runner
+image still defaults to Xcode 16.4, so the workflow selects the newest stable
+Xcode on the image and refuses to continue if `xcrun --sdk iphoneos
+--show-sdk-version` reports anything below 26. That check exists because the
+first successful upload was rejected *after* analysis with `SDK version issue`,
+which costs a full build to discover. Xcode 26 supports iOS 15 and later, so the
+deployment target is 15.0 in both `App.xcodeproj` and `Podfile`.
+
 The App Privacy form is *Data Not Collected*, which `App/PrivacyInfo.xcprivacy`
 states in the app bundle as well. Export compliance is answered by
 `ITSAppUsesNonExemptEncryption = false` in `Info.plist`, so no exemption

@@ -94,4 +94,45 @@ describe('iOS project', () => {
       /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\/>/
     )
   })
+
+  /**
+   * Xcode 26 supports iOS 15 and later; a project left at 14.0 is below the
+   * range its SDK documents. The Podfile and the project also have to agree, or
+   * `pod install` rewrites the target and the archive builds at a different
+   * minimum than the one committed.
+   */
+  it('keeps every deployment target at the Xcode 26 floor', () => {
+    const targets = [...read(PROJECT).matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/g)].map(
+      (m) => m[1]
+    )
+
+    expect(targets.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(targets)).toEqual(new Set(['15.0']))
+    expect(read('mobile/ios/App/Podfile')).toContain("platform :ios, '15.0'")
+  })
+})
+
+/**
+ * Nothing in this repository can build for iOS, so the workflow is the only
+ * thing standing between a green run and a rejected upload. The macos-15 image
+ * defaults to Xcode 16.4 / the iOS 18.5 SDK, and App Store Connect accepts
+ * nothing below the iOS 26 SDK: the build uploaded and was then thrown out on
+ * analysis. Both halves of the guard are asserted, because without the first
+ * the run builds against the old SDK and without the second it finds out ten
+ * minutes later.
+ */
+describe('iOS workflow', () => {
+  const workflow = read('.github/workflows/mobile-ios.yml')
+
+  it('selects a current Xcode instead of the image default', () => {
+    expect(workflow).toContain('maxim-lobanov/setup-xcode')
+    expect(workflow).toMatch(/xcode-version:\s*(latest-stable|['"]?26)/)
+    expect(workflow.indexOf('setup-xcode')).toBeLessThan(workflow.indexOf('name: Archive'))
+  })
+
+  it('refuses an SDK that App Store Connect will reject', () => {
+    expect(workflow).toContain('xcrun --sdk iphoneos --show-sdk-version')
+    expect(workflow).toMatch(/-lt 26/)
+    expect(workflow.indexOf('--show-sdk-version')).toBeLessThan(workflow.indexOf('name: Archive'))
+  })
 })

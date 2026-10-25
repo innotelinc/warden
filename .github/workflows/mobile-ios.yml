@@ -51,6 +51,28 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
+      # The macos-15 image still defaults to Xcode 16.4, which builds against the
+      # iOS 18.5 SDK. App Store Connect accepts nothing older than the iOS 26
+      # SDK, so the newest stable Xcode on the image is selected explicitly
+      # rather than taking whatever the image happens to default to.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Checked here, in seconds, because the alternative is discovering it after
+      # a ten-minute archive and an upload App Store Connect then rejects with
+      # "SDK version issue".
+      - name: Check the iOS SDK
+        run: |
+          xcodebuild -version
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iOS SDK ${SDK}"
+          if [ "${SDK%%.*}" -lt 26 ]; then
+            echo "::error::App Store Connect requires the iOS 26 SDK or later; this runner has ${SDK}."
+            exit 1
+          fi
+
       # The tag names the version for a release build; a manual run uses the
       # version committed in mobile/package.json. The build number is the run
       # number, which only ever increases, so App Store Connect accepts every
