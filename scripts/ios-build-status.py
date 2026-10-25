@@ -344,11 +344,12 @@ RECOMMENDED_SHOTS = 3
 def newest_version(bearer: str, app: str) -> dict:
     """The version page a submission is made against, with its build, its
     per-language text and its review notes attached."""
+    # App Store Connect exposes versions only under their app; the top-level
+    # collection answers 403 FORBIDDEN_ERROR rather than an empty list.
     payload = get(
-        "/v1/appStoreVersions",
+        f"/v1/apps/{app}/appStoreVersions",
         bearer,
         {
-            "filter[app]": app,
             "filter[platform]": "IOS",
             "sort": "-createdDate",
             "limit": "1",
@@ -401,10 +402,9 @@ def screenshots(bearer: str, localization: str) -> list[dict]:
 
 def app_info(bearer: str, app: str) -> dict:
     payload = get(
-        "/v1/appInfos",
+        f"/v1/apps/{app}/appInfos",
         bearer,
         {
-            "filter[app]": app,
             "limit": "5",
             "include": "appInfoLocalizations,primaryCategory,ageRatingDeclaration",
         },
