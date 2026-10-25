@@ -1,0 +1,116 @@
+name: Build and sign release
+
+# SignPath Foundation signs open-source projects for free, but only artifacts
+# built by a GitHub workflow on GitHub-hosted runners — that is the evidence the
+# certificate is issued against, so the build and the signing request have to
+# live in the same job graph.
+#
+# Required repository configuration (Settings → Secrets and variables → Actions):
+#   secret SIGNPATH_API_TOKEN                     SignPath API token with submitter rights
+#   var    SIGNPATH_ORGANIZATION_ID               organization id from SignPath
+#   var    SIGNPATH_PROJECT_SLUG                  project slug ("warden")
+#   var    SIGNPATH_SIGNING_POLICY_SLUG           signing policy slug ("release-signing")
+#   var    SIGNPATH_ARTIFACT_CONFIGURATION_SLUG   slug for signing/artifact-configuration.xml
+#
+# Install the SignPath GitHub App on the repository as well: it supplies the
+# origin metadata SignPath verifies before signing.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag to attach the signed installers to (optional)'
+        required: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-and-sign:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify before signing
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build installers
+        run: npm run dist
+        env:
+          # Unsigned build here; SignPath adds the Authenticode signature after.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Stage installers
+        run: |
+          New-Item -ItemType Directory -Force -Path unsigned | Out-Null
+          Copy-Item release/WARDEN-Setup-*.exe unsigned/
+          Copy-Item release/WARDEN-Portable-*.exe unsigned/
+          Get-ChildItem unsigned | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Upload unsigned installers
+        id: unsigned
+        uses: actions/upload-artifact@v7
+        with:
+          name: warden-unsigned
+          path: unsigned/*.exe
+          if-no-files-found: error
+
+      - name: Sign with SignPath Foundation
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Check the signatures
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem signed/*.exe
+          if (-not $files) { throw 'SignPath returned no signed installers' }
+          $bad = 0
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            $stamp = if ($signature.TimeStamperCertificate) { 'timestamped' } else { 'NOT timestamped' }
+            Write-Host ("{0}: {1} · {2} · {3}" -f $file.Name, $signature.Status, $signature.SignerCertificate.Subject, $stamp)
+            if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { $bad += 1 }
+          }
+          if ($bad -gt 0) { throw "$bad installer(s) are not validly signed and timestamped" }
+          Get-FileHash signed/*.exe -Algorithm SHA256 | ForEach-Object { Write-Host "$($_.Hash)  $(Split-Path -Leaf $_.Path)" }
+
+      - name: Keep the signed installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: warden-signed
+          path: signed/*.exe
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:TAG --title $env:TAG --generate-notes }
+          gh release upload $env:TAG signed/*.exe --clobber

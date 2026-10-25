@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  SignPath artifact configuration for WARDEN.
+
+  The GitHub workflow uploads the two installers with actions/upload-artifact,
+  which always delivers them as one ZIP, so the root element is <zip-file> and
+  each installer is matched inside it. Paste this into SignPath
+  (Project → Artifact Configurations) and use the resulting slug in the
+  SIGNPATH_ARTIFACT_CONFIGURATION_SLUG repository variable.
+
+  Only the two shipped installers are signed. The payload executable inside the
+  NSIS installer keeps whatever signature it was built with; signing it as well
+  requires signing win-unpacked\WARDEN.exe before packaging, which SignPath
+  cannot do from a single archived artifact.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration">
+  <zip-file>
+    <pe-file path="WARDEN-Setup-*.exe">
+      <authenticode-sign hash-algorithm="sha256" description="WARDEN installer" />
+    </pe-file>
+    <pe-file path="WARDEN-Portable-*.exe">
+      <authenticode-sign hash-algorithm="sha256" description="WARDEN portable" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
