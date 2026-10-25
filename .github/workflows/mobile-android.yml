@@ -20,6 +20,10 @@ permissions:
 jobs:
   bundle:
     runs-on: ubuntu-latest
+    # A secret cannot be read in a step's `if:` — GitHub rejects the whole file.
+    # Hoist it to the job env and test that instead.
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     defaults:
       run:
         working-directory: mobile
@@ -44,9 +48,7 @@ jobs:
         run: npm run build && npx cap sync android
 
       - name: Decode keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
         run: |
           mkdir -p android/keystore
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/warden-release.keystore
