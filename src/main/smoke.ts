@@ -29,7 +29,7 @@ function waitForLoad(wc: Electron.WebContents, timeoutMs = 25000): Promise<void>
 export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
   const result: Record<string, unknown> = { ok: false }
   try {
-    const tabId = ctx.tabs.create(url)
+    const tabId = ctx.tabs.create(url, false)
     const wc = ctx.tabs.getWebContents(tabId)
     if (!wc) throw new Error('tab has no webContents')
 
@@ -245,7 +245,7 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
     const compatHost = new URL(url).hostname
     const originalSettings = ctx.privacy.getSettings()
     ctx.privacy.applySettings({ ...originalSettings, compatibility: [compatHost] })
-    const compatTab = ctx.tabs.create(url)
+    const compatTab = ctx.tabs.create(url, false)
     const compatWc = ctx.tabs.getWebContents(compatTab)
     if (compatWc) {
       await waitForLoad(compatWc)
@@ -281,7 +281,7 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       compatibility: [],
       allowlist: [...originalSettings.allowlist, compatHost]
     })
-    const allowedTab = ctx.tabs.create(url)
+    const allowedTab = ctx.tabs.create(url, false)
     const allowedWc = ctx.tabs.getWebContents(allowedTab)
     if (allowedWc) {
       await waitForLoad(allowedWc)
@@ -294,6 +294,47 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       }
     }
     ctx.tabs.close(allowedTab)
+    ctx.privacy.applySettings(originalSettings)
+
+    // Private by default: a tab created without an explicit choice must land in
+    // its own in-memory session, not the shared browsing one.
+    const privateTab = ctx.tabs.create(url)
+    result.privateTab = ctx.tabs.list().find((entry) => entry.id === privateTab)?.isBurner === true
+    ctx.tabs.close(privateTab)
+
+    // Sensors: an allowlisted site gets a processed track from the fake capture
+    // device, and the page-world shim reports the configured treatment.
+    ctx.privacy.applySettings({
+      ...originalSettings,
+      compatibility: [],
+      allowlist: [...originalSettings.allowlist, compatHost],
+      cameraMode: 'pixelate',
+      cameraStrength: 60,
+      voiceMode: 'robot'
+    })
+    const sensorTab = ctx.tabs.create(url, false)
+    const sensorWc = ctx.tabs.getWebContents(sensorTab)
+    if (sensorWc) {
+      await waitForLoad(sensorWc)
+      result.sensors = await sensorWc.executeJavaScript(
+        `(async () => {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            return {
+              video: stream.getVideoTracks().length,
+              audio: stream.getAudioTracks().length,
+              shim: Boolean(window.__wardenSensorShim),
+              shimError: window.__wardenSensorError || null,
+              state: window.__wardenSensors || null
+            }
+          } catch (error) {
+            return { error: String((error && error.name) || error) }
+          }
+        })()`,
+        true
+      )
+    }
+    ctx.tabs.close(sensorTab)
     ctx.privacy.applySettings(originalSettings)
 
     // Privacy lock: cover the app, reject a wrong password, then clear with the
@@ -335,6 +376,9 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       (result.lock as { wrongRejected?: boolean })?.wrongRejected === true &&
       (result.lock as { stillLocked?: boolean })?.stillLocked === true &&
       (result.lock as { cleared?: boolean })?.cleared === true &&
+      result.privateTab === true &&
+      Number((result.sensors as { video?: number } | undefined)?.video) >= 1 &&
+      (result.sensors as { state?: { camera?: string } } | undefined)?.state?.camera === 'pixelate' &&
       report.requests > 0
   } catch (error) {
     result.error = (error as Error).stack ?? (error as Error).message

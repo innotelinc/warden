@@ -9,6 +9,7 @@
  */
 import { ipcRenderer, webFrame } from 'electron'
 import { HARDENING_SCRIPT } from '../main/privacy/hardening'
+import { sensorScript, type SensorConfig } from '../main/privacy/sensor-script'
 import type { MediaItem, MediaKind } from '../shared/types'
 
 function argValue(name: string): string {
@@ -93,6 +94,22 @@ const COOKIE_LOCK = `(() => {
   try { Object.defineProperty(window, 'cookieStore', { value: undefined, configurable: true }) } catch (e) {}
 })()`
 
+/**
+ * Camera and microphone treatment, read from the main process on every
+ * document so a Policy change applies to the next reload instead of needing a
+ * tab to be recreated. Injected into the main world because patching
+ * `navigator.mediaDevices` in an isolated preload world is invisible to pages.
+ */
+const sensors = (() => {
+  try {
+    const answer = ipcRenderer.sendSync('warden:sensors:sync')
+    if (answer && typeof answer === 'object') return answer as SensorConfig
+  } catch {
+    /* fall through: sensors stay untouched */
+  }
+  return null
+})()
+
 function installHardening(): void {
   try {
     // Nothing is injected into a compatibility site; the main process has
@@ -100,6 +117,23 @@ function installHardening(): void {
     if (compatibilitySite) return
     if (!cookiesAllowed) void webFrame.executeJavaScript(COOKIE_LOCK, false)
     void webFrame.executeJavaScript(HARDENING_SCRIPT, false)
+    if (sensors) {
+      const active =
+        sensors.cameraBlocked ||
+        sensors.microphoneBlocked ||
+        sensors.cameraMode !== 'off' ||
+        sensors.voiceMode !== 'off'
+      if (active) {
+        webFrame
+          .executeJavaScript(sensorScript(sensors), false)
+          .catch((error: Error) => {
+            void webFrame.executeJavaScript(
+              `window.__wardenSensorError = ${JSON.stringify(error.message || String(error))}`,
+              false
+            )
+          })
+      }
+    }
   } catch {
     /* the page may be gone already */
   }

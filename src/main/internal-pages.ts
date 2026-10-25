@@ -38,13 +38,15 @@ const escapeHtml = (value: string): string =>
 
 export interface NewTabData {
   stats: PrivacyStats
+  /** Short privacy facts for the splash chips, already phrased for display. */
+  facts: string[]
   bookmarks: { url: string; title: string }[]
   version: string
   homepage: string
 }
 
 export function newTabHtml(data: NewTabData): string {
-  const { stats } = data
+  const { stats, facts } = data
   const blocked = stats.blockedTotal.toLocaleString()
   const top = stats.topHosts
     .slice(0, 6)
@@ -77,22 +79,79 @@ export function newTabHtml(data: NewTabData): string {
 <title>WARDEN</title>
 <style>
 ${BASE_CSS}
-  .wrap { max-width: 980px; margin: 0 auto; padding: 64px 32px 48px; }
-  .brand { display: flex; align-items: center; gap: 14px; }
-  .sigil {
-    width: 34px; height: 34px; border-radius: 9px;
-    background: linear-gradient(150deg, var(--mint), #1f8f7c 55%, #0d5a4f);
-    box-shadow: 0 0 0 1px rgba(79,227,193,.35), 0 10px 30px -12px rgba(79,227,193,.7);
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 32px 48px; }
+  .splash {
     position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 74px 0 44px;
+    margin: 0 -32px 8px;
+    border-bottom: 1px solid rgba(30, 38, 49, .65);
+    background:
+      radial-gradient(760px 340px at 50% -10%, rgba(79, 227, 193, .12), transparent 68%),
+      radial-gradient(520px 260px at 82% 10%, rgba(167, 139, 250, .09), transparent 70%);
   }
-  .sigil::after {
-    content: ""; position: absolute; inset: 9px 10px;
-    border: 2px solid rgba(5, 20, 17, .75); border-radius: 3px 3px 9px 9px;
-    border-top-width: 3px;
+  .splash::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(79, 227, 193, .05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79, 227, 193, .05) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(circle at 50% 20%, #000 5%, transparent 68%);
+    pointer-events: none;
   }
-  h1 { font-size: 15px; letter-spacing: .32em; margin: 0; font-weight: 650; }
-  .tag { color: var(--muted); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; margin-top: 4px; }
-  .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 38px; }
+  .mark { position: relative; width: 132px; height: 150px; display: grid; place-items: center; }
+  .mark svg.shield {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    color: rgba(79, 227, 193, .55);
+    filter: drop-shadow(0 18px 44px rgba(79, 227, 193, .18));
+  }
+  .mark .w {
+    position: relative;
+    font: 700 74px/1 "Segoe UI", system-ui, sans-serif;
+    letter-spacing: -.04em;
+    background: linear-gradient(170deg, #b9fff0 4%, #4fe3c1 46%, #1f8f7c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    transform: translateY(-4px);
+  }
+  .splash h1 {
+    position: relative;
+    margin: 18px 0 0;
+    font-size: 30px;
+    font-weight: 620;
+    letter-spacing: -.01em;
+    color: #eaf4ff;
+  }
+  .splash .lede {
+    position: relative;
+    margin: 9px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .chips { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 22px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 11px;
+    border: 1px solid rgba(79, 227, 193, .2);
+    border-radius: 999px;
+    background: rgba(11, 26, 23, .55);
+    color: #a9c9c1;
+    font: 10.5px/1 "Cascadia Mono", Consolas, monospace;
+    letter-spacing: .06em;
+  }
+  .chip i { width: 5px; height: 5px; border-radius: 999px; background: var(--mint); box-shadow: 0 0 8px rgba(79,227,193,.9); }
+  .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 28px; }
   .card { background: linear-gradient(180deg, rgba(20,26,34,.85), rgba(15,19,25,.85)); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
   .card h2 { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
   .hero { font-size: 44px; line-height: 1; font-weight: 620; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
@@ -114,13 +173,18 @@ ${BASE_CSS}
 </head>
 <body>
   <div class="wrap">
-    <div class="brand">
-      <div class="sigil"></div>
-      <div>
-        <h1>WARDEN</h1>
-        <div class="tag">Read everything. Give nothing.</div>
+    <header class="splash">
+      <div class="mark">
+        <svg class="shield" viewBox="0 0 120 136" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+          <path d="M60 4l52 20v52c0 30-22 48-52 56C30 124 8 106 8 76V24L60 4z" />
+          <path d="M60 12l44 17v47c0 26-19 42-44 49-25-7-44-23-44-49V29L60 12z" stroke-opacity=".35" />
+        </svg>
+        <span class="w">W</span>
       </div>
-    </div>
+      <h1>Welcome to WARDEN</h1>
+      <p class="lede">Read everything. Give nothing.</p>
+      <div class="chips">${facts.map((fact) => `<span class="chip"><i></i>${escapeHtml(fact)}</span>`).join('')}</div>
+    </header>
 
     <div class="grid">
       <div class="card">

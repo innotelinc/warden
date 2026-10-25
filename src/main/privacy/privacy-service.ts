@@ -27,6 +27,7 @@ import {
   type CookieMode
 } from './cookie-policy'
 import { readListCache, rulesFromCache, syncLists } from './lists'
+import { proxyRule, type ProxyState } from '@shared/network'
 
 const REQUEST_FILTER = { urls: ['*://*/*', 'ws://*/*', 'wss://*/*'] }
 
@@ -49,6 +50,7 @@ export class PrivacyService {
   private stats: MutableStats
   private warnedHosts = new Set<string>()
   private blockedByWc = new Map<number, number>()
+  private egress: ProxyState = { kind: 'direct', reason: 'unconfigured' }
 
   constructor(settings: Settings, onStats: (stats: PrivacyStats) => void) {
     this.settings = settings
@@ -72,6 +74,39 @@ export class PrivacyService {
     this.browsing = session.fromPartition('warden-browse')
     this.wire(this.browsing)
     await this.wipeCookies(this.browsing)
+    await this.applyProxy()
+  }
+
+  /**
+   * Egress: a direct connection, or the operator's own SOCKS/HTTPS endpoint.
+   * Chromium applies this below the page, so fetch, WebSocket and the resolver
+   * all take the same path; a rule that names no endpoint stays direct and the
+   * UI is told why instead of showing a tunnel that is not there.
+   */
+  async applyProxy(): Promise<void> {
+    const settings = this.settings
+    const configured = {
+      mode: settings.vpnMode,
+      host: settings.vpnHost,
+      port: settings.vpnPort,
+      bypass: settings.vpnBypass
+    }
+    const state = proxyRule(configured)
+    const active = settings.vpnEnabled && state.kind === 'proxy' ? state : { kind: 'direct' as const, reason: 'disabled' as const }
+    this.egress = active
+    const sessions = [this.browsing, ...this.burners].filter((entry): entry is Session => Boolean(entry))
+    await Promise.all(
+      sessions.map((ses) =>
+        active.kind === 'proxy'
+          ? ses.setProxy({ proxyRules: active.rule, proxyBypassRules: configured.bypass })
+          : ses.setProxy({ mode: 'direct' })
+      )
+    )
+  }
+
+  /** What the sessions are actually doing, for the UI. */
+  egressState(): ProxyState {
+    return this.egress
   }
 
   get browsingSession(): Session {
@@ -114,6 +149,7 @@ export class PrivacyService {
       settings.customRules !== this.settings.customRules
     this.settings = settings
     if (engineAffecting) void this.rebuildEngine(null)
+    void this.applyProxy()
   }
 
   setHostForWebContents(id: number, host: string | null): void {
@@ -310,8 +346,24 @@ export class PrivacyService {
       }
     })
 
-    ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
-    ses.setPermissionCheckHandler(() => false)
+    // Camera and microphone are the one permission WARDEN can grant, and only
+    // to a site the operator allowlisted: everything else — notifications,
+    // geolocation, MIDI, clipboard read, HID, serial — is refused without a
+    // prompt. Even when media is granted the page gets a processed track, and
+    // a blocked sensor is refused here before any device is opened.
+    ses.setPermissionRequestHandler((wc, permission, callback) => {
+      if (permission !== 'media') return callback(false)
+      const host = this.siteHostFor(wc.id)
+      if (!host) return callback(false)
+      const mediaAllowed = this.settings.cameraBlocked && this.settings.microphoneBlocked
+      callback(!mediaAllowed && isAllowlisted(host, this.settings.allowlist))
+    })
+    ses.setPermissionCheckHandler((wc, permission) => {
+      if (permission !== 'media' || !wc) return false
+      if (this.settings.cameraBlocked && this.settings.microphoneBlocked) return false
+      const host = this.siteHostFor(wc.id)
+      return Boolean(host && isAllowlisted(host, this.settings.allowlist))
+    })
     ses.setDevicePermissionHandler(() => false)
     ses.setDisplayMediaRequestHandler((_request, callback) => {
       callback({})

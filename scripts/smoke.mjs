@@ -182,7 +182,11 @@ const verify = (report) => {
     'lock rejects a wrong password': report.lock?.wrongRejected === true,
     'lock stays up after a wrong password': report.lock?.stillLocked === true,
     'lock clears for the right password': report.lock?.cleared === true,
-    'updater reports its state': typeof report.update?.phase === 'string'
+    'updater reports its state': typeof report.update?.phase === 'string',
+    'new tabs are private by default': report.privateTab === true,
+    'sensors hand the page a derived video track': (report.sensors?.video ?? 0) >= 1,
+    'camera treatment reaches the page': report.sensors?.state?.camera === 'pixelate',
+    'voice treatment reaches the page': report.sensors?.state?.voice === 'robot'
   }
   console.log('\n--- WARDEN smoke checks ---')
   let failed = 0
