@@ -1811,3 +1811,38 @@ code.swatchline i {
 
 .scry-mode.innovate svg,
 .scry-mode.innovate em { color: var(--violet); }
+
+/* ------------------------------------------------------------ scrollbars */
+/* Chromium's default scrollbar is a light strip that fights a dark UI. The
+   chrome gets a thin, themed bar that only shows itself on hover. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--line-bright) 70%, transparent);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  transition: background-color 140ms ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--mint) 45%, var(--line-bright));
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox-style thin bars for anything that asks for them */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-bright) transparent;
+}

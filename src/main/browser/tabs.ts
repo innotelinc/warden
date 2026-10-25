@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { Rect, TabState } from '@shared/types'
 import type { PrivacyService } from '../privacy/privacy-service'
 import { safeHost } from '../privacy/filter-engine'
+import { popupDecision } from './popup-policy'
 
 export { resolveInput } from '@shared/urls'
 
@@ -49,6 +50,8 @@ export interface TabHooks {
   onShortcut: (command: ShortcutCommand, tabId: string | null) => void
   onVisited: (url: string, title: string) => void
   onCookiesCheck: () => void
+  /** Send a media element straight to the Splay dock, bypassing the scanner. */
+  onMedia: (tabId: string, media: { url: string; title: string; kind: 'video' | 'audio' }) => void
 }
 
 export class TabManager {
@@ -441,13 +444,18 @@ export class TabManager {
     })
 
     wc.setWindowOpenHandler(({ url, disposition }) => {
-      // A target="_blank" link is a tab the visitor asked for. window.open() is
-      // not: it is how ads open a window the person never clicked, and the
-      // blank ones are worse — they open an about:blank tab that the script
-      // then tries to fill, which is why a popup used to appear and go nowhere.
-      const navigable = /^https?:/i.test(url)
-      const followedLink = disposition === 'foreground-tab' || disposition === 'background-tab'
-      if (navigable && followedLink) {
+      // Disposition alone cannot tell a link from a popup: Chromium reports a
+      // scripted window.open() that happens during a click as a foreground tab,
+      // exactly like a target="_blank" link. That is how yts.gg's "Open Full
+      // YTS Homepage" managed to navigate to yts.gg/home *and* open an Opera ad
+      // in a second tab.
+      //
+      // So the decision is about destination, not timing: a page may open a
+      // window on its own site; a middle- or ctrl-click (background-tab) is an
+      // explicit gesture and is always honoured; anything else that jumps to a
+      // third party is a popup. Nothing becomes unreachable — the link context
+      // menu opens any link in a new tab directly.
+      if (popupDecision({ url, disposition, pageUrl: tab.url }) === 'tab') {
         this.create(url, tab.burner)
       } else {
         this.privacy.noteBlockedPopup(wc.id)
@@ -551,6 +559,22 @@ export class TabManager {
         template.push({
           label: 'Copy link address',
           click: () => clipboard.writeText(params.linkURL)
+        })
+        template.push({ type: 'separator' })
+      }
+
+      if ((params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
+        // Splay kept needing a trip through the picker for a video the operator
+        // was already looking at. This sends exactly that element, and the dock
+        // fills one of its three slots (replacing the oldest when all are busy).
+        template.push({
+          label: params.mediaType === 'audio' ? 'Send audio to Splay' : 'Send video to Splay',
+          click: () =>
+            this.hooks.onMedia(tab.id, {
+              url: params.srcURL,
+              title: tab.title || params.pageURL || 'Media',
+              kind: params.mediaType === 'audio' ? 'audio' : 'video'
+            })
         })
         template.push({ type: 'separator' })
       }
