@@ -53,6 +53,7 @@ function updateStatus(update: UpdateState): string {
   }
 }
 import { formatCount, useWarden } from '../state'
+import { SensorPreview } from '../sensor-preview'
 
 function Toggle({
   title,
@@ -647,10 +648,22 @@ export function SettingsWorkspace() {
               on={settings.microphoneBlocked}
               onChange={(next) => update({ microphoneBlocked: next })}
             />
+            <div className="panel-title" style={{ marginTop: 18 }}>
+              <IconShield size={11} /> Test it here
+            </div>
+            <SensorPreview
+              cameraMode={settings.cameraMode}
+              cameraStrength={settings.cameraStrength}
+              voiceMode={settings.voiceMode}
+              cameraBlocked={settings.cameraBlocked}
+              microphoneBlocked={settings.microphoneBlocked}
+            />
             <div className="faint tiny" style={{ marginTop: 10, lineHeight: 1.7 }}>
-              The page receives a derived track: frames go through a canvas (blur, portrait mask, mosaic or silhouette) and
+              The page receives a derived track: frames go through a canvas (blur, portrait mask, pixelate or silhouette) and
               audio through a Web Audio graph. The raw device track never leaves WARDEN's closure, nothing is uploaded, and
-              a change applies on the next reload of a page. Voice modes are tone changes, not a different speaker.
+              a change applies on the next reload of a page. The test above runs the same frame code and the same voice
+              plan the injected shim uses, entirely inside this window. Voice modes are tone changes, not a different
+              speaker.
             </div>
           </section>
 

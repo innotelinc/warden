@@ -216,6 +216,16 @@ closure and nothing is uploaded. Camera or microphone can also be blocked
 outright. Pages may only request media at all when their host is allowlisted;
 every other permission stays denied.
 
+**Trying it out.** Policy → Camera & microphone ends with a live test: it opens the camera and the
+microphone in WARDEN's own window, draws the selected treatment at the selected strength, plays the
+treated voice back with a level meter, and follows the dropdowns as you change them. It is the same
+code a page gets — the injected shim ships `drawCameraFrame.toString()` and the preview imports that
+function, so what you see is the treatment rather than a lookalike; the audio graph is built from the
+same `voicePlan` numbers. Only WARDEN's own window is allowed to ask for media; pages still use their
+partition's handler, which requires an allowlisted host. Nothing is recorded, uploaded or written to
+disk, and the devices are released when you stop the test or leave the page. Use headphones if you
+monitor the microphone, or the speakers will feed back.
+
 **What these are not.** The video treatments are whole-frame effects: *portrait
 blur* keeps a fixed oval sharp and blurs around it, which reads as a blurred
 background but is not person segmentation — lean out of the oval and you blur
@@ -545,7 +555,7 @@ Because Bastion is running, Scry sees only requests that actually left the brows
 
 ## Mail (Relay)
 
-Add an account with IMAP + SMTP hosts, port, TLS and an app password. WARDEN verifies both protocols before saving. The password is encrypted with the OS keychain (`safeStorage`: DPAPI / Keychain / libsecret) into `secrets.json`; if the platform has no encryption backend WARDEN refuses to persist it rather than writing plaintext.
+Type the address and WARDEN fills in the servers from a preset (Gmail, Outlook / Microsoft 365, iCloud, Yahoo, Fastmail, Zoho, AOL, Proton Bridge, or `imap.`/`smtp.<domain>` for anything else), shows what the provider requires first — almost always an app password — and disables adding outright for the one that has retired password sign-in. Every field stays editable. WARDEN verifies IMAP and SMTP before saving, and a refusal is translated into the mistake it represents (wrong host, port and TLS disagreeing, app password needed, or a blocked path) with the server's own text kept beside it. The password is encrypted with the OS keychain (`safeStorage`: DPAPI / Keychain / libsecret) into `secrets.json`; if the platform has no encryption backend WARDEN refuses to persist it rather than writing plaintext.
 
 Message HTML is sanitized in the main process: scripts, iframes, forms, `<link>`, `<style>` and event handlers are removed, remote images are replaced with placeholders and counted, and the result renders inside a sandboxed iframe with a deny-all CSP. **No account or message content is fetched until you open Relay.**
 

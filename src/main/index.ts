@@ -839,14 +839,23 @@ function webContentsGuard(): void {
     })
   })
 
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+  // The camera and microphone preview in Policy runs in WARDEN's own window, so
+  // that window — and only that window — may ask for media. Pages never use this
+  // session: they get their own partition with its own handler, which requires an
+  // allowlisted host and still hands out a treated track.
+  const appWindowAsks = (wc: Electron.WebContents | null): boolean =>
+    Boolean(wc && win && !win.isDestroyed() && wc.id === win.webContents.id)
+
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+    if (permission === 'media') return callback(appWindowAsks(wc))
     callback(
       permission === 'clipboard-sanitized-write' || permission === 'clipboard-read' || permission === 'fullscreen'
     )
   })
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
-    permission === 'clipboard-sanitized-write' || permission === 'clipboard-read' || permission === 'fullscreen'
-  )
+  session.defaultSession.setPermissionCheckHandler((wc, permission) => {
+    if (permission === 'media') return appWindowAsks(wc)
+    return permission === 'clipboard-sanitized-write' || permission === 'clipboard-read' || permission === 'fullscreen'
+  })
 }
 
 app.whenReady().then(async () => {

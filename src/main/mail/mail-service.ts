@@ -14,6 +14,7 @@ import type {
 } from '@shared/types'
 import { makeId, type JsonStore } from '../store/json-store'
 import type { SecretVault } from '../security/vault'
+import { mailErrorHint } from '@shared/mail-setup'
 import { sanitizeMailHtml, textToHtml } from './sanitize'
 
 export interface MailStore {
@@ -40,6 +41,20 @@ function toAddresses(value: unknown): MailAddress[] {
 function extractLinks(text: string): string[] {
   const found = text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []
   return [...new Set(found)].slice(0, 20)
+}
+
+/**
+ * A failed verification the operator can act on.
+ *
+ * "IMAP check failed: Invalid credentials" tells someone nothing; the hint names
+ * the mistake — host, port and TLS disagreeing, the account password where an
+ * app password is required, or a network path that is blocked — and the raw
+ * server text stays attached for an administrator.
+ */
+function describeCheckFailure(stage: 'IMAP' | 'SMTP', error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  const hint = mailErrorHint(raw)
+  return hint ? `${stage} check failed: ${hint} (${raw})` : `${stage} check failed: ${raw}`
 }
 
 function countAttachments(structure: unknown): boolean {
@@ -235,7 +250,7 @@ export class MailService {
       await client.logout()
     } catch (error) {
       this.busy = false
-      this.error = `IMAP check failed: ${(error as Error).message}`
+      this.error = describeCheckFailure('IMAP', error)
       this.onChange()
       throw new Error(this.error)
     }
@@ -250,7 +265,7 @@ export class MailService {
       await transport.verify()
     } catch (error) {
       this.busy = false
-      this.error = `SMTP check failed: ${(error as Error).message}`
+      this.error = describeCheckFailure('SMTP', error)
       this.onChange()
       throw new Error(this.error)
     }

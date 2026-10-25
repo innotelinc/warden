@@ -2145,3 +2145,67 @@ code.swatchline i {
   scrollbar-width: thin;
   scrollbar-color: var(--line-bright) transparent;
 }
+
+/* ---------------------------------------------------------------------------
+   Camera and microphone test
+   The preview is the treatment: the same frame function pages get, drawn into a
+   canvas here, with the microphone's own level under it.
+--------------------------------------------------------------------------- */
+.sensor-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sensor-stage {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(600px 260px at 20% 0%, rgba(79, 227, 193, 0.08), transparent 65%),
+    #06080b;
+  min-height: 190px;
+  display: grid;
+  place-items: center;
+}
+
+.sensor-stage video {
+  display: none;
+}
+
+.sensor-stage canvas {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  display: block;
+}
+
+.sensor-stage canvas:not([width]) {
+  display: none;
+}
+
+.sensor-idle {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+
+.sensor-meter {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.sensor-meter i {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: linear-gradient(90deg, var(--mint), var(--violet));
+  transition: width 90ms linear;
+}

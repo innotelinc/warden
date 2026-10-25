@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { MAIL_PROVIDERS, guessEndpoints, providerById, providerForEmail } from '@shared/mail-setup'
 import type { MailAccountPublic } from '@shared/types'
 import { IconAlert, IconMail, IconPlus, IconReload, IconSend, IconTrash } from '../icons'
 import { timeAgo, useWarden } from '../state'
@@ -323,16 +324,54 @@ function AddAccountDialog({ onClose }: { onClose: () => void }) {
   const [smtpPort, setSmtpPort] = useState('465')
   const [smtpSecure, setSmtpSecure] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [providerId, setProviderId] = useState('custom')
 
+  const provider = providerById(providerId)
+
+  const applyProvider = (id: string): void => {
+    const preset = providerById(id)
+    if (!preset) return
+    setProviderId(preset.id)
+    if (preset.id === 'custom') return
+    setImapHost(preset.imap.host)
+    setImapPort(String(preset.imap.port))
+    setImapSecure(preset.imap.secure)
+    setSmtpHost(preset.smtp.host)
+    setSmtpPort(String(preset.smtp.port))
+    setSmtpSecure(preset.smtp.secure)
+  }
+
+  /**
+   * Fill the servers from the provider the address belongs to. A provider that
+   * needs an app password says so before the connection is attempted, and one
+   * that has retired password sign-in says that instead of failing later.
+   */
   const guess = (value: string): void => {
     setEmail(value)
     const domain = value.split('@')[1]
     if (!domain) return
-    if (!imapHost) setImapHost(`imap.${domain}`)
-    if (!smtpHost) setSmtpHost(`smtp.${domain}`)
+    const preset = providerForEmail(value)
+    if (preset) {
+      applyProvider(preset.id)
+      return
+    }
+    // Unknown domain: keep whatever hosts the operator typed, otherwise start
+    // from the usual imap./smtp. names.
+    setProviderId('custom')
+    if (!imapHost && !smtpHost) {
+      const guessed = guessEndpoints(domain)
+      setImapHost(guessed.imap.host)
+      setSmtpHost(guessed.smtp.host)
+    }
   }
 
+  const passwordAccepted = provider?.passwordWorks !== false
+
   const submit = async (): Promise<void> => {
+    if (!passwordAccepted) {
+      notify('This provider needs OAuth; a password cannot be verified here.', 'err')
+      return
+    }
     setBusy(true)
     try {
       await window.warden.mail.addAccount({
@@ -366,6 +405,26 @@ function AddAccountDialog({ onClose }: { onClose: () => void }) {
               <input className="input" value={email} onChange={(event) => guess(event.target.value)} />
             </div>
           </div>
+          <div className="row wrap" style={{ gap: 6 }}>
+            {MAIL_PROVIDERS.map((preset) => (
+              <button
+                key={preset.id}
+                className={`chip ${providerId === preset.id ? 'on' : ''}`}
+                onClick={() => applyProvider(preset.id)}
+                title={preset.note}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+          {provider ? (
+            <div
+              className="faint tiny"
+              style={{ lineHeight: 1.6, color: passwordAccepted ? undefined : 'var(--danger)' }}
+            >
+              {provider.note}
+            </div>
+          ) : null}
           <div className="field">
             <label>Password / app password</label>
             <input
@@ -378,7 +437,14 @@ function AddAccountDialog({ onClose }: { onClose: () => void }) {
           <div className="grid-2">
             <div className="field">
               <label>IMAP host</label>
-              <input className="input" value={imapHost} onChange={(event) => setImapHost(event.target.value)} />
+              <input
+                className="input"
+                value={imapHost}
+                onChange={(event) => {
+                  setImapHost(event.target.value)
+                  setProviderId('custom')
+                }}
+              />
             </div>
             <div className="field">
               <label>IMAP port</label>
@@ -386,7 +452,14 @@ function AddAccountDialog({ onClose }: { onClose: () => void }) {
             </div>
             <div className="field">
               <label>SMTP host</label>
-              <input className="input" value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} />
+              <input
+                className="input"
+                value={smtpHost}
+                onChange={(event) => {
+                  setSmtpHost(event.target.value)
+                  setProviderId('custom')
+                }}
+              />
             </div>
             <div className="field">
               <label>SMTP port</label>
@@ -402,13 +475,19 @@ function AddAccountDialog({ onClose }: { onClose: () => void }) {
             </button>
             <span style={{ flex: 1 }} />
             <button className="btn sm" onClick={onClose}>cancel</button>
-            <button className="btn sm primary" disabled={busy || !email || !password} onClick={() => void submit()}>
+            <button
+              className="btn sm primary"
+              disabled={busy || !email || !password || !passwordAccepted}
+              title={passwordAccepted ? undefined : 'This provider requires OAuth, which WARDEN does not implement yet'}
+              onClick={() => void submit()}
+            >
               {busy ? 'verifying…' : 'verify & add'}
             </button>
           </div>
           <div className="faint tiny">
-            WARDEN verifies both IMAP and SMTP before saving. The password is encrypted with the OS keychain and never
-            written to the settings file.
+            WARDEN verifies both IMAP and SMTP before saving, and names the failure if one of them refuses: a wrong host, a
+            port and TLS mode that disagree, or a password the provider no longer accepts. The password is encrypted with
+            the OS keychain and never written to the settings file.
           </div>
         </div>
       </div>

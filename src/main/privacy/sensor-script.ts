@@ -9,6 +9,7 @@
  */
 import type { CameraMode, VoiceMode } from '@shared/sensors'
 import { cameraPlan, voicePlan } from '@shared/sensors'
+import { drawCameraFrame } from '@shared/camera-draw'
 
 export interface SensorConfig {
   cameraMode: CameraMode
@@ -26,8 +27,12 @@ export function sensorScript(config: SensorConfig): string {
     plan: camera,
     voice: voice
   })
+  // The frame treatment is shipped as its own source, not reimplemented here:
+  // the Settings preview renders the same function, so what the operator sees
+  // while choosing a mode is what every page will receive.
   return `(() => {
   const cfg = ${payload};
+  const drawCameraFrame = ${drawCameraFrame.toString()};
   if (window.__wardenSensorShim) return;
   // navigator.mediaDevices is not there yet at document-start on every origin,
   // so installation is retried rather than abandoned: a page that asks for the
@@ -58,49 +63,7 @@ export function sensorScript(config: SensorConfig): string {
     const frame = () => {
       if (!running) return;
       if (!video.videoWidth) return requestAnimationFrame(frame);
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-        scratch.width = Math.max(1, Math.round(w / 8));
-        scratch.height = Math.max(1, Math.round(h / 8));
-      }
-
-      if (cfg.plan.mode === 'pixelate') {
-        sctx.drawImage(video, 0, 0, scratch.width, scratch.height);
-        const blocks = Math.max(4, Math.round(scratch.width / cfg.plan.block));
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(scratch, 0, 0, blocks, Math.round(blocks * (h / w)), 0, 0, w, h);
-      } else if (cfg.plan.mode === 'silhouette') {
-        sctx.drawImage(video, 0, 0, scratch.width, scratch.height);
-        const data = sctx.getImageData(0, 0, scratch.width, scratch.height);
-        for (let i = 0; i < data.data.length; i += 4) {
-          const luma = data.data[i] * 0.299 + data.data[i + 1] * 0.587 + data.data[i + 2] * 0.114;
-          const on = luma > 74;
-          data.data[i] = on ? 79 : 9;
-          data.data[i + 1] = on ? 227 : 13;
-          data.data[i + 2] = on ? 193 : 18;
-          data.data[i + 3] = 255;
-        }
-        sctx.putImageData(data, 0, 0);
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(scratch, 0, 0, scratch.width, scratch.height, 0, 0, w, h);
-      } else if (cfg.plan.mode === 'portrait') {
-        ctx.filter = 'blur(' + cfg.plan.blur + 'px)';
-        ctx.drawImage(video, 0, 0, w, h);
-        ctx.filter = 'none';
-        ctx.save();
-        ctx.beginPath();
-        ctx.ellipse(w / 2, h * 0.46, w * 0.29, h * 0.42, 0, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(video, 0, 0, w, h);
-        ctx.restore();
-      } else {
-        ctx.filter = 'blur(' + cfg.plan.blur + 'px)';
-        ctx.drawImage(video, 0, 0, w, h);
-        ctx.filter = 'none';
-      }
+      drawCameraFrame(ctx, video, cfg.plan, { canvas: scratch, ctx: sctx });
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
