@@ -35,7 +35,9 @@ import { ScryService } from './scry/scry-service'
 import { GenieService } from './genie/genie-service'
 import { DownloadManager } from './browser/downloads'
 import { SecretVault } from './security/vault'
-import { errorHtml, newTabHtml, viewerHtml } from './internal-pages'
+import { errorHtml, lockPageHtml, newTabHtml, viewerHtml } from './internal-pages'
+import { LockService } from './security/lock-service'
+import { UpdateService } from './update/update-service'
 import { registerIpc, type WardenContext } from './ipc'
 import { runSmoke } from './smoke'
 import { buildChromeMenu } from './chrome-menu'
@@ -319,6 +321,42 @@ async function createWindow(stores: Stores): Promise<void> {
   const downloads = new DownloadManager(sendState)
   privacy.onDownload((item) => downloads.track(item))
 
+  // One definition for both the layout path and the lock screen: while locked
+  // every native view is hidden, so nothing shows through the overlay.
+  const applySuppressed = (suppressed: boolean): void => {
+    if (suppressed) {
+      tabs.setVisible(false)
+      messaging.setVisible(false)
+      media.setVisible(false)
+      return
+    }
+    tabs.setVisible(layout.surface === 'browse')
+    messaging.setVisible(layout.surface === 'messages')
+    media.setVisible(layout.mediaBounds.length > 0)
+  }
+
+  const lock = new LockService({
+    parent: () => (browserWindow.isDestroyed() ? null : browserWindow),
+    preload: path.join(__dirname, '../preload/index.js'),
+    activePage: () => (tabs.activeTabId ? tabs.getWebContents(tabs.activeTabId) : null),
+    timeoutMinutes: () => stores.settings.get().lockTimeoutMinutes,
+    setSuppressed: applySuppressed,
+    onState: () => {
+      if (browserWindow.isDestroyed()) return
+      browserWindow.webContents.send('warden:lock:state', lock.snapshot())
+      sendState()
+    }
+  })
+
+  const update = new UpdateService({
+    enabled: () => stores.settings.get().autoUpdate,
+    onChange: () => {
+      if (browserWindow.isDestroyed()) return
+      browserWindow.webContents.send('warden:update:state', update.snapshot())
+      sendState()
+    }
+  })
+
   const scry = new ScryService({
     settings: () => stores.settings.get(),
     outputRoot: () => {
@@ -407,6 +445,8 @@ async function createWindow(stores: Stores): Promise<void> {
     downloads: downloads.list(),
     history: stores.history.get().slice(0, 200),
     bookmarks: stores.bookmarks.get(),
+    update: update.snapshot(),
+    lock: lock.snapshot(),
     version: app.getVersion(),
     platform: process.platform
   })
@@ -460,6 +500,9 @@ async function createWindow(stores: Stores): Promise<void> {
         if (drawerOpen && !terminal.active) terminal.create(stores.settings.get().terminalShell)
         sendState()
         return
+      case 'lock':
+        void lock.lock(false)
+        return
       default:
         browserWindow.webContents.send('warden:shortcut', command)
     }
@@ -476,6 +519,8 @@ async function createWindow(stores: Stores): Promise<void> {
     scry,
     genie,
     downloads,
+    update,
+    lock,
     stores,
     snapshot,
     sendState,
@@ -510,17 +555,7 @@ async function createWindow(stores: Stores): Promise<void> {
         return { ok: false, error: (error as Error).message }
       }
     },
-    setSuppressed: (suppressed) => {
-      if (suppressed) {
-        tabs.setVisible(false)
-        messaging.setVisible(false)
-        media.setVisible(false)
-        return
-      }
-      tabs.setVisible(layout.surface === 'browse')
-      messaging.setVisible(layout.surface === 'messages')
-      media.setVisible(layout.mediaBounds.length > 0)
-    },
+    setSuppressed: applySuppressed,
     setDrawer: (open) => {
       drawerOpen = open
       sendState()
@@ -554,6 +589,12 @@ async function createWindow(stores: Stores): Promise<void> {
         }),
         { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
+    }
+
+    if (url.hostname === 'lock') {
+      return new Response(lockPageHtml(), {
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+      })
     }
 
     if (url.hostname === 'error') {
@@ -634,6 +675,8 @@ async function createWindow(stores: Stores): Promise<void> {
   webContentsGuard()
 
   // ------------------------------------------------------------ first run
+  lock.start()
+  update.start()
   await stores.settings.flush()
   tabs.create(stores.settings.get().homepage || 'warden://newtab')
   sendState()
@@ -693,6 +736,9 @@ app.on('before-quit', async (event) => {
   quitting = true
   const context = (globalThis as { __wardenContext?: WardenContext }).__wardenContext
   try {
+    context?.lock.forceRelease()
+    context?.update.stop()
+    context?.lock.stop()
     context?.terminal.killAll()
     await context?.mail.close()
   } catch {

@@ -19,6 +19,7 @@ export type ShortcutCommand =
   | 'prev-tab'
   | 'toggle-terminal'
   | 'toggle-dock'
+  | 'lock'
   | 'scry'
   | 'settings'
   | 'reload'
@@ -512,6 +513,9 @@ export class TabManager {
         if (ctrl && key === 'tab') return 'next-tab' as const
         if (ctrl && key === '`') return 'toggle-terminal' as const
         if (ctrl && key === 'j') return 'toggle-dock' as const
+        // Backslash sits next to the right-hand modifiers on a US layout, so
+        // it is a one-hand reach while reading something sensitive.
+        if (ctrl && key === '\\') return 'lock' as const
         if (ctrl && (key === '=' || key === '+')) return 'zoom-in' as const
         if (ctrl && key === '-') return 'zoom-out' as const
         if (ctrl && key === '0') return 'zoom-reset' as const

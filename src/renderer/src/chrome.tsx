@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Bookmark, MediaItem, MediaSlot, TabState, WorkspaceId } from '@shared/types'
+import type { Bookmark, MediaItem, MediaSlot, TabState, UpdateState, WorkspaceId } from '@shared/types'
 import {
   IconAlert,
   IconArrowRight,
@@ -770,6 +770,7 @@ export function StatusBar({
   rules,
   backend,
   version,
+  update,
   activeTab
 }: {
   hover: string
@@ -778,6 +779,7 @@ export function StatusBar({
   rules: number
   backend: string
   version: string
+  update?: UpdateState | null
   activeTab: TabState | null
 }) {
   return (
@@ -799,6 +801,30 @@ export function StatusBar({
         </span>
       ) : null}
       <span className="sep" />
+      {update && (update.phase === 'ready' || update.phase === 'downloading') ? (
+        <button
+          className="status-action accent"
+          title={
+            update.phase === 'ready'
+              ? `WARDEN ${update.version} is downloaded. Restart to install.`
+              : `Downloading WARDEN ${update.version ?? ''} — ${update.percent}%`
+          }
+          onClick={() => {
+            if (update.phase === 'ready') void window.warden.update.install()
+            else void window.warden.setWorkspace('settings')
+          }}
+        >
+          <IconDownload size={11} />
+          {update.phase === 'ready' ? `update ${update.version}` : `${update.percent}%`}
+        </button>
+      ) : null}
+      <button
+        className="status-action"
+        title={`Lock WARDEN (Ctrl+${String.fromCharCode(92)}) — unlock with your Windows password`}
+        onClick={() => void window.warden.lock.lock()}
+      >
+        <IconLock size={11} /> lock
+      </button>
       <span className="stat">{tabs} tabs</span>
       <span className="stat">v{version}</span>
     </div>

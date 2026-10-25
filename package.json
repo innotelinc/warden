@@ -1,7 +1,7 @@
 {
   "name": "warden",
   "productName": "WARDEN",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Privacy-first operations browser for security and network administrators",
   "author": "WARDEN",
   "license": "MIT",
@@ -18,13 +18,15 @@
     "smoke:dist": "node scripts/smoke-packaged.mjs",
     "verify:remote": "node scripts/remote-check.mjs",
     "icon": "node scripts/make-icon.mjs",
-    "dist": "npm run build && electron-builder --win",
+    "dist": "npm run build && electron-builder --win --publish never",
     "dist:dir": "npm run build && electron-builder --win --dir",
-    "dist:portable": "npm run build && electron-builder --win portable",
+    "dist:portable": "npm run build && electron-builder --win portable --publish never",
+    "dist:release": "npm run build && electron-builder --win --publish always",
     "verify": "npm run typecheck && npm run test && npm run build && npm run smoke",
     "dist:ci": "npm run build && electron-builder --win --publish never"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "imapflow": "^2.9.1",
     "mailparser": "^3.12.4",
     "node-pty": "^1.1.0",

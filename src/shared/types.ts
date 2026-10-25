@@ -79,6 +79,43 @@ export interface Settings {
    * restart; Scry itself never needs it for WARDEN tabs.
    */
   debugPort: number
+  /** Check GitHub for a newer WARDEN and download it in the background. */
+  autoUpdate: boolean
+  /** Minutes of no keyboard or mouse input before the lock screen covers WARDEN. 0 = off. */
+  lockTimeoutMinutes: number
+}
+
+export interface UpdateState {
+  /**
+   * dev        not a packaged build, so there is no release feed
+   * unsupported the portable exe cannot replace itself
+   * idle       nothing checked yet
+   * checking   talking to the release feed
+   * downloading a newer installer is coming down
+   * ready      downloaded; restart installs it
+   * current    already on the newest release
+   * error      last check failed; see message
+   */
+  phase: 'dev' | 'unsupported' | 'idle' | 'checking' | 'downloading' | 'ready' | 'current' | 'error'
+  current: string
+  version: string | null
+  percent: number
+  message: string | null
+  checkedAt: number | null
+  automatic: boolean
+}
+
+export interface LockState {
+  locked: boolean
+  /** Password attempts in this lock session. */
+  attempts: number
+  busy: boolean
+  error: string | null
+  timeoutMinutes: number
+  /** Seconds of system-wide inactivity, refreshed while WARDEN is open. */
+  idleSeconds: number
+  /** True when the lock was raised by the idle timer rather than Ctrl+\ . */
+  byTimeout: boolean
 }
 
 export interface BlockedHost {
@@ -369,6 +406,8 @@ export interface AppState {
   downloads: DownloadItem[]
   history: HistoryEntry[]
   bookmarks: Bookmark[]
+  update: UpdateState
+  lock: LockState
   version: string
   platform: string
 }
@@ -511,6 +550,22 @@ export interface WardenApi {
   bookmarks: {
     toggle(url: string, title: string): Promise<void>
     remove(id: string): Promise<void>
+  }
+
+  update: {
+    check(): Promise<UpdateState>
+    install(): Promise<{ ok: boolean }>
+    onState(listener: (state: UpdateState) => void): () => void
+  }
+
+  lock: {
+    /** Raise the lock screen now; the same thing Ctrl+\ does. */
+    lock(): Promise<void>
+    /** Verify the Windows password and, on success, uncover the app. */
+    unlock(password: string): Promise<{ ok: boolean; error?: string }>
+    /** State for the lock window itself. */
+    bootstrap(): Promise<{ lock: LockState; background: string | null; user: string }>
+    onState(listener: (state: LockState) => void): () => void
   }
 
   app: {

@@ -276,3 +276,226 @@ export function viewerHtml(src: string, title: string, kind: string, startAt = 0
 </script>
 </body></html>`
 }
+
+/**
+ * Lock screen. Its own document because it is the only thing that may be
+ * visible while WARDEN is locked: the chrome, tabs and side panes are covered
+ * by this window, not merely disabled.
+ */
+export function lockPageHtml(): string {
+  return `<!doctype html><html><head><meta charset="utf-8" />
+<title>WARDEN locked</title>
+<style>
+  ${BASE_CSS}
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    display: grid;
+    place-items: center;
+    background: #05070a;
+  }
+  .backdrop {
+    position: fixed;
+    inset: -60px;
+    background-position: center;
+    background-size: cover;
+    filter: blur(34px) saturate(0.5) brightness(0.35);
+    transform: scale(1.06);
+  }
+  .mesh {
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(79, 227, 193, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79, 227, 193, 0.055) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(circle at 50% 45%, transparent 10%, #000 78%);
+  }
+  .vignette {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(680px 520px at 50% 42%, rgba(8, 12, 18, 0.55), rgba(4, 6, 9, 0.94) 70%);
+  }
+  .card {
+    position: relative;
+    width: min(440px, 84vw);
+    padding: 34px 34px 28px;
+    border-radius: 18px;
+    border: 1px solid rgba(79, 227, 193, 0.18);
+    background: linear-gradient(165deg, rgba(17, 23, 31, 0.94), rgba(9, 12, 17, 0.97));
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    text-align: center;
+    animation: rise 240ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
+  .crest {
+    width: 52px; height: 52px; margin: 0 auto 16px;
+    border-radius: 15px;
+    border: 1px solid rgba(79, 227, 193, 0.36);
+    background: radial-gradient(circle at 30% 20%, rgba(79, 227, 193, 0.28), rgba(79, 227, 193, 0.04));
+    display: grid; place-items: center;
+    color: var(--mint);
+  }
+  .crest svg { width: 26px; height: 26px; }
+  .eyebrow {
+    font: 600 10px/1 "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.32em;
+    color: var(--mint);
+    text-transform: uppercase;
+  }
+  h1 { margin: 10px 0 6px; font-size: 21px; letter-spacing: 0.02em; }
+  .user { color: var(--muted); font-size: 12.5px; }
+  .user strong { color: var(--text); font-weight: 600; }
+  form { margin-top: 22px; display: grid; gap: 10px; }
+  .field {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px;
+    border-radius: 11px;
+    border: 1px solid var(--line);
+    background: rgba(6, 9, 13, 0.9);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .field:focus-within {
+    border-color: rgba(79, 227, 193, 0.55);
+    box-shadow: 0 0 0 3px rgba(79, 227, 193, 0.1);
+  }
+  input {
+    flex: 1;
+    background: none;
+    border: 0;
+    outline: 0;
+    color: var(--text);
+    font: 14px/1 "Segoe UI", system-ui, sans-serif;
+    padding: 13px 0;
+    letter-spacing: 0.14em;
+  }
+  input::placeholder { letter-spacing: 0; color: #5d6b7c; }
+  button {
+    border: 0;
+    border-radius: 10px;
+    padding: 11px 16px;
+    font: 600 12.5px/1 "Segoe UI", system-ui, sans-serif;
+    letter-spacing: 0.04em;
+    color: #04120f;
+    background: linear-gradient(180deg, #5df0cf, #35c9ab);
+    cursor: pointer;
+    transition: filter 140ms ease, transform 140ms ease;
+  }
+  button:hover { filter: brightness(1.06); }
+  button:active { transform: translateY(1px); }
+  button[disabled] { opacity: 0.55; cursor: default; }
+  .error {
+    min-height: 16px;
+    color: var(--danger);
+    font-size: 12px;
+    text-align: left;
+  }
+  .hint {
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 11.5px;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  kbd {
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 1px 5px;
+    font: 600 10.5px/1.4 "Cascadia Mono", monospace;
+    color: var(--text);
+    background: var(--panel-2);
+  }
+  .clock {
+    position: fixed;
+    top: 22px; right: 26px;
+    font: 600 12px/1 "Cascadia Mono", Consolas, monospace;
+    color: #6f8096;
+    letter-spacing: 0.16em;
+  }
+</style></head>
+<body>
+  <div class="backdrop" id="backdrop"></div>
+  <div class="mesh"></div>
+  <div class="vignette"></div>
+  <div class="clock" id="clock"></div>
+  <div class="card">
+    <div class="crest">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="10.5" width="16" height="10" rx="2.4" />
+        <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+        <circle cx="12" cy="15.4" r="1.2" fill="currentColor" stroke="none" />
+      </svg>
+    </div>
+    <div class="eyebrow">Warden protected</div>
+    <h1>Screen locked</h1>
+    <div class="user">Signed in as <strong id="user">this device</strong></div>
+    <form id="form" autocomplete="off">
+      <div class="field">
+        <input id="password" type="password" placeholder="Windows password" spellcheck="false" autofocus />
+        <button id="submit" type="submit">Unlock</button>
+      </div>
+      <div class="error" id="error"></div>
+    </form>
+    <div class="hint"><span><kbd>Ctrl</kbd> <kbd>\\</kbd> locks</span><span>·</span><span id="reason">Your Windows password unlocks</span></div>
+  </div>
+<script>
+  (async function () {
+    var api = window.warden;
+    var input = document.getElementById('password');
+    var button = document.getElementById('submit');
+    var error = document.getElementById('error');
+    var backdrop = document.getElementById('backdrop');
+    var clock = document.getElementById('clock');
+
+    setInterval(function () {
+      clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }, 1000);
+    clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    if (!api || !api.lock) {
+      error.textContent = 'Lock channel unavailable.';
+      return;
+    }
+
+    var boot = await api.lock.bootstrap();
+    document.getElementById('user').textContent = boot.user || 'this device';
+    if (boot.background && /^data:image\//.test(boot.background)) {
+      backdrop.style.backgroundImage = 'url("' + boot.background + '")';
+    }
+    if (boot.lock && boot.lock.byTimeout) {
+      document.getElementById('reason').textContent = 'Locked after ' + boot.lock.timeoutMinutes + ' min idle';
+    }
+
+    api.lock.onState(function (state) {
+      error.textContent = state.error || '';
+      button.disabled = Boolean(state.busy);
+      input.disabled = Boolean(state.busy);
+      if (!state.busy) input.focus();
+    });
+
+    document.getElementById('form').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      error.textContent = '';
+      button.disabled = true;
+      var result = await api.lock.unlock(input.value);
+      if (!result.ok) {
+        error.textContent = result.error || 'Unlock failed.';
+        input.value = '';
+        input.focus();
+      }
+      button.disabled = false;
+    });
+
+    // Ctrl+\ while locked must not do anything surprising, and Escape must not
+    // dismiss the overlay: the app stays covered until the password checks out.
+    window.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' || event.key === 'F12') event.preventDefault();
+    });
+    document.addEventListener('contextmenu', function (event) { event.preventDefault(); });
+    input.focus();
+  })();
+</script>
+</body></html>`
+}

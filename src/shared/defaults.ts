@@ -27,7 +27,9 @@ export const DEFAULT_SETTINGS: Settings = {
   scryPort: 9222,
   scryOutputDir: null,
   theme: 'ops',
-  debugPort: 0
+  debugPort: 0,
+  autoUpdate: true,
+  lockTimeoutMinutes: 5
 }
 
 export interface SearchEngine {

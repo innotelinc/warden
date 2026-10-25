@@ -121,6 +121,11 @@ function Shell() {
         setPaletteOpen(true)
         return
       }
+      if (ctrl && event.key === '\\') {
+        event.preventDefault()
+        void window.warden.lock.lock()
+        return
+      }
       if (event.key === 'Escape') {
         if (paletteOpen) setPaletteOpen(false)
         else if (findOpen) setFindOpen(false)
@@ -463,6 +468,7 @@ function Shell() {
             rules={state.stats.rulesLoaded}
             backend={state.terminal ? `${state.terminal.backend} · ${state.terminal.title}` : ''}
             version={state.version}
+            update={state.update}
             activeTab={activeTab}
           />
         </div>

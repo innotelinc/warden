@@ -25,6 +25,9 @@ export function sanitizeSettings(value: unknown): Settings {
   const debugPort = Number(input.debugPort)
   merged.debugPort =
     Number.isInteger(debugPort) && debugPort >= 1024 && debugPort <= 65535 ? debugPort : 0
+  merged.autoUpdate = merged.autoUpdate !== false
+  const lock = Number(input.lockTimeoutMinutes)
+  merged.lockTimeoutMinutes = [0, 1, 5, 15, 30, 60].includes(lock) ? lock : DEFAULT_SETTINGS.lockTimeoutMinutes
   merged.blockAds = Boolean(merged.blockAds)
   merged.blockTrackers = Boolean(merged.blockTrackers)
   merged.httpsOnly = Boolean(merged.httpsOnly)

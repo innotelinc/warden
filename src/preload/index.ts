@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppState, ScryProgress, WardenApi } from '../shared/types'
+import type { AppState, LockState, ScryProgress, UpdateState, WardenApi } from '../shared/types'
+
+interface LockBootstrap {
+  lock: LockState
+  background: string | null
+  user: string
+}
 
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
   ipcRenderer.invoke(channel, ...args) as Promise<T>
@@ -126,6 +132,19 @@ const api: WardenApi = {
   bookmarks: {
     toggle: (url, title) => invoke('warden:bookmarks:toggle', url, title),
     remove: (id) => invoke('warden:bookmarks:remove', id)
+  },
+
+  update: {
+    check: () => invoke<UpdateState>('warden:update:check'),
+    install: () => invoke<{ ok: boolean }>('warden:update:install'),
+    onState: (listener) => subscribe<[UpdateState]>('warden:update:state', listener)
+  },
+
+  lock: {
+    lock: () => invoke('warden:lock:lock'),
+    unlock: (password) => invoke<{ ok: boolean; error?: string }>('warden:lock:unlock', password),
+    bootstrap: () => invoke<LockBootstrap>('warden:lock:bootstrap'),
+    onState: (listener) => subscribe<[LockState]>('warden:lock:state', listener)
   },
 
   app: {
