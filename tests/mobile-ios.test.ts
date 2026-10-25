@@ -135,4 +135,13 @@ describe('iOS workflow', () => {
     expect(workflow).toMatch(/-lt 26/)
     expect(workflow.indexOf('--show-sdk-version')).toBeLessThan(workflow.indexOf('name: Archive'))
   })
+
+  /**
+   * `destination=upload` hands the build straight to App Store Connect and
+   * leaves no .ipa behind. Naming the file without checking for it turned a
+   * successful upload into a failed run.
+   */
+  it('does not require an ipa on disk after an upload', () => {
+    expect(workflow).toContain('if [ ! -d "$RUNNER_TEMP/export" ]')
+  })
 })

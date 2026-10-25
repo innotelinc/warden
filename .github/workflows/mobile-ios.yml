@@ -183,12 +183,19 @@ jobs:
             -authenticationKeyIssuerID "$ISSUER_ID"
 
       # A stable name for the artifact, and for the human who has to pick it out
-      # of the Downloads folder.
+      # of the Downloads folder. With `destination=upload` Xcode sends the build
+      # to App Store Connect and writes no .ipa at all, so a missing export
+      # directory is the success case, not a failure — this step going red after
+      # a successful upload is how a green run looks like a broken one.
       - name: Name the build
         if: env.ASC_KEY_ID != ''
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          if [ ! -d "$RUNNER_TEMP/export" ]; then
+            echo "::notice::Uploaded to TestFlight — Xcode wrote no .ipa for destination=upload."
+            exit 0
+          fi
           if [ -f "$RUNNER_TEMP/export/App.ipa" ]; then
             mv "$RUNNER_TEMP/export/App.ipa" "$RUNNER_TEMP/export/WARDEN-${VERSION}.ipa"
           fi
