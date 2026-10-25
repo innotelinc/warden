@@ -113,3 +113,41 @@ describe('transport hardening helpers', () => {
     expect(referrerFor('about:blank')).toBeNull()
   })
 })
+
+/**
+ * Authentik sets its CSRF and session cookies on the parent domain
+ * (`.innotel.us`) from a host that is allowlisted (`auth.cerulean.innotel.us`).
+ * Judging only the cookie's own domain made an accepted site's own login cookies
+ * unsavable, which is the bug that broke SSO.
+ */
+describe('cookies on a parent domain', () => {
+  const site = 'auth.cerulean.innotel.us'
+  const ctx = { mode: 'block' as const, allowlist: [site], siteHost: site }
+
+  it('accepts the site\'s cookie on its parent domain once the site is allowed', () => {
+    expect(shouldAcceptCookie(ctx, site, '.innotel.us')).toBe(true)
+    expect(shouldAcceptCookie(ctx, site, 'innotel.us')).toBe(true)
+    expect(shouldAcceptCookie(ctx, site, site)).toBe(true)
+  })
+
+  it('still refuses a cookie for an unrelated domain', () => {
+    expect(shouldAcceptCookie(ctx, site, '.tracker.example')).toBe(false)
+    expect(shouldAcceptCookie(ctx, site, 'evil-innotel.us')).toBe(false)
+  })
+
+  it('accepts a parent-domain cookie in first-party mode too', () => {
+    const firstPartySite = { ...firstParty, siteHost: site }
+    expect(shouldAcceptCookie(firstPartySite, site, '.innotel.us')).toBe(true)
+    expect(shouldAcceptCookie(firstPartySite, site, '.tracker.example')).toBe(false)
+  })
+
+  it('keeps the parent-domain cookie through the header filter', () => {
+    const { headers, stripped } = filterResponseHeaders(
+      { 'set-cookie': ['authentik_session=abc; Domain=.innotel.us; Path=/; Secure; HttpOnly', 'ad=1; Domain=.tracker.example'] },
+      ctx,
+      site
+    )
+    expect(headers['set-cookie']).toEqual(['authentik_session=abc; Domain=.innotel.us; Path=/; Secure; HttpOnly'])
+    expect(stripped).toBe(1)
+  })
+})

@@ -20,6 +20,7 @@ import type { JsonStore } from './store/json-store'
 import type { TabManager } from './browser/tabs'
 import { resolveInput } from './browser/tabs'
 import { hostMatches, hostOfUrl } from '@shared/urls'
+import { signInHostsFor } from '@shared/auth-flow'
 import type { PrivacyService } from './privacy/privacy-service'
 import type { MediaDock } from './media/media-dock'
 import type { TerminalService } from './terminal/terminal-service'
@@ -204,6 +205,33 @@ export function registerIpc(warden: WardenContext): void {
     }
     context().sendState()
     return next
+  })
+
+  /**
+   * One click for an SSO login.
+   *
+   * An OAuth/OIDC flow spans two hosts — the provider keeps the CSRF token and
+   * session, the application sets its own session after the callback — and
+   * WARDEN refuses cookies on both by default. This reads the host pair out of
+   * the login URL, allows exactly those, and reloads the tabs on them so the
+   * flow restarts with cookies permitted.
+   */
+  handle('warden:privacy:allowSignIn', (url: string) => {
+    const hosts = signInHostsFor(String(url ?? ''))
+    const current = context().privacy.getSettings()
+    if (!hosts) return { allowed: [], settings: current }
+    const wanted = [hosts.provider, hosts.application].filter((host): host is string => Boolean(host))
+    const next = context().stores.settings.update((settings) => {
+      const set = new Set(settings.allowlist)
+      for (const host of wanted) set.add(host)
+      return { ...settings, allowlist: [...set].slice(0, 500) }
+    })
+    context().privacy.applySettings(next)
+    for (const tab of context().tabs.list()) {
+      if (hostMatches(hostOfUrl(tab.url), wanted)) context().tabs.reload(tab.id)
+    }
+    context().sendState()
+    return { allowed: wanted, settings: next }
   })
 
   handle('warden:privacy:clearCookies', () => context().privacy.wipeCookies())
@@ -463,6 +491,14 @@ export function registerIpc(warden: WardenContext): void {
   // land on a document that knows the site is compatible.
   ipcMain.on('warden:compat:sync', (event, host: unknown) => {
     event.returnValue = context().privacy.isCompatible(typeof host === 'string' && host ? host : null)
+  })
+
+  // Same reason: the page-level cookie lock has to reflect the current policy
+  // on every document, not the allowlist as it stood when the tab was created.
+  ipcMain.on('warden:cookie:sync', (event, host: unknown) => {
+    event.returnValue = context().privacy.cookiesAllowedFor(
+      typeof host === 'string' && host ? host : null
+    )
   })
 
   ipcMain.on('warden:window:minimize', () => context().win.minimize())

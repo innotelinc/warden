@@ -273,6 +273,27 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       }
     }
     ctx.tabs.close(compatTab)
+
+    // The allowlist is the other escape hatch, and it must work without
+    // compatibility mode: cookies are kept for that host only.
+    ctx.privacy.applySettings({
+      ...originalSettings,
+      compatibility: [],
+      allowlist: [...originalSettings.allowlist, compatHost]
+    })
+    const allowedTab = ctx.tabs.create(url)
+    const allowedWc = ctx.tabs.getWebContents(allowedTab)
+    if (allowedWc) {
+      await waitForLoad(allowedWc)
+      result.allowlisted = {
+        stored: (await ctx.privacy.browsingSession.cookies.get({ domain: compatHost })).length,
+        cookie: await allowedWc.executeJavaScript(
+          "(() => { document.cookie = 'allow_probe=1; path=/'; return document.cookie })()",
+          true
+        )
+      }
+    }
+    ctx.tabs.close(allowedTab)
     ctx.privacy.applySettings(originalSettings)
 
     const purged = await ctx.privacy.wipeCookies()
@@ -288,6 +309,7 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       Number(result.cookieCountAfter) === 0 &&
       String(result.heading).includes('smoke') &&
       Number((result.compat as { trackerBlocked?: number } | undefined)?.trackerBlocked) === 0 &&
+      Number((result.allowlisted as { stored?: number } | undefined)?.stored) >= 1 &&
       report.requests > 0
   } catch (error) {
     result.error = (error as Error).stack ?? (error as Error).message

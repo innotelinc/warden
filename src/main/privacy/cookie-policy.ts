@@ -20,7 +20,15 @@ export interface CookieContext {
 }
 
 export function normalizeHost(host: string): string {
-  return host.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  // Accept every shape a host arrives in: a Cookie Domain attribute carries a
+  // leading dot, IPv6 arrives bracketed, and a trailing dot is still valid DNS.
+  return host
+    .trim()
+    .toLowerCase()
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replace(/^\.+/, '')
+    .replace(/\.$/, '')
 }
 
 export function isAllowlisted(host: string, allowlist: string[]): boolean {
@@ -46,6 +54,38 @@ export function shouldSendCookies(ctx: CookieContext, requestHost: string): bool
 }
 
 /**
+ * Is `cookieHost` the same host as `siteHost`, or a parent of it?
+ *
+ * A response from `auth.cerulean.innotel.us` is allowed to set a cookie on
+ * `.innotel.us`; Authentik does exactly that, and judging only the cookie's own
+ * domain made those cookies unsavable even after the operator allowlisted the
+ * site. Public suffixes are the browser's problem, not this function's.
+ */
+export function coversCookieDomain(siteHost: string, cookieHost: string): boolean {
+  const site = normalizeHost(siteHost)
+  const cookie = normalizeHost(cookieHost)
+  if (!site || !cookie) return false
+  return site === cookie || site.endsWith(`.${cookie}`)
+}
+
+/**
+ * Does any allowlisted site cover this cookie's domain?
+ *
+ * Used by the global purge, which has no tab context: a cookie on `.innotel.us`
+ * is legitimate once `auth.cerulean.innotel.us` is allowed, because that host is
+ * the one that set it.
+ */
+export function isCookieKeptByAllowlist(cookieHost: string, allowlist: string[]): boolean {
+  const host = normalizeHost(cookieHost)
+  if (!host) return false
+  return allowlist.some((entry) => {
+    const allowed = normalizeHost(entry)
+    if (!allowed) return false
+    return isAllowlisted(host, [allowed]) || coversCookieDomain(allowed, host)
+  })
+}
+
+/**
  * May a Set-Cookie header from this response be kept?
  * `cookieDomain` is the Domain attribute if present, otherwise the response host.
  */
@@ -57,9 +97,14 @@ export function shouldAcceptCookie(
   const host = normalizeHost(cookieDomain || responseHost)
   if (!host) return false
   if (isAllowlisted(host, ctx.allowlist)) return true
+
+  const site = ctx.siteHost ? normalizeHost(ctx.siteHost) : ''
+  // The operator allowed the site that is setting the cookie, so its cookies on
+  // its own domain or a parent domain are part of that decision.
+  if (site && isAllowlisted(site, ctx.allowlist) && coversCookieDomain(site, host)) return true
   if (ctx.mode === 'first-party') {
-    if (!ctx.siteHost) return false
-    return hostMatches(normalizeHost(ctx.siteHost), host)
+    if (!site) return false
+    return coversCookieDomain(site, host)
   }
   return false
 }
