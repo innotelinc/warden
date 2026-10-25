@@ -92,8 +92,8 @@ Versioning: bump `versionCode` and `versionName` in
    `us.innotel.warden`. Automatic signing can register the bundle id and fetch a
    profile, but it cannot create this record, and an upload with nowhere to land
    fails.
-2. Create an App Store Connect API key (Users and Access → Integrations) with
-   the App Manager role, and add repository secrets: `APPLE_TEAM_ID`,
+2. Create an App Store Connect API key (Users and Access → Integrations →
+   Team Keys) with the **Admin** role, and add repository secrets: `APPLE_TEAM_ID`,
    `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`,
    `APP_STORE_CONNECT_KEY_P8`.
 3. Push a `v*` tag (or run **Mobile (iOS)** by hand). The workflow stamps the
@@ -110,6 +110,18 @@ Versioning: bump `versionCode` and `versionName` in
 
 Without the four secrets the job still archives (unsigned) so a fresh clone has
 something to inspect; it prints a notice instead of failing.
+
+The key's role matters more than it looks. Cloud signing creates the development
+certificate for the archive under any role that can reach the Developer Portal,
+but it will only manage *distribution* signing — the certificate and App Store
+profile the export needs — for an **Admin** (or Account Holder) key. An App
+Manager key archives fine and then fails the export with
+`Cloud signing permission error`, `No profiles for 'us.innotel.warden' were
+found` and `No signing certificate "iOS Distribution" found`, which reads like a
+missing app record and is not one. A Team Key's role cannot be edited after it
+is generated: revoke it and make a new key, then update
+`APP_STORE_CONNECT_KEY_ID` and `APP_STORE_CONNECT_KEY_P8`. The issuer id and team
+id do not change.
 
 The App Privacy form is *Data Not Collected*, which `App/PrivacyInfo.xcprivacy`
 states in the app bundle as well. Export compliance is answered by

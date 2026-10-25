@@ -8,7 +8,10 @@ name: Mobile (iOS)
 #   APP_STORE_CONNECT_ISSUER_ID  API key issuer id
 #   APP_STORE_CONNECT_KEY_P8     the .p8 contents
 # Automatic signing then fetches the distribution profile, so no provisioning
-# profile or .p12 belongs in the repository or in chat.
+# profile or .p12 belongs in the repository or in chat. The key must have the
+# Admin (or Account Holder) role: cloud signing manages distribution signing
+# only for those, and an App Manager key archives and then fails the export with
+# "Cloud signing permission error". A Team Key's role is fixed once generated.
 #
 # A push of a v* tag builds that tag's version and uploads it to TestFlight. A
 # manual run builds the version in mobile/package.json and only uploads when the
@@ -170,7 +173,11 @@ jobs:
           ls -la "$RUNNER_TEMP/export"
 
       # An unsigned archive has no .ipa; keep the archive for inspection instead.
+      # `always()` so a failed export still leaves the archive behind: the export
+      # step is where signing permissions surface, and without this the run that
+      # reports the problem also throws away the evidence.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: warden-ios
           path: |
