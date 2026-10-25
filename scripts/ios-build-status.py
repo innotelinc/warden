@@ -242,18 +242,24 @@ def main() -> int:
             return 1
 
         print(describe(rows))
-        settled = [row for row in rows if row["state"] != "PROCESSING"]
-        if settled or time.monotonic() >= deadline or not args.wait_minutes:
+        # The newest build is the one somebody just uploaded and is waiting on.
+        # An older build of the same version being VALID says nothing about it,
+        # and stopping there reports yesterday's answer.
+        newest = rows[0]
+        if newest["state"] != "PROCESSING" or time.monotonic() >= deadline or not args.wait_minutes:
             break
-        print(f"\nstill processing, checking again in 60s…\n")
+        print(
+            f"\n{newest['marketing']} ({newest['number']}) is still processing, "
+            "checking again in 60s…\n"
+        )
         time.sleep(60)
 
     summarise(rows, args.wait_minutes)
 
-    if any(row["state"] in ("FAILED", "INVALID") for row in rows):
+    if rows[0]["state"] in ("FAILED", "INVALID"):
         return 2
-    if all(row["state"] == "PROCESSING" for row in rows):
-        print("\nstill processing. Run this again in a few minutes, or with --wait-minutes.")
+    if rows[0]["state"] == "PROCESSING":
+        print("\nStill processing. Run this again in a few minutes, or with --wait-minutes.")
         return 3
     return 0
 
