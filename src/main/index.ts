@@ -11,6 +11,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_SETTINGS, APP_NAME } from '@shared/defaults'
+import { DOH_PROVIDERS, dohSwitches } from '@shared/dns'
+import type { ProxyState } from '@shared/network'
 import { sanitizeSettings } from '@shared/settings'
 import type {
   AppState,
@@ -48,7 +50,7 @@ const isDev = !app.isPackaged
 // Page scrollbars are drawn by Chromium, not by our CSS: ask for the overlay
 // kind so a site's content keeps its width and the bar fades out instead of
 // sitting there as a bright strip against a dark page.
-app.commandLine.appendSwitch('enable-features', 'OverlayScrollbar')
+app.commandLine.appendSwitch('enable-features', 'OverlayScrollbar,DnsOverHttps')
 
 app.commandLine.appendSwitch('no-pings')
 app.commandLine.appendSwitch('disable-background-networking')
@@ -82,6 +84,50 @@ app.commandLine.appendSwitch('disable-features', [
  * a remote-debugging port bound to all interfaces would let anything on the
  * network drive the browser.
  */
+/**
+ * Encrypted DNS is a process-wide resolver decision taken from the settings
+ * file before the app is ready. `secure` makes Chromium fail closed instead of
+ * falling back to the system resolver: a site that cannot be resolved is a
+ * visible failure, not a quiet leak to the ISP's nameserver.
+ */
+function splashFacts(settings: Settings, egress: ProxyState): string[] {
+  const facts: string[] = []
+  if (settings.dnsOverHttps) {
+    const provider = DOH_PROVIDERS.find((entry) => entry.id === settings.dnsProvider)
+    facts.push(`DNS over HTTPS · ${provider?.name ?? 'encrypted'}`)
+  } else {
+    facts.push('System resolver')
+  }
+  facts.push(
+    egress.kind === 'proxy'
+      ? `Tunnel · ${egress.rule.replace('://', ' ')}`
+      : settings.vpnEnabled
+        ? 'No tunnel endpoint'
+        : 'Direct egress'
+  )
+  facts.push(settings.privateByDefault ? 'Private tab by default' : 'Shared session')
+  facts.push('Memory-only profile')
+  return facts
+}
+
+function applyDnsPolicy(): void {
+  let enabled = true
+  let provider = ''
+  try {
+    const parsed = JSON.parse(
+      readFileSync(path.join(app.getPath('userData'), 'settings.json'), 'utf8')
+    ) as { dnsOverHttps?: unknown; dnsProvider?: unknown }
+    enabled = parsed.dnsOverHttps !== false
+    provider = typeof parsed.dnsProvider === 'string' ? parsed.dnsProvider : ''
+  } catch {
+    /* first run: the defaults below apply */
+  }
+  const dns = dohSwitches(enabled, provider || 'quad9')
+  if (dns.mode !== 'secure') return
+  app.commandLine.appendSwitch('dns-over-https-mode', 'secure')
+  app.commandLine.appendSwitch('dns-over-https-templates', dns.templates.join(' '))
+}
+
 function applySelfDebugPort(): void {
   if (process.env.WARDEN_DEBUG_PORT && Number(process.env.WARDEN_DEBUG_PORT) > 0) {
     app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
@@ -101,6 +147,15 @@ function applySelfDebugPort(): void {
   }
 }
 
+// The smoke harness exercises camera/microphone treatment without a real
+// device; the switches are scoped to WARDEN_SMOKE so a normal launch never
+// gets a synthetic capture device.
+if (process.env.WARDEN_SMOKE === '1') {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+}
+
+applyDnsPolicy()
 applySelfDebugPort()
 
 protocol.registerSchemesAsPrivileged([
@@ -583,6 +638,7 @@ async function createWindow(stores: Stores): Promise<void> {
       return new Response(
         newTabHtml({
           stats: privacy.snapshot(),
+          facts: splashFacts(settingsNow, privacy.egressState()),
           bookmarks: stores.bookmarks.get().slice(0, 12),
           version: app.getVersion(),
           homepage: settingsNow.homepage
@@ -651,6 +707,22 @@ async function createWindow(stores: Stores): Promise<void> {
       const slot = media.open(item as never, tabs.getTabUrl(tabId) ?? '')
       if (slot === null) continue
       tabs.getWebContents(tabId)?.send('warden:media:claim', (item as { url: string }).url)
+    }
+  })
+
+  // Sensors: answered synchronously at preload time so the page-world shim is
+  // installed before the first script runs, and re-read on every reload.
+  ipcMain.removeAllListeners('warden:sensors:sync')
+  ipcMain.on('warden:sensors:sync', (event) => {
+    // The enforcement copy, not the store: a policy applied at runtime has to
+    // reach the shim even before the file is written.
+    const current = privacy.getSettings()
+    event.returnValue = {
+      cameraMode: current.cameraMode,
+      cameraStrength: current.cameraStrength,
+      voiceMode: current.voiceMode,
+      cameraBlocked: current.cameraBlocked,
+      microphoneBlocked: current.microphoneBlocked
     }
   })
 

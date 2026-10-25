@@ -83,6 +83,24 @@ export interface Settings {
   autoUpdate: boolean
   /** Minutes of no keyboard or mouse input before the lock screen covers WARDEN. 0 = off. */
   lockTimeoutMinutes: number
+  /** Resolve DNS over HTTPS instead of the system resolver. Needs a relaunch. */
+  dnsOverHttps: boolean
+  /** Id from the provider list in shared/dns.ts. */
+  dnsProvider: string
+  /** New tabs start in a fresh in-memory session, so nothing follows them. */
+  privateByDefault: boolean
+  /** Route every session through an operator-supplied proxy endpoint. */
+  vpnEnabled: boolean
+  vpnMode: 'off' | 'socks5' | 'https'
+  vpnHost: string
+  vpnPort: number
+  vpnBypass: string
+  cameraMode: 'off' | 'soften' | 'portrait' | 'pixelate' | 'silhouette'
+  /** 0-100; scales blur radius and pixel size. */
+  cameraStrength: number
+  voiceMode: 'off' | 'deep' | 'bright' | 'robot'
+  cameraBlocked: boolean
+  microphoneBlocked: boolean
 }
 
 export interface UpdateState {

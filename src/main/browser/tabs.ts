@@ -115,7 +115,7 @@ export class TabManager {
     return this.tabs.get(id)?.url ?? null
   }
 
-  create(url = 'warden://newtab', burner = false): string {
+  create(url = 'warden://newtab', burner = this.privacy.getSettings().privateByDefault): string {
     this.counter += 1
     const id = `tab${this.counter}`
     const ses = burner ? this.privacy.createBurnerSession() : this.privacy.browsingSession

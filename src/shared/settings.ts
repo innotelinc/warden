@@ -1,4 +1,7 @@
 import { DEFAULT_SETTINGS } from './defaults'
+import { DEFAULT_DOH_PROVIDER, dohTemplateFor } from './dns'
+import { normalizeProxy } from './network'
+import { isCameraMode, isVoiceMode } from './sensors'
 import { DEFAULT_THEME, isThemeId } from './themes'
 import type { Settings } from './types'
 
@@ -26,6 +29,25 @@ export function sanitizeSettings(value: unknown): Settings {
   merged.debugPort =
     Number.isInteger(debugPort) && debugPort >= 1024 && debugPort <= 65535 ? debugPort : 0
   merged.autoUpdate = merged.autoUpdate !== false
+  merged.dnsOverHttps = merged.dnsOverHttps !== false
+  merged.dnsProvider = dohTemplateFor(input.dnsProvider ?? '') ? String(input.dnsProvider) : DEFAULT_DOH_PROVIDER
+  merged.privateByDefault = merged.privateByDefault !== false
+  merged.vpnEnabled = merged.vpnEnabled !== false
+  const proxy = normalizeProxy({
+    mode: merged.vpnMode,
+    host: merged.vpnHost,
+    port: merged.vpnPort,
+    bypass: merged.vpnBypass
+  })
+  merged.vpnMode = proxy.mode
+  merged.vpnHost = proxy.host
+  merged.vpnPort = proxy.port
+  merged.vpnBypass = proxy.bypass
+  merged.cameraMode = isCameraMode(input.cameraMode) ? input.cameraMode : 'off'
+  merged.cameraStrength = Math.min(100, Math.max(0, Math.round(Number(merged.cameraStrength) || 55)))
+  merged.voiceMode = isVoiceMode(input.voiceMode) ? input.voiceMode : 'off'
+  merged.cameraBlocked = Boolean(merged.cameraBlocked)
+  merged.microphoneBlocked = Boolean(merged.microphoneBlocked)
   const lock = Number(input.lockTimeoutMinutes)
   merged.lockTimeoutMinutes = [0, 1, 5, 15, 30, 60].includes(lock) ? lock : DEFAULT_SETTINGS.lockTimeoutMinutes
   merged.blockAds = Boolean(merged.blockAds)

@@ -55,7 +55,7 @@ page-level cookie lock), on a browsing session created without the `persist:` pa
 and there is no cookie database, no page cache and no session file to recover. Burner tabs get their
 own throwaway session, and every messaging service runs in its own isolated one.
 
-Currently at **v0.2.0**: all seven workspaces are functional, the filter engine parses Adblock-Plus
+Currently at **v0.2.1**: all seven workspaces are functional, the filter engine parses Adblock-Plus
 syntax, Scry captures and rebuilds sites, the terminal runs a real PTY, mail speaks IMAP and SMTP, and
 the Windows installer plus portable build are produced by `npm run dist`. Verified by unit tests over
 the decision surfaces and a smoke suite that drives the real UI and the packaged binary.
@@ -117,6 +117,42 @@ A compatible host is loaded as if WARDEN were a plain browser:
 Matching is on the host and its subdomains (`neowin.net` covers `www.neowin.net`), stored in `settings.json` alongside the allowlist, and capped at 100 entries. Toggling reloads every tab already on that host, because the preload asks the main process at document start rather than reading a value fixed when the tab was created. Revoking the exemption returns the site to the full stack on the next load; it does not retroactively undo cookies the site already set, so purge them if that matters.
 
 **Honest limit:** compatibility mode removes *WARDEN's* obstacles, not Cloudflare's. A managed challenge that refuses Electron itself still refuses it with every layer off — verified against `neowin.net`, which reaches "Verification successful" and is then handed another 403 with no `cf_clearance` cookie. Blaming the privacy stack for that would be wrong; the browser engine is the variable, and stock Chrome is the only workaround for those specific sites.
+
+---
+
+## New tab, DNS, tunnel and sensors
+
+**New tab.** The start surface opens on a splash: a shield with a large W, the
+tagline, and chips that state the session's actual posture — which resolver is
+in use, whether egress is tunnelled, whether new tabs are private, and that the
+profile is memory-only. The session counters and bookmarks sit underneath.
+
+**Encrypted DNS (default on).** `dnsOverHttps` with a provider from
+[`src/shared/dns.ts`](src/shared/dns.ts): Quad9, Cloudflare, Mullvad, NextDNS or
+Google. This becomes `--dns-over-https-mode=secure --dns-over-https-templates=…`
+at launch, so the resolver fails closed rather than falling back to the system
+nameserver, and a change needs a restart. An unknown provider id disables the
+feature instead of pretending to be encrypted.
+
+**Private tab by default.** `privateByDefault` is on: every new tab gets its own
+in-memory Electron session, so cookies, cache and storage cannot follow a user
+into the next tab. The trade-off is deliberate and visible in Policy — a sign-in
+does not carry across tabs; open the site in the tab where you signed in.
+
+**Tunnel (VPN).** WARDEN does not sell or bundle a VPN; a tunnel needs an
+endpoint. Policy → Network accepts a SOCKS5 or HTTPS endpoint (typically the
+local proxy of a WireGuard/OpenVPN client) plus a bypass list, and applies it to
+every session with `session.setProxy`. With no endpoint configured the toggle
+stays on but the status reads *direct egress* — it never claims a tunnel it does
+not have. WebRTC stays pinned to non-proxied UDP off.
+
+**Camera and microphone.** Policy → Camera & microphone applies a per-page
+treatment through a main-world shim around `getUserMedia`: soft focus, portrait
+mask, mosaic or silhouette for video, and lower/brighter/synthetic for audio
+(run through a Web Audio graph). The raw device track never leaves WARDEN's
+closure and nothing is uploaded. Camera or microphone can also be blocked
+outright. Pages may only request media at all when their host is allowlisted;
+every other permission stays denied.
 
 ---
 

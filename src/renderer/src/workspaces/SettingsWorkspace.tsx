@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { SEARCH_ENGINES } from '@shared/defaults'
+import { DOH_PROVIDERS } from '@shared/dns'
 import { LOCK_TIMEOUTS, timeoutLabel } from '@shared/lock-policy'
+import { CAMERA_MODES, VOICE_MODES } from '@shared/sensors'
 import { THEMES, themeSwatch } from '@shared/themes'
 import type { Settings, UpdateState } from '@shared/types'
 import { IconDownload, IconGear, IconLock, IconShield, IconSpark, IconTrash } from '../icons'
@@ -436,6 +438,159 @@ export function SettingsWorkspace() {
               Debug mode exposes WARDEN's own CDP endpoint on loopback so REA, DevTools or curl /json can inspect the
               tabs WARDEN is already running. 0 keeps it off; changing it takes effect after a restart. Scry does not
               need it for WARDEN tabs.
+            </div>
+          </section>
+
+          <section className="panel panel-pad">
+            <div className="panel-title">
+              <IconSpark size={11} /> Network &amp; egress
+            </div>
+            <Toggle
+              title="DNS over HTTPS"
+              detail="Encrypted resolver, fail-closed: no silent fallback to the system DNS"
+              on={settings.dnsOverHttps}
+              onChange={(next) => update({ dnsOverHttps: next })}
+            />
+            <div className="field" style={{ margin: '8px 0 10px' }}>
+              <label>Resolver</label>
+              <select
+                className="select"
+                value={settings.dnsProvider}
+                onChange={(event) => update({ dnsProvider: event.target.value })}
+              >
+                {DOH_PROVIDERS.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name} — {provider.note}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Toggle
+              title="Private tab by default"
+              detail="Every new tab gets its own in-memory session, so nothing follows it"
+              on={settings.privateByDefault}
+              onChange={(next) => update({ privateByDefault: next })}
+            />
+            <div className="faint tiny" style={{ marginTop: 8, lineHeight: 1.7 }}>
+              Resolver choice is applied by Chromium at launch, so it takes effect after a restart. Per-tab sessions mean a
+              sign-in does not travel to a new tab; open the site there when you need the session to carry.
+            </div>
+
+            <div className="panel-title" style={{ marginTop: 18 }}>
+              <IconShield size={11} /> Tunnel (VPN)
+            </div>
+            <Toggle
+              title="Route every session through the tunnel"
+              detail="Applied below the page: fetch, WebSocket and DNS take the same path"
+              on={settings.vpnEnabled}
+              onChange={(next) => update({ vpnEnabled: next })}
+            />
+            <div className="grid-2" style={{ marginTop: 8 }}>
+              <div className="field">
+                <label>Transport</label>
+                <select
+                  className="select"
+                  value={settings.vpnMode}
+                  onChange={(event) => update({ vpnMode: event.target.value as Settings['vpnMode'] })}
+                >
+                  <option value="socks5">SOCKS5 endpoint</option>
+                  <option value="https">HTTPS proxy</option>
+                  <option value="off">Direct (no tunnel)</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Endpoint port</label>
+                <input
+                  className="input"
+                  value={settings.vpnPort ? String(settings.vpnPort) : ''}
+                  placeholder="1080"
+                  onChange={(event) => update({ vpnPort: Number(event.target.value.replace(/\D/g, '')) || 0 })}
+                />
+              </div>
+            </div>
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>Endpoint host</label>
+              <input
+                className="input"
+                value={settings.vpnHost}
+                placeholder="127.0.0.1 (a WireGuard or OpenVPN client's local proxy)"
+                onChange={(event) => update({ vpnHost: event.target.value })}
+              />
+            </div>
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>Bypass list</label>
+              <input
+                className="input"
+                value={settings.vpnBypass}
+                onChange={(event) => update({ vpnBypass: event.target.value })}
+              />
+            </div>
+            <div className="faint tiny" style={{ marginTop: 10, lineHeight: 1.7 }}>
+              WARDEN does not sell or bundle a VPN: a tunnel needs an endpoint you control. Point this at the local SOCKS
+              port of a WireGuard/OpenVPN client, or at a corporate proxy. With no endpoint the toggle is on but the status
+              reads <span className="mono">direct egress</span> — it never pretends a tunnel exists. WebRTC is already
+              pinned to non-proxied UDP off, so a live peer connection cannot leak the real address around it.
+            </div>
+          </section>
+
+          <section className="panel panel-pad">
+            <div className="panel-title">
+              <IconShield size={11} /> Camera &amp; microphone
+            </div>
+            <div className="field" style={{ marginBottom: 10 }}>
+              <label>Camera treatment</label>
+              <select
+                className="select"
+                value={settings.cameraMode}
+                onChange={(event) => update({ cameraMode: event.target.value as Settings['cameraMode'] })}
+              >
+                {CAMERA_MODES.map((mode) => (
+                  <option key={mode.id} value={mode.id}>
+                    {mode.name} — {mode.detail}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field" style={{ marginBottom: 10 }}>
+              <label>Strength · {settings.cameraStrength}</label>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={settings.cameraStrength}
+                onChange={(event) => update({ cameraStrength: Number(event.target.value) })}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: 10 }}>
+              <label>Voice treatment</label>
+              <select
+                className="select"
+                value={settings.voiceMode}
+                onChange={(event) => update({ voiceMode: event.target.value as Settings['voiceMode'] })}
+              >
+                {VOICE_MODES.map((mode) => (
+                  <option key={mode.id} value={mode.id}>
+                    {mode.name} — {mode.detail}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Toggle
+              title="Block camera outright"
+              detail="getUserMedia for video fails as if permission were denied"
+              on={settings.cameraBlocked}
+              onChange={(next) => update({ cameraBlocked: next })}
+            />
+            <Toggle
+              title="Block microphone outright"
+              detail="Audio capture fails; stronger than any voice treatment"
+              on={settings.microphoneBlocked}
+              onChange={(next) => update({ microphoneBlocked: next })}
+            />
+            <div className="faint tiny" style={{ marginTop: 10, lineHeight: 1.7 }}>
+              The page receives a derived track: frames go through a canvas (blur, portrait mask, mosaic or silhouette) and
+              audio through a Web Audio graph. The raw device track never leaves WARDEN's closure, nothing is uploaded, and
+              a change applies on the next reload of a page. Voice modes are tone changes, not a different speaker.
             </div>
           </section>
 

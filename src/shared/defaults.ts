@@ -1,4 +1,5 @@
 import type { MessagingService, Settings } from './types'
+import { DEFAULT_DOH_PROVIDER } from './dns'
 
 export const APP_NAME = 'WARDEN'
 export const APP_TAGLINE = 'Read everything. Give nothing.'
@@ -29,7 +30,20 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'ops',
   debugPort: 0,
   autoUpdate: true,
-  lockTimeoutMinutes: 5
+  lockTimeoutMinutes: 5,
+  dnsOverHttps: true,
+  dnsProvider: DEFAULT_DOH_PROVIDER,
+  privateByDefault: true,
+  vpnEnabled: true,
+  vpnMode: 'socks5',
+  vpnHost: '',
+  vpnPort: 0,
+  vpnBypass: '<local>',
+  cameraMode: 'off',
+  cameraStrength: 55,
+  voiceMode: 'off',
+  cameraBlocked: false,
+  microphoneBlocked: false
 }
 
 export interface SearchEngine {
