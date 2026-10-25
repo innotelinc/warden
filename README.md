@@ -56,10 +56,10 @@ removes WARDEN's obstacles and says plainly where Cloudflare's begin.
 | --- | --- |
 | **Bastion** | The privacy engine: cookies blocked unless a site is explicitly allowed, tracker/ad filtering, HTTPS-only, referrer trimming, GPC/DNT, fingerprint noise, permission lockdown. |
 | **Splay** | Video dock. Playing media branches into up to three independent panes on the right so you can keep reading while it plays. |
-| **Trench** | Terminal. Real PTY (ConPTY on Windows, PTY on Unix) via `node-pty`, with a line-buffered fallback if the native module cannot load. Custom mint-on-black theme, session tabs. |
+| **Trench** | Terminal and ssh client. Real PTY (ConPTY on Windows, PTY on Unix) via `node-pty`, with a line-buffered fallback if the native module cannot load. A **SHELL / SSH** toggle switches a session between a local shell and the system `ssh` binary running in the same PTY, so key passphrases, host-key prompts and agent forwarding behave exactly as in a normal terminal. Destinations are validated as a single argv element — `-oProxyCommand=…` cannot be typed in. Custom mint-on-black theme, session tabs. |
 | **Relay** | Mail. Native IMAP + SMTP, OS-keychain credentials, HTML sanitized with remote content withheld. |
 | **Concourse** | Unified messaging. Slack, Discord, Teams, WhatsApp, Telegram, Element, Google Chat and Mattermost in isolated memory-only panes with unread aggregation. |
-| **Scry** | Deconstructor. Capture a live page over Chrome DevTools Protocol, produce a recon report, a standalone static clone, and a Vite + React scaffold. |
+| **Scry** | Deconstructor. Capture a live page over Chrome DevTools Protocol, produce a recon report, a standalone static clone, and a Vite + React scaffold. The name is the verb — to look *into* something to reveal what is hidden — not an acronym. |
 | **Policy** | Every switch, with the enforcement point stated. |
 
 ---
@@ -270,6 +270,7 @@ tool is available.
 | `Ctrl+K` | Command palette |
 | `Ctrl+L` | Address bar |
 | `Ctrl+T` / `Ctrl+W` | New tab / close tab |
+| Drag a tab | Reorder the strip; the active page and its state are untouched |
 | `Ctrl+Shift+N` | Burner tab |
 | `Ctrl+1…6` | Browse / Trench / Relay / Concourse / Scry / Policy |
 | `Ctrl+J` | Toggle Splay dock |

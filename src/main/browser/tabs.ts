@@ -246,6 +246,25 @@ export class TabManager {
     if (id) this.activate(id)
   }
 
+  /**
+   * Move a tab to a new position in the strip.
+   *
+   * Index is the destination slot among the current order, clamped rather than
+   * rejected: a drag that lands past the last tab should put it last, not do
+   * nothing. Active tab and page state are untouched — only the order changes.
+   */
+  move(id: string, index: number): void {
+    const from = this.order.indexOf(id)
+    if (from === -1) return
+    const target = Math.max(0, Math.min(this.order.length - 1, Math.round(index)))
+    if (target === from) return
+    const next = [...this.order]
+    next.splice(from, 1)
+    next.splice(target, 0, id)
+    this.order = next
+    this.hooks.onState()
+  }
+
   setBounds(bounds: Rect): void {
     this.bounds = bounds
     const tab = this.activeId ? this.tabs.get(this.activeId) : null

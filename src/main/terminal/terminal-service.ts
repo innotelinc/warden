@@ -40,6 +40,43 @@ export function resolveShell(preference: string): ShellSpec {
   return { file: shell, args: ['-l'], label: path.basename(shell) }
 }
 
+/**
+ * Locate the system OpenSSH client.
+ *
+ * WARDEN does not bundle an SSH implementation: the platform client already
+ * knows about the user's keys, agent and known_hosts, and it prompts inside the
+ * PTY exactly as it would in a normal terminal. Returns null when the host has
+ * no client (Windows before the OpenSSH optional feature, minimal images).
+ */
+export function resolveSsh(): string | null {
+  const probe = process.platform === 'win32' ? 'where' : 'which'
+  for (const candidate of ['ssh.exe', 'ssh']) {
+    try {
+      const output = execFileSync(probe, [candidate], { timeout: 2500, encoding: 'utf8' })
+      const line = output.split(/\r?\n/).map((entry) => entry.trim()).find(Boolean)
+      if (line && fs.existsSync(line)) return line
+    } catch {
+      /* try the next name */
+    }
+  }
+  return null
+}
+
+/**
+ * Accept `host`, `user@host` and `[2001:db8::1]`, nothing that could be read as
+ * an option or split into extra arguments.
+ */
+export function normalizeSshTarget(raw: string): string {
+  const target = raw.trim()
+  if (!target) throw new Error('Enter a host to connect to')
+  if (target.startsWith('-')) throw new Error('A host cannot start with a dash')
+  if (/\s/.test(target)) throw new Error('A host cannot contain spaces')
+  if (!/^[A-Za-z0-9._@:\[\]-]+$/.test(target)) {
+    throw new Error('Use a host, user@host, or [ipv6] — no paths or options')
+  }
+  return target
+}
+
 type PtyModule = {
   spawn: (
     file: string,
@@ -101,16 +138,45 @@ export class TerminalService {
   }
 
   create(shellPreference = ''): TerminalInfo {
+    const spec = resolveShell(shellPreference)
+    return this.launch({ file: spec.file, args: spec.args, label: spec.label, kind: 'shell' })
+  }
+
+  createSsh(input: { target: string; port?: number }): TerminalInfo {
+    const ssh = resolveSsh()
+    if (!ssh) {
+      throw new Error('No ssh client found on this host — install the OpenSSH client and retry')
+    }
+    const target = normalizeSshTarget(input.target)
+    const port = Number(input.port)
+    const args: string[] = []
+    if (Number.isInteger(port) && port > 0 && port <= 65535) args.push('-p', String(port))
+    args.push(target)
+    return this.launch({ file: ssh, args, label: `ssh ${target}`, kind: 'ssh', target })
+  }
+
+  private launch(spec: {
+    file: string
+    args: string[]
+    label: string
+    kind: 'shell' | 'ssh'
+    target?: string
+  }): TerminalInfo {
     this.counter += 1
     const id = `trench-${this.counter}`
-    const spec = resolveShell(shellPreference)
     const cwd = os.homedir()
     const ptyModule = this.pty
+    // Without a PTY the remote would reject the interactive login; -tt asks ssh
+    // to allocate one anyway. It has to precede the destination argument.
+    const args = [...spec.args]
+    if (!ptyModule && spec.kind === 'ssh' && args.length) args.splice(args.length - 1, 0, '-tt')
 
     const info: TerminalInfo = {
       id,
       title: spec.label,
       shell: spec.file,
+      kind: spec.kind,
+      target: spec.target ?? null,
       backend: ptyModule ? 'pty' : 'pipe',
       cols: 120,
       rows: 30,
@@ -124,7 +190,7 @@ export class TerminalService {
 
     if (ptyModule) {
       try {
-        const handle = ptyModule.spawn(spec.file, spec.args, {
+        const handle = ptyModule.spawn(spec.file, args, {
           name: 'xterm-256color',
           cols: info.cols,
           rows: info.rows,
@@ -144,15 +210,18 @@ export class TerminalService {
     }
 
     if (info.backend === 'pipe' || !state.pty) {
-      this.startPipe(state, spec, cwd)
+      // A pipe-backed ssh already carries -tt; appending -i would make ssh read
+      // it as the remote command.
+      this.startPipe(state, { file: spec.file, args, label: spec.label }, cwd, spec.kind === 'shell')
     }
 
     this.activeId = id
     return info
   }
 
-  private startPipe(state: SessionState, spec: ShellSpec, cwd: string): void {
-    const args = process.platform === 'win32' ? [...spec.args] : [...spec.args, '-i']
+  private startPipe(state: SessionState, spec: ShellSpec, cwd: string, interactive = true): void {
+    const args =
+      interactive && process.platform !== 'win32' ? [...spec.args, '-i'] : [...spec.args]
     const child = spawn(spec.file, args, {
       cwd,
       env: { ...process.env, TERM: 'xterm-256color', WARDEN: '1' },

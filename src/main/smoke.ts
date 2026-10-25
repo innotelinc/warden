@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { WardenContext } from './ipc'
+import { resolveSsh } from './terminal/terminal-service'
 
 const emit = (payload: unknown): void => {
   process.stdout.write(`WARDEN_SMOKE ${JSON.stringify(payload)}\n`)
@@ -105,6 +106,20 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
         addr.focus();
         addr.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
         await wait(80);
+        // Drag to reorder calls tab.move with the destination slot; prove the
+        // IPC path reorders the strip and leaves the active tab alone.
+        const orderBefore = Array.from(document.querySelectorAll('.tab .title')).map((el) => el.textContent);
+        const bootstrapped = await window.warden.bootstrap();
+        const tabIds = bootstrapped.tabs.map((entry) => entry.id);
+        if (tabIds.length >= 2) {
+          await window.warden.tab.move(tabIds[1], 0);
+          await wait(240);
+          const orderAfter = Array.from(document.querySelectorAll('.tab .title')).map((el) => el.textContent);
+          out.tabReorder = { before: orderBefore, after: orderAfter, moved: orderAfter[0] === orderBefore[1] };
+          await window.warden.tab.move(tabIds[1], 1);
+          await wait(240);
+        }
+
         out.addressSelection = {
           value: addr.value,
           all: addr.value.length > 0 && addr.selectionStart === 0 && addr.selectionEnd === addr.value.length
@@ -182,13 +197,35 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
     result.ui = {
       ...(result.ui as Record<string, unknown>),
       ...(await ctx.win.webContents.executeJavaScript(
-        `({
-          drawerHeight: Math.round(document.querySelector('.drawer-shell')?.getBoundingClientRect().height ?? 0),
-          terminalHeight: Math.round(document.querySelector('.xterm')?.getBoundingClientRect().height ?? 0),
-          drawerHead: document.querySelector('.term-head')?.textContent?.includes('TRENCH') ?? false
-        })`,
+        `(async () => {
+          const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const modes = Array.from(document.querySelectorAll('.term-mode .tchip'));
+          const out = {
+            drawerHeight: Math.round(document.querySelector('.drawer-shell')?.getBoundingClientRect().height ?? 0),
+            terminalHeight: Math.round(document.querySelector('.xterm')?.getBoundingClientRect().height ?? 0),
+            drawerHead: document.querySelector('.term-head')?.textContent?.includes('TRENCH') ?? false,
+            terminalModes: modes.map((el) => (el.textContent ?? '').trim())
+          };
+          modes.find((el) => (el.textContent ?? '').trim() === 'SSH')?.click();
+          await wait(220);
+          out.sshBar = Boolean(document.querySelector('.ssh-bar'));
+          modes.find((el) => (el.textContent ?? '').trim() === 'SHELL')?.click();
+          await wait(180);
+          out.sshBarClosed = !document.querySelector('.ssh-bar');
+          return out;
+        })()`,
         true
       ))
+    }
+
+    // Trench runs the system ssh client in the same PTY; the destination must
+    // never be able to become an option.
+    const sshClient = resolveSsh()
+    result.ssh = { client: sshClient ? path.basename(sshClient) : null, rejectedOptionInjection: false }
+    try {
+      ctx.terminal.createSsh({ target: '-oProxyCommand=calc.exe' })
+    } catch {
+      ;(result.ssh as { rejectedOptionInjection: boolean }).rejectedOptionInjection = true
     }
     ctx.setDrawer(false)
     result.terminal = {

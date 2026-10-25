@@ -29,6 +29,7 @@ const api: WardenApi = {
     create: (url, burner) => invoke<string>('warden:tab:create', url, burner ?? false),
     close: (id) => invoke('warden:tab:close', id),
     activate: (id) => invoke('warden:tab:activate', id),
+    move: (id, index) => invoke('warden:tab:move', id, index),
     navigate: (id, url) => invoke('warden:tab:navigate', id, url),
     back: (id) => invoke('warden:tab:back', id),
     forward: (id) => invoke('warden:tab:forward', id),
@@ -61,6 +62,7 @@ const api: WardenApi = {
 
   terminal: {
     create: (shell) => invoke('warden:term:create', shell),
+    ssh: (input) => invoke('warden:term:ssh', input),
     input: (id, data) => invoke('warden:term:input', id, data),
     resize: (id, cols, rows) => invoke('warden:term:resize', id, cols, rows),
     kill: (id) => invoke('warden:term:kill', id),

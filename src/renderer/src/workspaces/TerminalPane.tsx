@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -34,9 +34,32 @@ export function TerminalPane({ variant }: { variant: 'drawer' | 'full' }) {
   const { state, notify } = useWarden()
   const holder = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const [mode, setMode] = useState<'shell' | 'ssh'>('shell')
+  const [target, setTarget] = useState('')
+  const [port, setPort] = useState('')
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const activeId = state?.terminal?.id ?? null
   const fontSize = state?.settings.terminalFontSize ?? 13
   const shell = state?.settings.terminalShell ?? ''
+
+  const connect = (): void => {
+    const destination = target.trim()
+    if (!destination) {
+      setError('Enter a host or user@host')
+      return
+    }
+    setConnecting(true)
+    setError(null)
+    void window.warden.terminal
+      .ssh({ target: destination, port: Number(port) || undefined })
+      .then((info) => notify(`ssh ${info.target ?? destination} — session open`))
+      .catch((failure: unknown) => {
+        const message = failure instanceof Error ? failure.message : String(failure)
+        setError(message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      })
+      .finally(() => setConnecting(false))
+  }
 
   useEffect(() => {
     const element = holder.current
@@ -128,6 +151,22 @@ export function TerminalPane({ variant }: { variant: 'drawer' | 'full' }) {
       <div className="term-head" style={{ height: variant === 'full' ? 38 : DRAWER_HEAD }}>
         <IconTerminal size={13} />
         <span style={{ font: '9.5px/1 var(--mono)', letterSpacing: '0.2em', color: 'var(--faint)', marginRight: 4 }}>TRENCH</span>
+        <div className="term-mode" role="group" aria-label="Session type">
+          <button
+            className={`tchip ${mode === 'shell' ? 'active' : ''}`}
+            onClick={() => setMode('shell')}
+            title="A shell on this machine"
+          >
+            SHELL
+          </button>
+          <button
+            className={`tchip ${mode === 'ssh' ? 'active' : ''}`}
+            onClick={() => setMode('ssh')}
+            title="An ssh login, in the same PTY"
+          >
+            SSH
+          </button>
+        </div>
         {terminals.map((entry) => (
           <button
             key={entry.id}
@@ -179,18 +218,54 @@ export function TerminalPane({ variant }: { variant: 'drawer' | 'full' }) {
         ) : null}
       </div>
 
+      {mode === 'ssh' ? (
+        <div className="ssh-bar">
+          <span className="ssh-tag">SSH</span>
+          <input
+            className="input ssh-target"
+            placeholder="user@host"
+            spellCheck={false}
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') connect()
+            }}
+            aria-label="ssh destination"
+          />
+          <input
+            className="input ssh-port"
+            placeholder="22"
+            inputMode="numeric"
+            value={port}
+            onChange={(event) => setPort(event.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') connect()
+            }}
+            aria-label="ssh port"
+          />
+          <button className="btn sm primary" disabled={connecting} onClick={connect}>
+            {connecting ? 'connecting' : 'connect'}
+          </button>
+          {error ? <span className="ssh-error">{error}</span> : null}
+        </div>
+      ) : null}
+
       <div className="term-body" ref={holder}>
         {!activeId ? (
           <div className="term-empty">
             <div>
               <b style={{ color: 'var(--text-dim)' }}>Trench is cold</b>
-              <div>Start a shell to work on this machine.</div>
+              {mode === 'ssh' ? (
+                <div>Enter a destination above to open an ssh login.</div>
+              ) : (
+                <div>Start a shell to work on this machine.</div>
+              )}
               <button
                 className="btn primary"
                 style={{ marginTop: 12 }}
-                onClick={() => void window.warden.terminal.create(shell)}
+                onClick={() => (mode === 'ssh' ? connect() : void window.warden.terminal.create(shell))}
               >
-                Start shell
+                {mode === 'ssh' ? 'Connect' : 'Start shell'}
               </button>
             </div>
           </div>
