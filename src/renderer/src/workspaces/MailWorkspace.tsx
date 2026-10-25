@@ -8,7 +8,7 @@ import {
   type ComposeSeed
 } from '@shared/mail-view'
 import type { MailAccountPublic } from '@shared/types'
-import { IconAlert, IconMail, IconPlus, IconReload, IconSend, IconStar, IconTrash } from '../icons'
+import { IconAlert, IconDownload, IconMail, IconPlus, IconReload, IconSend, IconStar, IconTrash } from '../icons'
 import { timeAgo, useWarden } from '../state'
 
 /** Name and address together: the address is the part worth checking. */
@@ -97,6 +97,15 @@ export function MailWorkspace() {
   const compose = (seed: ComposeSeed | null): void => {
     setComposeSeed(seed)
     setComposeOpen(true)
+  }
+
+  /** Both writes land in the Downloads folder; say where, not just "done". */
+  const savedNotice = (result: { path: string }): void => notify(`Saved to ${result.path}`, 'ok')
+  const saveAttachment = (index: number): void => {
+    void window.warden.mail.downloadAttachment(index).then(savedNotice, (error: Error) => notify(error.message, 'err'))
+  }
+  const saveMessage = (): void => {
+    void window.warden.mail.saveMessage().then(savedNotice, (error: Error) => notify(error.message, 'err'))
   }
 
   return (
@@ -301,6 +310,9 @@ export function MailWorkspace() {
                   >
                     <IconStar size={11} filled={selected.flagged} /> {selected.flagged ? 'unstar' : 'star'}
                   </button>
+                  <button className="btn sm" onClick={saveMessage} title="Save this message as an .eml file in Downloads">
+                    <IconDownload size={11} /> save .eml
+                  </button>
                   <button
                     className="btn sm danger"
                     onClick={() => mailAction(window.warden.mail.deleteMessage(selected.uid, selected.accountId))}
@@ -313,10 +325,16 @@ export function MailWorkspace() {
                   {selected.remoteContentCount > 0 ? (
                     <span className="tag amber">{selected.remoteContentCount} remote references withheld</span>
                   ) : null}
-                  {selected.attachments.map((attachment) => (
-                    <span key={`${attachment.filename}-${attachment.size}`} className="tag faint" title={attachment.contentType}>
-                      {attachment.filename} · {Math.max(1, Math.round(attachment.size / 1024))} KB
-                    </span>
+                  {selected.attachments.map((attachment, index) => (
+                    <button
+                      key={`${attachment.filename}-${index}`}
+                      className="tag attachment"
+                      title={`${attachment.contentType} · click to save this attachment to Downloads`}
+                      onClick={() => saveAttachment(index)}
+                    >
+                      <IconDownload size={10} /> {attachment.filename} ·{' '}
+                      {Math.max(1, Math.round(attachment.size / 1024))} KB
+                    </button>
                   ))}
                   <FraudRow
                     fraud={mail.fraud && mail.fraud.uid === selected.uid && mail.fraud.accountId === selected.accountId ? mail.fraud : null}

@@ -64,6 +64,24 @@ export function mergeMailboxLists(lists: MailSummary[][]): MailSummary[] {
   return merged.map(({ _order, ...message }) => message)
 }
 
+/**
+ * A filename that cannot escape the folder it is written into.
+ *
+ * Attachments carry whatever the sender put in `Content-Disposition`, so path
+ * separators, drive colons and control characters are replaced rather than
+ * trusted; a name that is only dots or whitespace gets a fallback.
+ */
+export function safeFilename(name: string): string {
+  const cleaned = name
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
+    // Leading dots would make a hidden file; Windows silently drops a trailing
+    // dot or space, which turns `invoice.pdf.` into something else entirely.
+    .replace(/^\.+/, '')
+    .replace(/[.\s]+$/, '')
+    .trim()
+  return cleaned || 'attachment'
+}
+
 export interface ComposeSeed {
   to: string
   subject: string

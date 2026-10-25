@@ -472,7 +472,13 @@ export class PrivacyService {
     })
     ses.setSpellCheckerEnabled(false)
 
-    ses.on('will-download', (_event, item) => {
+    ses.on('will-download', (event, item) => {
+      // The page asks; the operator answers in Policy. Cancelling here means the
+      // file never reaches a temp path, so nothing is left to clean up.
+      if (!this.settings.allowDownloads) {
+        event.preventDefault()
+        return
+      }
       this.downloadHandler?.(item)
     })
 

@@ -6,6 +6,7 @@ import {
   isUnifiedMailbox,
   mergeMailboxLists,
   replySeed,
+  safeFilename,
   UNIFIED_MAILBOX_ID
 } from '../src/shared/mail-view'
 import type { MailBody, MailSummary } from '../src/shared/types'
@@ -95,6 +96,26 @@ describe('unified mailbox', () => {
       [summary('a1', 1, 'not a date', 'one'), summary('a2', 2, 'not a date', 'two')]
     ])
     expect(merged.map((message) => message.subject)).toEqual(['one', 'two'])
+  })
+})
+
+describe('saving attachments', () => {
+  /**
+   * The name comes from the sender, so it is data, not a path: a traversal or a
+   * reserved character must not escape the Downloads folder.
+   */
+  it('strips anything that could leave the download folder', () => {
+    expect(safeFilename('../../etc/passwd')).toBe('_.._etc_passwd')
+    expect(safeFilename('C:\\Users\\ops\\invoice.pdf')).toBe('C__Users_ops_invoice.pdf')
+    expect(safeFilename('report:final?.pdf')).toBe('report_final_.pdf')
+    expect(safeFilename('bad\u0000name.txt')).toBe('bad_name.txt')
+  })
+
+  it('keeps ordinary names intact and never returns an empty one', () => {
+    expect(safeFilename('quarterly report.pdf')).toBe('quarterly report.pdf')
+    expect(safeFilename('invoice.pdf.')).toBe('invoice.pdf')
+    expect(safeFilename('...')).toBe('attachment')
+    expect(safeFilename('   ')).toBe('attachment')
   })
 })
 

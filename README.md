@@ -101,6 +101,8 @@ The browsing session is created from a partition **without** the `persist:` pref
 
 Also enforced: every permission request is denied (geolocation, notifications, media, HID, serial, USB, MIDI, clipboard beyond sanitized-write/read), `webview` attachment is blocked, popups become WARDEN tabs, WebRTC non-proxied UDP is disabled, and the app's own network calls (filter sync only, on demand) are the only non-page traffic.
 
+**Downloads are allowed, and can be refused.** A page download is saved into the system Downloads folder with a stamped name so two files called `invoice.pdf` both survive, and it is listed in the app. Policy → *Allow downloads from pages* turns that off: the `will-download` event is cancelled before the file reaches a temporary path, so nothing is written and nothing is listed. Attachments saved from Relay are the operator's own mail and are not affected by the switch.
+
 **Honest limits:** WARDEN is not a VPN; it does not hide your IP unless you point it at an endpoint you control (and while that endpoint is down it blocks rather than leaks). It does not defeat TLS or DNS fingerprinting. It cannot stop a site from refusing service when cookies are blocked — that is what the allowlist is for. Storage APIs other than cookies (localStorage, IndexedDB, Cache) are likewise memory-only per session but are not individually blocked.
 
 ### Allowing a site
@@ -573,6 +575,8 @@ Type the address and WARDEN fills in the servers from a preset (Gmail, Outlook /
 Message HTML is sanitized in the main process: scripts, iframes, forms, `<link>`, `<style>` and event handlers are removed, remote images are replaced with placeholders and counted, and the result renders inside a sandboxed iframe with a deny-all CSP. **No account or message content is fetched until you open Relay.**
 
 The reader carries the controls a mailbox needs: reply and forward (both seed the composer with the original quoted, never re-fetching it), mark read or unread, star, and delete — which moves the message to the account's `\Trash` when the server has one and only then falls back to a real delete. From, To and Cc are printed as `Name <address>` at body size, because the address is the part worth checking on a suspicious message; the account the message belongs to is named beside the subject and highlighted in the rail.
+
+Attachments in the reader are buttons, not decoration: click one to write it into the Downloads folder, under a name stripped of path separators and trailing dots so a crafted `Content-Disposition` cannot escape the folder, and **save .eml** keeps the message exactly as it arrived. Both come from the copy already in memory — saving a file never asks the server again.
 
 **Unified mailboxes.** With two or more accounts the rail carries **All mailboxes**: the active folder from every account, merged newest first, each row tagged with the mailbox it came from. UIDs are per mailbox, so a message is always identified by mailbox and uid together — opening, flagging or deleting a row goes through the account it belongs to, never whichever account happened to be selected. A folder an account does not have is skipped for that account instead of failing the list, and a mailbox that refuses is named in the error line while the others still load.
 

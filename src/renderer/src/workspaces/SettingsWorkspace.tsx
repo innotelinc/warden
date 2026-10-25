@@ -222,6 +222,12 @@ export function SettingsWorkspace() {
               onChange={(next) => update({ fingerprintHardening: next })}
             />
             <Toggle
+              title="Allow downloads from pages"
+              detail="Off cancels every page download before it touches disk, so nothing reaches the Downloads folder. Attachments you save from Relay are your own mail and are unaffected"
+              on={settings.allowDownloads}
+              onChange={(next) => update({ allowDownloads: next })}
+            />
+            <Toggle
               title="WebRTC leak protection"
               detail="Disables non-proxied UDP; takes effect on restart"
               on={settings.webrtcLeakProtection}

@@ -35,6 +35,8 @@ export function sanitizeSettings(value: unknown): Settings {
   merged.dnsProvider = dohTemplateFor(input.dnsProvider ?? '') ? String(input.dnsProvider) : DEFAULT_DOH_PROVIDER
   // Opt in, not out: only an explicit true cloaks every new tab.
   merged.privateByDefault = input.privateByDefault === true
+  // Opt out, not in: only an explicit false stops downloads from reaching disk.
+  merged.allowDownloads = input.allowDownloads !== false
   merged.vpnEnabled = merged.vpnEnabled !== false
   // Fail closed unless the operator turned it off explicitly.
   merged.vpnKillSwitch = merged.vpnKillSwitch !== false

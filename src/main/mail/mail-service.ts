@@ -1,6 +1,9 @@
+import { app } from 'electron'
 import { ImapFlow } from 'imapflow'
 import nodemailer from 'nodemailer'
 import { simpleParser } from 'mailparser'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import type {
   FraudAssessment,
   FraudInput,
@@ -15,7 +18,7 @@ import type {
 import { makeId, type JsonStore } from '../store/json-store'
 import type { SecretVault } from '../security/vault'
 import { mailErrorHint } from '@shared/mail-setup'
-import { isUnifiedMailbox, mergeMailboxLists, UNIFIED_MAILBOX_ID } from '@shared/mail-view'
+import { isUnifiedMailbox, mergeMailboxLists, safeFilename, UNIFIED_MAILBOX_ID } from '@shared/mail-view'
 import { sanitizeMailHtml, textToHtml } from './sanitize'
 
 export interface MailStore {
@@ -25,6 +28,18 @@ export interface MailStore {
 }
 
 const COLOR_CYCLE = ['#4fe3c1', '#a78bfa', '#f5b95b', '#7dd3fc', '#f472b6', '#86efac']
+
+/**
+ * Where a saved file goes, without ever overwriting one already there.
+ *
+ * Same folder the browser's own downloads use, and the same habit: a stamped
+ * prefix rather than a dialog, so two files called `invoice.pdf` both survive.
+ */
+async function downloadTarget(name: string): Promise<string> {
+  const dir = app.getPath('downloads')
+  await fs.mkdir(dir, { recursive: true })
+  return path.join(dir, `${Date.now().toString(36)}-${safeFilename(name)}`)
+}
 
 /** Inbox first, then the rest in an order that does not depend on the provider. */
 function sortFolders(folders: MailFolder[]): MailFolder[] {
@@ -86,6 +101,17 @@ export class MailService {
   private folderCache = new Map<string, MailFolder[]>()
   private messages: MailSummary[] = []
   private selected: MailBody | null = null
+  /**
+   * The open message exactly as it arrived, kept so an attachment or the whole
+   * message can be written to disk without a second IMAP fetch.
+   */
+  private openRaw: {
+    accountId: string
+    uid: number
+    subject: string
+    raw: Buffer
+    attachments: { filename: string; contentType: string; content: Buffer }[]
+  } | null = null
   private busy = false
   private error: string | null = null
   private fraud: FraudAssessment | null = null
@@ -254,6 +280,7 @@ export class MailService {
       this.activeFolder = 'INBOX'
       this.messages = []
       this.selected = null
+      this.openRaw = null
       this.resetFraud()
       this.onChange()
       await this.refreshFolders()
@@ -273,6 +300,7 @@ export class MailService {
   async selectFolder(path: string): Promise<void> {
     this.activeFolder = path
     this.selected = null
+    this.openRaw = null
     this.resetFraud()
     this.store.update((current) => ({ ...current, activeFolder: path }))
     this.onChange()
@@ -361,6 +389,7 @@ export class MailService {
       this.activeId = this.store.get().accounts[0]?.id ?? null
       this.messages = []
       this.selected = null
+      this.openRaw = null
       this.resetFraud()
     }
     // A unified view with nothing left in it is just an empty screen.
@@ -552,7 +581,8 @@ export class MailService {
       if (download.content) {
         for await (const chunk of download.content) chunks.push(Buffer.from(chunk))
       }
-      const parsed = await simpleParser(Buffer.concat(chunks))
+      const raw = Buffer.concat(chunks)
+      const parsed = await simpleParser(raw)
 
       const rawHtml = typeof parsed.html === 'string' ? parsed.html : ''
       const sanitized = rawHtml ? sanitizeMailHtml(rawHtml) : { html: textToHtml(parsed.text ?? ''), remoteCount: 0 }
@@ -580,6 +610,19 @@ export class MailService {
       }
 
       this.selected = body
+      this.openRaw = {
+        accountId: target,
+        uid,
+        subject: body.subject,
+        raw,
+        attachments: (parsed.attachments ?? []).map((attachment) => ({
+          filename: attachment.filename ?? 'attachment',
+          contentType: attachment.contentType ?? 'application/octet-stream',
+          content: Buffer.isBuffer(attachment.content)
+            ? attachment.content
+            : Buffer.from(attachment.content ?? '')
+        }))
+      }
       // A verdict belongs to the message it was made about: show the cached one
       // for this message, and otherwise let Genie read it without blocking.
       this.fraud = this.fraudCache.get(this.fraudKey(body)) ?? null
@@ -646,6 +689,7 @@ export class MailService {
       this.messages = this.messages.filter((message) => !(message.accountId === target && message.uid === uid))
       if (this.selected?.accountId === target && this.selected.uid === uid) {
         this.selected = null
+        this.openRaw = null
         this.resetFraud()
       }
       this.error = null
@@ -653,6 +697,32 @@ export class MailService {
     } finally {
       lock.release()
     }
+  }
+
+  /**
+   * Write one attachment of the open message into the Downloads folder.
+   *
+   * The bytes come from the message already in memory, so this is the operator
+   * saving a file they just chose to open — no page, no network, and not gated
+   * by the page-download policy.
+   */
+  async downloadAttachment(index: number): Promise<{ path: string }> {
+    const open = this.openRaw
+    if (!open) throw new Error('Open a message before saving an attachment.')
+    const attachment = open.attachments[index]
+    if (!attachment) throw new Error('That attachment is no longer on screen.')
+    const target = await downloadTarget(attachment.filename)
+    await fs.writeFile(target, attachment.content)
+    return { path: target }
+  }
+
+  /** Save the open message as .eml: the source, headers and all. */
+  async saveMessage(): Promise<{ path: string }> {
+    const open = this.openRaw
+    if (!open) throw new Error('No message is open.')
+    const target = await downloadTarget(`${open.subject || 'message'}.eml`)
+    await fs.writeFile(target, open.raw)
+    return { path: target }
   }
 
   async send(input: SendMailInput): Promise<void> {

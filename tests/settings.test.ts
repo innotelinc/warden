@@ -48,6 +48,18 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ privateByDefault: true }).privateByDefault).toBe(true)
   })
 
+  /**
+   * Page downloads are allowed unless the operator turns them off: the switch
+   * exists so a page cannot quietly write to disk, not to break saving files.
+   */
+  it('allows page downloads unless they are explicitly refused', () => {
+    expect(DEFAULT_SETTINGS.allowDownloads).toBe(true)
+    expect(sanitizeSettings({}).allowDownloads).toBe(true)
+    expect(sanitizeSettings({ allowDownloads: undefined }).allowDownloads).toBe(true)
+    expect(sanitizeSettings({ allowDownloads: 'no' }).allowDownloads).toBe(true)
+    expect(sanitizeSettings({ allowDownloads: false }).allowDownloads).toBe(false)
+  })
+
   it('still guards the other port and keeps defaults for junk input', () => {
     const sanitized = sanitizeSettings({ scryPort: 1, terminalFontSize: 900 })
     expect(sanitized.scryPort).toBe(1024)

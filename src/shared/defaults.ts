@@ -38,6 +38,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // Off by default: a new tab joins the shared session unless the operator asks
   // for a throwaway one. The per-tab cape still cloaks any tab on demand.
   privateByDefault: false,
+  // Downloads work unless the operator turns them off: a policy browser that
+  // silently drops a file the operator asked for is worse than the risk.
+  allowDownloads: true,
   vpnEnabled: true,
   vpnMode: 'socks5',
   vpnHost: '',

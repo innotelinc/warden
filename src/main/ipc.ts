@@ -347,6 +347,10 @@ export function registerIpc(warden: WardenContext): void {
   handle('warden:mail:delete', (uid: number, accountId?: string) =>
     context().mail.deleteMessage(uid, typeof accountId === 'string' && accountId ? accountId : undefined)
   )
+  handle('warden:mail:attachment', (index: number) =>
+    context().mail.downloadAttachment(Number.isInteger(index) && index >= 0 ? index : 0)
+  )
+  handle('warden:mail:save', () => context().mail.saveMessage())
   handle('warden:mail:send', (input: SendMailInput) => context().mail.send(input))
   handle('warden:mail:flag', (uid: number, flag: 'seen' | 'flagged', value: boolean, accountId?: string) =>
     context().mail.setFlag(uid, flag, value, typeof accountId === 'string' && accountId ? accountId : undefined)

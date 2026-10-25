@@ -108,6 +108,11 @@ export interface Settings {
   dnsProvider: string
   /** New tabs start in a fresh in-memory session, so nothing follows them. */
   privateByDefault: boolean
+  /**
+   * Let a page write a download to disk. Off means `will-download` is cancelled:
+   * nothing reaches the Downloads folder and nothing is listed.
+   */
+  allowDownloads: boolean
   /** Route every session through an operator-supplied proxy endpoint. */
   vpnEnabled: boolean
   vpnMode: 'off' | 'socks5' | 'https'
@@ -647,6 +652,10 @@ export interface WardenApi {
     openMessage(uid: number, accountId?: string): Promise<MailBody>
     /** Move a message to Trash, or delete it where the server has no Trash. */
     deleteMessage(uid: number, accountId?: string): Promise<void>
+    /** Save one attachment of the open message into the Downloads folder. */
+    downloadAttachment(index: number): Promise<{ path: string }>
+    /** Save the open message as an .eml file, exactly as it arrived. */
+    saveMessage(): Promise<{ path: string }>
     send(input: SendMailInput): Promise<void>
     setFlag(uid: number, flag: 'seen' | 'flagged', value: boolean, accountId?: string): Promise<void>
     refresh(): Promise<void>
