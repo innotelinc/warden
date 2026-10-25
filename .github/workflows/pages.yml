@@ -1,20 +1,24 @@
-name: Pages (landing)
-
-# Publishes web/landing/ to https://innotelinc.github.io/warden/
+# Publish the project landing page (web/landing/) to GitHub Pages.
 #
-# Requires Pages to be enabled once: Settings → Pages → Source: "GitHub Actions".
-# After that every push to main that touches the landing directory republishes.
-# The page is a single static HTML file with one image and no build step, so
-# there is nothing to install or compile here.
+#   https://innotelinc.github.io/<repo>/  (landing, static)
+#
+# Requires Pages to be enabled once: repo Settings -> Pages -> Source:
+# "GitHub Actions" (this workflow also attempts to enable it automatically).
+# After that, every push to main that touches web/landing republishes.
+# workflow_dispatch works too.
+
+name: GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # [main, master]: repos default to either branch across the portfolio.
+    branches: [main, master]
     paths:
-      - 'web/landing/**'
-      - '.github/workflows/pages.yml'
+      - "web/landing/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
+# Cancel any in-flight publish for the same ref; a Pages deploy is atomic.
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
@@ -31,16 +35,19 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
 
-      - name: Upload the landing page
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v5
         with:
           path: web/landing
 
-      - name: Deploy
+      - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

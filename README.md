@@ -4,6 +4,10 @@
 
 # WARDEN
 
+[![CI](https://github.com/innotelinc/warden/actions/workflows/ci.yml/badge.svg)](https://github.com/innotelinc/warden/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+
 **Read everything. Give nothing.**
 
 A privacy-first operations browser for security and network administrators: a real Chromium browser
@@ -23,6 +27,18 @@ deconstructor, native mail and a unified messaging hub — in one dense, keyboar
 </div>
 
 ---
+
+## Why WARDEN
+
+| Problem | Answer |
+| --- | --- |
+| Cookies and trackers are settings you keep fighting. | A browsing session created without the persist partition, plus five independent filter layers. |
+| The operator's tools live in five other windows. | A PTY shell, mail, messaging and Scry inside the same browser window. |
+| 'What is this site doing?' takes an afternoon. | Scry captures the page over CDP and returns a recon report, a clone, a scaffold or a rebuild. |
+
+Its place in the stack is [docs/stack.md](docs/stack.md); the canonical
+definition of the shared layers is the
+[Innotel Platform Stack](https://github.com/innotelinc/innotel-platform-stack).
 
 ## About WARDEN
 
@@ -446,3 +462,8 @@ Native surfaces are `WebContentsView`s owned by the main process. The renderer m
 - **Messaging** depends on each vendor's web client; a service can break its own pane at any time.
 - **REA MCP registration** was applied with your approval to `~/.codex/config.toml`, `~/.copilot/mcp-config.json` and VS Code's `mcp.json` (each with a backup); `rea doctor` reports healthy. REA has no Freebuff client entry, so it is invoked from the shell and WARDEN does not depend on it. Codex's `tool_timeout_sec` is still 450s where REA suggests 720s.
 - The filter seed is 208 rules. `sync EasyList + EasyPrivacy` in Policy pulls the full lists on demand.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright © 2026 Innotel Inc. Upstream material,
+where a directory carries its own licence, remains under that licence.
