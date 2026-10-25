@@ -33,7 +33,8 @@ export function sanitizeSettings(value: unknown): Settings {
   merged.walkthroughSeen = merged.walkthroughSeen === true
   merged.dnsOverHttps = merged.dnsOverHttps !== false
   merged.dnsProvider = dohTemplateFor(input.dnsProvider ?? '') ? String(input.dnsProvider) : DEFAULT_DOH_PROVIDER
-  merged.privateByDefault = merged.privateByDefault !== false
+  // Opt in, not out: only an explicit true cloaks every new tab.
+  merged.privateByDefault = input.privateByDefault === true
   merged.vpnEnabled = merged.vpnEnabled !== false
   // Fail closed unless the operator turned it off explicitly.
   merged.vpnKillSwitch = merged.vpnKillSwitch !== false

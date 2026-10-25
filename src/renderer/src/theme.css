@@ -1337,6 +1337,9 @@ a {
   border-radius: 99px;
   flex: none;
 }
+.mail-account .swatch.unified {
+  background: linear-gradient(135deg, var(--mint), var(--violet) 55%, var(--amber));
+}
 .mail-account .who {
   flex: 1;
   min-width: 0;
@@ -1429,6 +1432,27 @@ a {
   color: var(--faint);
   flex: none;
 }
+/* Which mailbox a row came from, only needed when they are all in one list. */
+.msg-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 9px/1.4 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.msg-account i {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  flex: none;
+}
 .msg-row .subject {
   font-size: 11.5px;
   color: var(--text-dim);
@@ -1463,15 +1487,80 @@ a {
   border-bottom: 1px solid var(--line-soft);
   flex: none;
 }
+.reader-head .reader-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
 .reader-head h2 {
   margin: 0 0 6px;
   font-size: 15px;
   font-weight: 550;
   letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
 }
+
+/* The mailbox an open message belongs to: in a unified list this is the only
+   thing that says where it came from. */
+.mail-owner {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 45%;
+  padding: 2px 9px 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: #0d141b;
+  color: var(--text-dim);
+  font: 10.5px/1.7 var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mail-owner i {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  flex: none;
+}
+
+/* Headers were a 10.5px mono line in --muted, which is where the sender and the
+   recipients went missing. Labels small and quiet, values the size of the body. */
 .reader-head .meta {
-  font: 10.5px/1.6 var(--mono);
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  user-select: text;
+}
+.reader-head .meta dt {
   color: var(--muted);
+  font: 600 9.5px/1.9 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.reader-head .meta dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.mail-actions {
+  margin-top: 10px;
+  gap: 6px;
+}
+.btn.on {
+  color: var(--amber);
+  border-color: rgba(245, 185, 91, 0.45);
+}
+.btn.danger:hover:not(:disabled) {
+  color: #ffb4b4;
+  border-color: rgba(255, 107, 107, 0.45);
+  background: #1a1216;
 }
 .reader-body {
   flex: 1;
@@ -2208,4 +2297,27 @@ code.swatchline i {
   min-width: 0;
   background: linear-gradient(90deg, var(--mint), var(--violet));
   transition: width 90ms linear;
+}
+
+/* ================================================================ cursors */
+/*
+ * The body sets `cursor: default`, so a control showed the arrow even where it
+ * was obviously clickable. Anything that acts on a click gets the hand; the
+ * window buttons keep the arrow, because that is what the OS title bar does.
+ */
+button:not(:disabled):not(.win-btn),
+[role="button"],
+.chip,
+.tab,
+.msg-row,
+.mail-account,
+.folder,
+.scry-target,
+.theme-card {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: default;
 }

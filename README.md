@@ -184,10 +184,12 @@ at launch, so the resolver fails closed rather than falling back to the system
 nameserver, and a change needs a restart. An unknown provider id disables the
 feature instead of pretending to be encrypted.
 
-**Private tab by default.** `privateByDefault` is on: every new tab gets its own
-in-memory Electron session, so cookies, cache and storage cannot follow a user
-into the next tab. The trade-off is deliberate and visible in Policy — a sign-in
-does not carry across tabs; open the site in the tab where you signed in.
+**Cloaked tabs, on request.** New tabs join the shared in-memory session; the
+cape on any tab gives that tab its own throwaway Electron session instead, and
+quitting drops it. `privateByDefault` is the opt-in for the other posture — turn
+it on in Policy and every new tab gets its own session, so cookies, cache and
+storage cannot follow a user into the next tab. That trade-off is deliberate and
+visible in Policy: a sign-in does not carry across tabs.
 
 **Tunnel (VPN).** WARDEN does not sell or bundle a VPN; a tunnel needs an
 endpoint. Policy → Network accepts a SOCKS5 or HTTPS endpoint (typically the
@@ -569,6 +571,10 @@ Because Bastion is running, Scry sees only requests that actually left the brows
 Type the address and WARDEN fills in the servers from a preset (Gmail, Outlook / Microsoft 365, iCloud, Yahoo, Fastmail, Zoho, AOL, Proton Bridge, or `imap.`/`smtp.<domain>` for anything else), shows what the provider requires first — almost always an app password — and disables adding outright for the one that has retired password sign-in. Every field stays editable. WARDEN verifies IMAP and SMTP before saving, and a refusal is translated into the mistake it represents (wrong host, port and TLS disagreeing, app password needed, or a blocked path) with the server's own text kept beside it. The password is encrypted with the OS keychain (`safeStorage`: DPAPI / Keychain / libsecret) into `secrets.json`; if the platform has no encryption backend WARDEN refuses to persist it rather than writing plaintext.
 
 Message HTML is sanitized in the main process: scripts, iframes, forms, `<link>`, `<style>` and event handlers are removed, remote images are replaced with placeholders and counted, and the result renders inside a sandboxed iframe with a deny-all CSP. **No account or message content is fetched until you open Relay.**
+
+The reader carries the controls a mailbox needs: reply and forward (both seed the composer with the original quoted, never re-fetching it), mark read or unread, star, and delete — which moves the message to the account's `\Trash` when the server has one and only then falls back to a real delete. From, To and Cc are printed as `Name <address>` at body size, because the address is the part worth checking on a suspicious message; the account the message belongs to is named beside the subject and highlighted in the rail.
+
+**Unified mailboxes.** With two or more accounts the rail carries **All mailboxes**: the active folder from every account, merged newest first, each row tagged with the mailbox it came from. UIDs are per mailbox, so a message is always identified by mailbox and uid together — opening, flagging or deleting a row goes through the account it belongs to, never whichever account happened to be selected. A folder an account does not have is skipped for that account instead of failing the list, and a mailbox that refuses is named in the error line while the others still load.
 
 **Genie fraud read.** With the genie switch on (the default), opening a message sends its headers, body text and links to the gateway and shows a verdict beside the headers — clear, suspicious or dangerous, with a score and the reasons in the tooltip. Verdicts are cached per message and never shared between them; the manual **Check with Genie** button overrides the cache, and a missing key, a timeout or an unreadable answer is shown as an error instead of a guess. Turning the switch off means no message is read automatically. Each check is one gateway call and is billed as such.
 

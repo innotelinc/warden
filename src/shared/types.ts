@@ -279,6 +279,8 @@ export interface MailAddress {
 }
 
 export interface MailSummary {
+  /** UIDs are per mailbox, so a message is only identified with its account. */
+  accountId: string
   uid: number
   subject: string
   from: MailAddress[]
@@ -308,6 +310,8 @@ export interface FraudInput {
 export interface FraudAssessment {
   /** The message it belongs to, so a stale verdict cannot dress a new one. */
   uid: number
+  /** The mailbox it belongs to: uids repeat across accounts. */
+  accountId?: string
   verdict: FraudVerdict
   /** 0-100; higher is more dangerous. */
   score: number
@@ -317,6 +321,7 @@ export interface FraudAssessment {
 }
 
 export interface MailBody {
+  accountId: string
   uid: number
   subject: string
   from: MailAddress[]
@@ -324,6 +329,9 @@ export interface MailBody {
   cc: MailAddress[]
   date: string
   text: string
+  /** Flags as they were when the message was opened, for the reader's toggles. */
+  seen: boolean
+  flagged: boolean
   html: string | null
   remoteContentCount: number
   attachments: { filename: string; size: number; contentType: string }[]
@@ -487,7 +495,10 @@ export interface AppState {
   drawerOpen: boolean
   mail: {
     accounts: MailAccountPublic[]
+    /** A real account id, or `UNIFIED_MAILBOX_ID` when every mailbox is shown. */
     activeAccountId: string | null
+    /** The list is every account's copy of the active folder, merged. */
+    unified: boolean
     folders: MailFolder[]
     activeFolder: string
     messages: MailSummary[]
@@ -632,9 +643,12 @@ export interface WardenApi {
     listFolders(): Promise<MailFolder[]>
     selectFolder(path: string): Promise<void>
     listMessages(limit?: number): Promise<MailSummary[]>
-    openMessage(uid: number): Promise<MailBody>
+    /** Open a message through the mailbox it belongs to, not the active one. */
+    openMessage(uid: number, accountId?: string): Promise<MailBody>
+    /** Move a message to Trash, or delete it where the server has no Trash. */
+    deleteMessage(uid: number, accountId?: string): Promise<void>
     send(input: SendMailInput): Promise<void>
-    setFlag(uid: number, flag: 'seen' | 'flagged', value: boolean): Promise<void>
+    setFlag(uid: number, flag: 'seen' | 'flagged', value: boolean, accountId?: string): Promise<void>
     refresh(): Promise<void>
     /** Ask Genie to read the selected message for fraud, ignoring the cache. */
     checkFraud(): Promise<FraudAssessment | null>

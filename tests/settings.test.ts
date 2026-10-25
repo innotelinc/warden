@@ -36,6 +36,18 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ vpnKillSwitch: false }).vpnKillSwitch).toBe(false)
   })
 
+  /**
+   * A new tab is not cloaked unless the operator asks: the default is the
+   * shared session, and every tab still has its own cape to change that.
+   */
+  it('opens new tabs in the shared session unless cloaking is opted into', () => {
+    expect(DEFAULT_SETTINGS.privateByDefault).toBe(false)
+    expect(sanitizeSettings({}).privateByDefault).toBe(false)
+    expect(sanitizeSettings({ privateByDefault: undefined }).privateByDefault).toBe(false)
+    expect(sanitizeSettings({ privateByDefault: 'yes' }).privateByDefault).toBe(false)
+    expect(sanitizeSettings({ privateByDefault: true }).privateByDefault).toBe(true)
+  })
+
   it('still guards the other port and keeps defaults for junk input', () => {
     const sanitized = sanitizeSettings({ scryPort: 1, terminalFontSize: 900 })
     expect(sanitized.scryPort).toBe(1024)

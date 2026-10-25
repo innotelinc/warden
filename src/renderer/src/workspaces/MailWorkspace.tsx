@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { MAIL_PROVIDERS, guessEndpoints, providerById, providerForEmail } from '@shared/mail-setup'
+import {
+  addressLine,
+  forwardSeed,
+  replySeed,
+  UNIFIED_MAILBOX_ID,
+  type ComposeSeed
+} from '@shared/mail-view'
 import type { MailAccountPublic } from '@shared/types'
-import { IconAlert, IconMail, IconPlus, IconReload, IconSend, IconTrash } from '../icons'
+import { IconAlert, IconMail, IconPlus, IconReload, IconSend, IconStar, IconTrash } from '../icons'
 import { timeAgo, useWarden } from '../state'
 
+/** Name and address together: the address is the part worth checking. */
 function AddressList({ list }: { list: { name: string; address: string }[] }) {
-  return <>{list.map((entry) => entry.name || entry.address).filter(Boolean).join(', ')}</>
+  return <>{addressLine(list)}</>
 }
 
 /**
@@ -59,6 +67,14 @@ export function MailWorkspace() {
 
   const mail = state?.mail
   const active = mail?.accounts.find((account) => account.id === mail.activeAccountId) ?? null
+  const selected = mail?.selected ?? null
+  /** The mailbox the open message actually belongs to. */
+  const selectedAccount = selected
+    ? (mail?.accounts.find((account) => account.id === selected.accountId) ?? null)
+    : null
+  /** Compose from the mailbox being read; otherwise the selected one. */
+  const composeAccount = selectedAccount ?? active ?? mail?.accounts[0] ?? null
+  const [composeSeed, setComposeSeed] = useState<ComposeSeed | null>(null)
 
   useEffect(() => {
     if (!mail?.activeAccountId) return
@@ -67,8 +83,20 @@ export function MailWorkspace() {
     void window.warden.mail.refresh().catch((error: Error) => notify(error.message, 'err'))
   }, [mail?.activeAccountId, notify])
 
+  // Every hook has run; from here the pane needs the state to draw anything.
+  if (!mail) return <div className="workspace" />
+
   const selectFolder = (folder: string): void => {
     void window.warden.mail.selectFolder(folder).catch((error: Error) => notify(error.message, 'err'))
+  }
+
+  const mailAction = (run: Promise<unknown>): void => {
+    void run.catch((error: Error) => notify(error.message, 'err'))
+  }
+
+  const compose = (seed: ComposeSeed | null): void => {
+    setComposeSeed(seed)
+    setComposeOpen(true)
   }
 
   return (
@@ -89,7 +117,7 @@ export function MailWorkspace() {
         >
           <IconReload size={11} /> sync
         </button>
-        <button className="btn sm primary" disabled={!active} onClick={() => setComposeOpen(true)}>
+        <button className="btn sm primary" disabled={!composeAccount} onClick={() => compose(null)}>
           <IconSend size={11} /> compose
         </button>
       </div>
@@ -103,12 +131,31 @@ export function MailWorkspace() {
 
       <div className="ws-body">
         <aside className="ws-col" style={{ width: 252, borderRight: '1px solid var(--line-soft)', padding: '10px 8px' }}>
-          <div className="panel-title" style={{ padding: '0 6px' }}>Accounts</div>
+          <div className="panel-title" style={{ padding: '0 6px' }}>Mailboxes</div>
+          {mail?.accounts.length > 1 ? (
+            <button
+              className={`mail-account ${mail.unified ? 'active' : ''}`}
+              onClick={() => {
+                void window.warden.mail.selectAccount(UNIFIED_MAILBOX_ID).catch((error: Error) => notify(error.message, 'err'))
+              }}
+              title="Every account's copy of this folder in one list"
+            >
+              <span className="swatch unified" />
+              <span className="who">
+                <b>All mailboxes</b>
+                <span>{mail.accounts.length} accounts · {mail.activeFolder}</span>
+              </span>
+            </button>
+          ) : null}
           {mail?.accounts.length ? (
             mail.accounts.map((account) => (
               <button
                 key={account.id}
-                className={`mail-account ${account.id === mail.activeAccountId ? 'active' : ''}`}
+                className={`mail-account ${
+                  // In a unified list the highlighted mailbox is the one the open
+                  // message belongs to, so nothing pretends to be the source.
+                  account.id === (mail.unified ? selected?.accountId : mail.activeAccountId) ? 'active' : ''
+                }`}
                 onClick={() => {
                   void window.warden.mail.selectAccount(account.id).catch((error: Error) => notify(error.message, 'err'))
                 }}
@@ -167,10 +214,23 @@ export function MailWorkspace() {
                 key={message.uid}
                 className={`msg-row ${message.seen ? '' : 'unread'} ${mail.selected?.uid === message.uid ? 'active' : ''}`}
                 onClick={() => {
-                  void window.warden.mail.openMessage(message.uid).catch((error: Error) => notify(error.message, 'err'))
+                  mailAction(window.warden.mail.openMessage(message.uid, message.accountId))
                 }}
               >
                 <div className="line1">
+                  {mail.unified ? (
+                    <span
+                      className="msg-account"
+                      title={mail.accounts.find((account) => account.id === message.accountId)?.email ?? ''}
+                    >
+                      <i
+                        style={{
+                          background: mail.accounts.find((account) => account.id === message.accountId)?.color ?? 'var(--mint)'
+                        }}
+                      />
+                      {mail.accounts.find((account) => account.id === message.accountId)?.label ?? 'mailbox'}
+                    </span>
+                  ) : null}
                   <span className="from">
                     <AddressList list={message.from} />
                   </span>
@@ -192,30 +252,74 @@ export function MailWorkspace() {
         </div>
 
         <div className="mail-reader">
-          {mail?.selected ? (
+          {selected ? (
             <>
               <div className="reader-head">
-                <h2>{mail.selected.subject}</h2>
-                <div className="meta">
-                  <div>
-                    <span className="faint">from </span>
-                    <AddressList list={mail.selected.from} />
-                  </div>
-                  <div>
-                    <span className="faint">to </span>
-                    <AddressList list={mail.selected.to} />
-                  </div>
-                  <div>
-                    <span className="faint">date </span>
-                    {new Date(mail.selected.date).toLocaleString()}
-                  </div>
+                <div className="reader-title">
+                  <h2>{selected.subject}</h2>
+                  {selectedAccount ? (
+                    <span className="mail-owner" title={`${selectedAccount.label} · ${selectedAccount.email}`}>
+                      <i style={{ background: selectedAccount.color }} />
+                      {selectedAccount.label}
+                    </span>
+                  ) : null}
+                </div>
+                <dl className="meta">
+                  <dt>from</dt>
+                  <dd>{addressLine(selected.from) || '—'}</dd>
+                  <dt>to</dt>
+                  <dd>{addressLine(selected.to) || '—'}</dd>
+                  {selected.cc.length ? (
+                    <>
+                      <dt>cc</dt>
+                      <dd>{addressLine(selected.cc)}</dd>
+                    </>
+                  ) : null}
+                  <dt>date</dt>
+                  <dd>{new Date(selected.date).toLocaleString()}</dd>
+                </dl>
+                <div className="row wrap mail-actions">
+                  <button className="btn sm" onClick={() => compose(replySeed(selected))} title="Reply to the sender">
+                    reply
+                  </button>
+                  <button className="btn sm" onClick={() => compose(forwardSeed(selected))} title="Forward this message">
+                    forward
+                  </button>
+                  <button
+                    className="btn sm"
+                    onClick={() => mailAction(window.warden.mail.setFlag(selected.uid, 'seen', !selected.seen, selected.accountId))}
+                    title={selected.seen ? 'Mark this message unread' : 'Mark this message read'}
+                  >
+                    {selected.seen ? 'mark unread' : 'mark read'}
+                  </button>
+                  <button
+                    className={`btn sm ${selected.flagged ? 'on' : ''}`}
+                    onClick={() =>
+                      mailAction(window.warden.mail.setFlag(selected.uid, 'flagged', !selected.flagged, selected.accountId))
+                    }
+                    title={selected.flagged ? 'Remove the star' : 'Star this message'}
+                  >
+                    <IconStar size={11} filled={selected.flagged} /> {selected.flagged ? 'unstar' : 'star'}
+                  </button>
+                  <button
+                    className="btn sm danger"
+                    onClick={() => mailAction(window.warden.mail.deleteMessage(selected.uid, selected.accountId))}
+                    title="Move this message to Trash"
+                  >
+                    <IconTrash size={11} /> delete
+                  </button>
                 </div>
                 <div className="row wrap" style={{ marginTop: 8 }}>
-                  {mail.selected.remoteContentCount > 0 ? (
-                    <span className="tag amber">{mail.selected.remoteContentCount} remote references withheld</span>
+                  {selected.remoteContentCount > 0 ? (
+                    <span className="tag amber">{selected.remoteContentCount} remote references withheld</span>
                   ) : null}
+                  {selected.attachments.map((attachment) => (
+                    <span key={`${attachment.filename}-${attachment.size}`} className="tag faint" title={attachment.contentType}>
+                      {attachment.filename} · {Math.max(1, Math.round(attachment.size / 1024))} KB
+                    </span>
+                  ))}
                   <FraudRow
-                    fraud={mail.fraud && mail.fraud.uid === mail.selected.uid ? mail.fraud : null}
+                    fraud={mail.fraud && mail.fraud.uid === selected.uid && mail.fraud.accountId === selected.accountId ? mail.fraud : null}
                     busy={mail.fraudBusy}
                     error={mail.fraudError}
                   />
@@ -225,7 +329,7 @@ export function MailWorkspace() {
                 <iframe
                   title="message"
                   sandbox="allow-popups allow-popups-to-escape-sandbox"
-                  srcDoc={mail.selected.html ?? ''}
+                  srcDoc={selected.html ?? ''}
                 />
               </div>
             </>
@@ -240,20 +344,36 @@ export function MailWorkspace() {
         </div>
       </div>
 
-      {composeOpen && active ? (
-        <ComposeDialog account={active} onClose={() => setComposeOpen(false)} />
+      {composeOpen && composeAccount ? (
+        <ComposeDialog
+          key={composeSeed ? composeSeed.subject : 'blank'}
+          account={composeAccount}
+          seed={composeSeed}
+          onClose={() => {
+            setComposeOpen(false)
+            setComposeSeed(null)
+          }}
+        />
       ) : null}
       {addOpen ? <AddAccountDialog onClose={() => setAddOpen(false)} /> : null}
     </div>
   )
 }
 
-function ComposeDialog({ account, onClose }: { account: MailAccountPublic; onClose: () => void }) {
+function ComposeDialog({
+  account,
+  seed,
+  onClose
+}: {
+  account: MailAccountPublic
+  seed: ComposeSeed | null
+  onClose: () => void
+}) {
   const { notify } = useWarden()
-  const [to, setTo] = useState('')
+  const [to, setTo] = useState(seed?.to ?? '')
   const [cc, setCc] = useState('')
-  const [subject, setSubject] = useState('')
-  const [body, setBody] = useState('')
+  const [subject, setSubject] = useState(seed?.subject ?? '')
+  const [body, setBody] = useState(seed?.text ?? '')
   const [sending, setSending] = useState(false)
 
   const send = async (): Promise<void> => {

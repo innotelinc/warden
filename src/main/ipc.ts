@@ -341,10 +341,15 @@ export function registerIpc(warden: WardenContext): void {
   handle('warden:mail:folders', () => context().mail.refreshFolders())
   handle('warden:mail:folder', (path: string) => context().mail.selectFolder(path))
   handle('warden:mail:messages', (limit?: number) => context().mail.refreshMessages(limit ?? 50))
-  handle('warden:mail:open', (uid: number) => context().mail.openMessage(uid))
+  handle('warden:mail:open', (uid: number, accountId?: string) =>
+    context().mail.openMessage(uid, typeof accountId === 'string' && accountId ? accountId : undefined)
+  )
+  handle('warden:mail:delete', (uid: number, accountId?: string) =>
+    context().mail.deleteMessage(uid, typeof accountId === 'string' && accountId ? accountId : undefined)
+  )
   handle('warden:mail:send', (input: SendMailInput) => context().mail.send(input))
-  handle('warden:mail:flag', (uid: number, flag: 'seen' | 'flagged', value: boolean) =>
-    context().mail.setFlag(uid, flag, value)
+  handle('warden:mail:flag', (uid: number, flag: 'seen' | 'flagged', value: boolean, accountId?: string) =>
+    context().mail.setFlag(uid, flag, value, typeof accountId === 'string' && accountId ? accountId : undefined)
   )
   handle('warden:mail:fraud', () => context().mail.checkSelected())
   handle('warden:mail:refresh', async () => {

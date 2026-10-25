@@ -88,9 +88,10 @@ const api: WardenApi = {
     listFolders: () => invoke('warden:mail:folders'),
     selectFolder: (path) => invoke('warden:mail:folder', path),
     listMessages: (limit) => invoke('warden:mail:messages', limit),
-    openMessage: (uid) => invoke('warden:mail:open', uid),
+    openMessage: (uid, accountId) => invoke('warden:mail:open', uid, accountId),
+    deleteMessage: (uid, accountId) => invoke('warden:mail:delete', uid, accountId),
     send: (input) => invoke('warden:mail:send', input),
-    setFlag: (uid, flag, value) => invoke('warden:mail:flag', uid, flag, value),
+    setFlag: (uid, flag, value, accountId) => invoke('warden:mail:flag', uid, flag, value, accountId),
     checkFraud: () => invoke('warden:mail:fraud'),
     refresh: () => invoke('warden:mail:refresh')
   },

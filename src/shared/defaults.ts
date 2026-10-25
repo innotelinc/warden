@@ -35,7 +35,9 @@ export const DEFAULT_SETTINGS: Settings = {
   lockTimeoutMinutes: 5,
   dnsOverHttps: true,
   dnsProvider: DEFAULT_DOH_PROVIDER,
-  privateByDefault: true,
+  // Off by default: a new tab joins the shared session unless the operator asks
+  // for a throwaway one. The per-tab cape still cloaks any tab on demand.
+  privateByDefault: false,
   vpnEnabled: true,
   vpnMode: 'socks5',
   vpnHost: '',

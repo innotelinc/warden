@@ -518,7 +518,7 @@ export function SettingsWorkspace() {
             </div>
             <Toggle
               title="Cloak new tabs by default"
-              detail="Every new tab gets its own in-memory session, so nothing follows it; the cape on the tab turns it off for that tab"
+              detail="Off by default: new tabs share the browsing session. Turn this on and every new tab gets its own in-memory session instead; the cape on any tab toggles it for that tab"
               on={settings.privateByDefault}
               onChange={(next) => update({ privateByDefault: next })}
             />
