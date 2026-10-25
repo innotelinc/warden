@@ -2,12 +2,16 @@ name: Build and sign release
 
 # SignPath Foundation signs open-source projects for free, but only artifacts
 # built by a GitHub workflow on GitHub-hosted runners — that is the evidence the
-# certificate is issued against, so the build and the signing request have to
-# live in the same job graph.
+# certificate is issued against, so the build and the signing request live in one
+# workflow.
+#
+# The build job always runs and always uploads unsigned installers. The sign job
+# only runs once SignPath is configured, so a tagged build stays green while the
+# application is pending instead of failing on missing credentials.
 #
 # Required repository configuration (Settings → Secrets and variables → Actions):
 #   secret SIGNPATH_API_TOKEN                     SignPath API token with submitter rights
-#   var    SIGNPATH_ORGANIZATION_ID               organization id from SignPath
+#   var    SIGNPATH_ORGANIZATION_ID               organization id from SignPath (enables the sign job)
 #   var    SIGNPATH_PROJECT_SLUG                  project slug ("warden")
 #   var    SIGNPATH_SIGNING_POLICY_SLUG           signing policy slug ("release-signing")
 #   var    SIGNPATH_ARTIFACT_CONFIGURATION_SLUG   slug for signing/artifact-configuration.xml
@@ -30,9 +34,11 @@ permissions:
   actions: read
 
 jobs:
-  build-and-sign:
+  build:
     runs-on: windows-latest
     timeout-minutes: 45
+    outputs:
+      artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -44,15 +50,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify before signing
+      - name: Verify before packaging
         run: |
           npm run typecheck
           npm test
 
       - name: Build installers
-        run: npm run dist
+        # dist:ci is dist with --publish never: electron-builder otherwise tries
+        # to publish implicitly whenever the commit is tagged, and fails without
+        # a GitHub token even though both installers were produced.
+        run: npm run dist:ci
         env:
-          # Unsigned build here; SignPath adds the Authenticode signature after.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Stage installers
@@ -70,6 +78,14 @@ jobs:
           path: unsigned/*.exe
           if-no-files-found: error
 
+  sign:
+    needs: build
+    # Skips cleanly while the SignPath application is pending; skipped is not a
+    # failure, and the unsigned artifacts above are still available.
+    if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
       - name: Sign with SignPath Foundation
         uses: signpath/github-action-submit-signing-request@v3
         with:
@@ -78,7 +94,7 @@ jobs:
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          github-artifact-id: ${{ needs.build.outputs.artifact-id }}
           wait-for-completion: true
           output-artifact-directory: signed
 
