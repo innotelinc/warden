@@ -183,6 +183,10 @@ const verify = (report) => {
     'lock stays up after a wrong password': report.lock?.stillLocked === true,
     'lock clears for the right password': report.lock?.cleared === true,
     'updater reports its state': typeof report.update?.phase === 'string',
+    'window controls drawn by the chrome': report.ui?.windowControls?.count === 3,
+    'window controls have accessible labels':
+      ['Minimise', 'Maximise', 'Close'].every((label) => (report.ui?.windowControls?.labels ?? []).includes(label)),
+    'window controls style their hover state': report.ui?.windowControls?.hoverStyled === true,
     'new tabs are private by default': report.privateTab === true,
     'sensors hand the page a derived video track': (report.sensors?.video ?? 0) >= 1,
     'camera treatment reaches the page': report.sensors?.state?.camera === 'pixelate',

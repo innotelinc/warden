@@ -13,7 +13,10 @@ import {
   IconGear,
   IconLock,
   IconMail,
+  IconMaximize,
   IconMenu,
+  IconMinimize,
+  IconRestore,
   IconPanelRight,
   IconPause,
   IconPlay,
@@ -759,6 +762,42 @@ export function CommandPalette({ commands, onClose }: { commands: Command[]; onC
           ) : null}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Caption buttons. Windows draws its own when a titleBarOverlay is set, and on
+ * this build those glyphs were invisible and gave no hover feedback — so the
+ * chrome draws them instead, with real hover, active and maximized states.
+ */
+export function WindowControls({ maximized }: { maximized: boolean }) {
+  return (
+    <div className="win-controls">
+      <button
+        className="win-btn"
+        title="Minimise"
+        aria-label="Minimise"
+        onClick={() => window.warden.app.minimize()}
+      >
+        <IconMinimize size={12} />
+      </button>
+      <button
+        className="win-btn"
+        title={maximized ? 'Restore' : 'Maximise'}
+        aria-label={maximized ? 'Restore' : 'Maximise'}
+        onClick={() => window.warden.app.maximize()}
+      >
+        {maximized ? <IconRestore size={12} /> : <IconMaximize size={12} />}
+      </button>
+      <button
+        className="win-btn close"
+        title="Close"
+        aria-label="Close"
+        onClick={() => window.warden.app.close()}
+      >
+        <IconClose size={12} />
+      </button>
     </div>
   )
 }

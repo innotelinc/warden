@@ -83,6 +83,25 @@ export const IconReload = (props: IconProps) => (
   </Icon>
 )
 
+export const IconMinimize = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M5 12h14" />
+  </Icon>
+)
+
+export const IconMaximize = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="5.5" y="5.5" width="13" height="13" rx="1.4" />
+  </Icon>
+)
+
+export const IconRestore = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="4.5" y="7.5" width="11" height="11" rx="1.3" />
+    <path d="M8.5 7.5v-2a1.3 1.3 0 0 1 1.3-1.3h8a1.3 1.3 0 0 1 1.3 1.3v8a1.3 1.3 0 0 1-1.3 1.3h-2" />
+  </Icon>
+)
+
 export const IconClose = (props: IconProps) => (
   <Icon {...props}>
     <path d="M6 6l12 12M18 6 6 18" />

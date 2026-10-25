@@ -203,11 +203,50 @@ a {
   50% { opacity: 0.35; }
 }
 
-.titlebar .win-space {
+/* Caption buttons we draw ourselves: the native overlay's glyphs were invisible
+   against the dark frame and gave no hover feedback. */
+.win-controls {
   -webkit-app-region: no-drag;
-  width: 138px;
-  height: 100%;
+  display: flex;
+  align-self: stretch;
+  margin: 0 -12px 0 4px;
   flex: none;
+}
+
+.win-btn {
+  width: 46px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  cursor: default;
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.win-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
+}
+
+.win-btn:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.win-btn:focus-visible {
+  outline: 1px solid var(--mint);
+  outline-offset: -2px;
+}
+
+.win-btn.close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.win-btn.close:active {
+  background: #f1707a;
+  color: #fff;
 }
 
 .body {

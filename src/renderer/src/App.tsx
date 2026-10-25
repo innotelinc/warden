@@ -10,6 +10,7 @@ import {
   ToastStack,
   Toolbar,
   VideoDock,
+  WindowControls,
   type Command
 } from './chrome'
 import {
@@ -319,7 +320,7 @@ function Shell() {
           </div>
           <span className="crumb">initialising</span>
           <div className="spacer" />
-          <div className="win-space" />
+          <WindowControls maximized={false} />
         </div>
         <div style={{ display: 'grid', placeItems: 'center', color: 'var(--muted)', font: '11px/1.7 var(--mono)' }}>
           starting hardened sessions…
@@ -344,7 +345,7 @@ function Shell() {
           <span className="dot" />
           {state.settings.cookieMode === 'block' ? 'COOKIELESS' : 'FIRST-PARTY ONLY'}
         </div>
-        <div className="win-space" />
+        <WindowControls maximized={state.maximized} />
       </header>
 
       <div className="body">

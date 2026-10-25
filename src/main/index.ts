@@ -202,8 +202,11 @@ async function createWindow(stores: Stores): Promise<void> {
     show: false,
     backgroundColor: '#080a0d',
     title: 'WARDEN',
+    // No native caption overlay: its glyphs are drawn by Windows and on some
+    // builds they vanish against a dark frame with no hover feedback at all.
+    // The chrome draws its own buttons (see WindowControls) so the affordance
+    // is ours to style and to test.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#080a0d', symbolColor: '#8fa1b5', height: 40 },
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -497,6 +500,7 @@ async function createWindow(stores: Stores): Promise<void> {
       activeId: messaging.active
     },
     scry: { running: scry.busy, progress: scryProgress, result: scryResult, report: scryReport, targets: scryTargets, error: scryError },
+    maximized: browserWindow.isMaximized(),
     downloads: downloads.list(),
     history: stores.history.get().slice(0, 200),
     bookmarks: stores.bookmarks.get(),
@@ -740,6 +744,8 @@ async function createWindow(stores: Stores): Promise<void> {
   })
 
   browserWindow.on('resize', sendState)
+  browserWindow.on('maximize', sendState)
+  browserWindow.on('unmaximize', sendState)
   browserWindow.on('closed', () => {
     win = null
   })
