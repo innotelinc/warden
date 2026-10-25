@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 
 API = "https://api.appstoreconnect.apple.com"
 BUNDLE_ID = "us.innotel.warden"
@@ -44,7 +45,17 @@ MEANING = {
 }
 
 
-def b64url(raw: bytes) -> str:
+def utc(value: str) -> str:
+    """App Store Connect timestamps carry an offset; the first 16 characters do
+    not, and slicing them reports the upload in the account's local time."""
+    try:
+        return (
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            .astimezone(timezone.utc)
+            .strftime("%Y-%m-%d %H:%M UTC")
+        )
+    except ValueError:
+        return value
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
@@ -152,7 +163,7 @@ def builds(bearer: str, app: str, limit: int) -> list[dict]:
                 "marketing": marketing.get(relation.get("id"), "?"),
                 "number": attributes.get("version") or "?",
                 "state": attributes.get("processingState") or "?",
-                "uploaded": (attributes.get("uploadedDate") or "?")[:16].replace("T", " "),
+                "uploaded": utc(attributes.get("uploadedDate") or "?"),
                 "expired": bool(attributes.get("expired")),
             }
         )
