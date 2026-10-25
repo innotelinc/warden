@@ -1,0 +1,98 @@
+name: Mobile (iOS)
+
+# Archives and exports an .ipa on a macOS runner. Needs, from repository secrets:
+#   APPLE_TEAM_ID                10-character Apple Developer team id
+#   APP_STORE_CONNECT_KEY_ID     App Store Connect API key id
+#   APP_STORE_CONNECT_ISSUER_ID  API key issuer id
+#   APP_STORE_CONNECT_KEY_P8     the .p8 contents
+# Automatic signing then fetches the distribution profile, so no provisioning
+# profile or .p12 belongs in the repository or in chat.
+#
+# Upload to TestFlight/App Store is left as a manual `xcrun altool`/Transporter
+# step (or fastlane lane `ios beta`), because an upload is a publish action.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install
+        run: npm ci && npm run build && npx cap sync ios
+
+      - name: Pods
+        working-directory: mobile/ios/App
+        run: pod install --repo-update
+
+      - name: Write App Store Connect key
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8"
+
+      - name: Archive
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        working-directory: mobile/ios/App
+        run: |
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/WARDEN.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerPath "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            archive
+
+      - name: Export ipa
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        working-directory: mobile/ios/App
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>uploadSymbols</key><true/>
+            <key>destination</key><string>export</string>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/WARDEN.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warden-ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: error

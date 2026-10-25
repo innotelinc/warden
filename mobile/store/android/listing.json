@@ -1,0 +1,29 @@
+{
+  "packageId": "us.innotel.warden",
+  "defaultLanguage": "en-US",
+  "title": "WARDEN — private browser",
+  "shortDescription": "Privacy-first browsing for admins: no cookie jar, encrypted DNS, no telemetry.",
+  "fullDescription": "WARDEN is a privacy-first browser and operator console for security and network administrators.\n\nThis mobile build is the secure entry point: it opens pages in the platform's private browser surface, keeps no cookie jar or shared profile of its own, ships no analytics, crash or advertising SDKs, and tells you what the session's posture actually is instead of showing a green shield and hoping.\n\nWHAT IT DOES\n• Private by default: the app stores no browsing history, cookies or identifiers, and shares no session with the pages you open.\n• Encrypted DNS guidance: Android Private DNS and the iOS DNS profile are documented, so lookups do not go to the carrier resolver in clear text.\n• No telemetry: no analytics SDK, no crash reporter, no tracking identifiers, no ad SDKs.\n• No sensor access: the app never requests camera or microphone.\n• 38 KB of UI, no bundled trackers, no in-app purchases.\n\nThe desktop WARDEN (Windows) adds request-level ad and tracker blocking, a PTY shell, mail, messaging and site deconstruction. The mobile app is the companion entry point while the embedded engine lands; the plan is public in the repository.\n\nWHO IT IS FOR\nSecurity administrators and network administrators who want a browser that refuses by default and explains its refusals. No account required, no configuration to start.\n\nPRIVACY POLICY\nhttps://innotelinc.github.io/warden/privacy.html",
+  "category": "TOOLS",
+  "contactEmail": "dhunter@innotel.us",
+  "contactWebsite": "https://github.com/innotelinc/warden",
+  "privacyPolicyUrl": "https://innotelinc.github.io/warden/privacy.html",
+  "contentRating": {
+    "questionnaire": "No user-generated content, no ads, no purchases, no location, no camera or microphone. Rate: Everyone.",
+    "expectedRating": "Everyone"
+  },
+  "dataSafety": {
+    "collectsData": false,
+    "sharesData": false,
+    "encryptedInTransit": true,
+    "deletionRequest": "No data is collected, so there is nothing to delete; uninstalling removes the app's local preferences.",
+    "notes": "The app has no analytics or crash SDK. Pages opened in the platform browser surface are governed by that browser's own policy and by the sites themselves."
+  },
+  "graphics": {
+    "icon": "icon-512.png",
+    "featureGraphic": "feature-graphic-1024x500.png",
+    "phoneScreenshots": ["phone-1.png", "phone-2.png", "phone-3.png"]
+  },
+  "releaseTrack": "internal → closed → production",
+  "notes": "Upload the signed .aab produced by .github/workflows/mobile-android.yml. First release also needs the Play Console data-safety form filled from dataSafety above and the content-rating questionnaire answered as described."
+}

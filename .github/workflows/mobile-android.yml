@@ -1,0 +1,73 @@
+name: Mobile (Android)
+
+# Builds a signed .aab for Play. Signing material comes from repository secrets:
+#   ANDROID_KEYSTORE_BASE64   `base64 -w0 warden-release.keystore`
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+# Without them the workflow still builds and uploads an unsigned bundle for
+# inspection, so a fork or a fresh clone can be checked.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install
+        run: npm ci
+
+      - name: Build web shell and sync native project
+        run: npm run build && npx cap sync android
+
+      - name: Decode keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p android/keystore
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/warden-release.keystore
+          cat > android/keystore.properties <<EOF
+          storeFile=../keystore/warden-release.keystore
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+
+      - name: Bundle (signed when secrets exist)
+        working-directory: mobile/android
+        run: |
+          if [ -f keystore.properties ]; then
+            ./gradlew bundleRelease --no-daemon
+          else
+            ./gradlew bundleRelease --no-daemon -Punsigned=true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warden-android-aab
+          path: mobile/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error

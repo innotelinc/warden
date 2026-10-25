@@ -16,3 +16,17 @@ deployment/intune/out/
 *.intunewin
 
 .tmp/
+
+# Mobile (Capacitor) build output, signing material and generated native caches
+mobile/node_modules/
+mobile/dist/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/keystore.properties
+mobile/android/keystore/
+mobile/ios/App/Pods/
+mobile/ios/App/App/public/
+mobile/ios/App/build/
+*.keystore
+*.keystore.b64

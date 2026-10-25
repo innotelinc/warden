@@ -1,0 +1,28 @@
+{
+  "bundleId": "us.innotel.warden",
+  "teamId": "REPLACE_WITH_APPLE_TEAM_ID",
+  "sku": "WARDEN-MOBILE",
+  "primaryLanguage": "en-US",
+  "name": "WARDEN — private browser",
+  "subtitle": "No cookie jar, no telemetry",
+  "promotionalText": "A privacy-first entry point for security and network administrators. No accounts, no analytics, no sensor access.",
+  "keywords": "privacy,browser,security,admin,no cookies,dns,encrypted,no telemetry",
+  "supportUrl": "https://github.com/innotelinc/warden/issues",
+  "marketingUrl": "https://innotelinc.github.io/warden/",
+  "privacyPolicyUrl": "https://innotelinc.github.io/warden/privacy.html",
+  "description": "WARDEN is a privacy-first browser and operator console for security and network administrators.\n\nThis mobile build is the secure entry point: pages open in the platform's private browser surface, the app keeps no cookie jar or shared profile of its own, and it ships no analytics, crash or advertising SDKs.\n\n• Private by default — no browsing history, cookies or identifiers are stored by the app.\n• No telemetry — no analytics, no crash reporter, no tracking identifiers, no ad SDKs.\n• No sensors — the app never requests camera or microphone.\n• Honest posture — the session screen states what is enforced rather than showing a decorative shield.\n\nThe desktop WARDEN for Windows adds request-level ad and tracker blocking, a PTY shell, mail, messaging and site deconstruction. The mobile roadmap is public in the repository.\n\nNo account, no purchase, no configuration required.",
+  "ageRating": {
+    "expected": "4+",
+    "notes": "No user-generated content, no web search of its own, no ads, no purchases. The app opens pages in SFSafariViewController, which is rated 17+ in isolation; the listing declares that the app itself contains no objectionable material, and review should be answered accordingly."
+  },
+  "reviewNotes": "Sign-in is not required. Reviewers can open any public site from the address field. The app hands URLs to SFSafariViewController; it does not embed a custom engine in this release.",
+  "exportCompliance": "ITSAppUsesNonExemptEncryption is false in Info.plist: the app uses only OS-provided HTTPS, no custom cryptography.",
+  "graphics": {
+    "appIcon": "icon-1024.png",
+    "screenshots": {
+      "iphone-6.9": ["iphone-1.png", "iphone-2.png", "iphone-3.png"],
+      "ipad-13": ["ipad-1.png", "ipad-2.png"]
+    }
+  },
+  "notes": "Archive with .github/workflows/mobile-ios.yml, then upload the .ipa with Transporter or `xcrun altool`. Fill the App Privacy form as 'Data Not Collected'."
+}
