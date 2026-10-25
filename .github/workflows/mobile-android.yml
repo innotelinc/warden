@@ -1,12 +1,26 @@
 name: Mobile (Android)
 
-# Builds a signed .aab for Play. Signing material comes from repository secrets:
-#   ANDROID_KEYSTORE_BASE64   `base64 -w0 warden-release.keystore`
+# Builds a signed .aab for Play and, when it is configured, puts it on the
+# internal testing track.
+#
+# Signing material comes from repository secrets (see docs/MOBILE.md for how to
+# make them — the keystore is the app's upload identity, so it is generated on
+# the owner's machine, never here):
+#   ANDROID_KEYSTORE_BASE64   `base64 -w0 warden-upload.keystore`
 #   ANDROID_KEYSTORE_PASSWORD
 #   ANDROID_KEY_ALIAS
 #   ANDROID_KEY_PASSWORD
-# Without them the workflow still builds and uploads an unsigned bundle for
-# inspection, so a fork or a fresh clone can be checked.
+#
+#   PLAY_SERVICE_ACCOUNT_JSON Google Cloud service account key with the Play
+#                             Android Developer API enabled and "Release apps to
+#                             testing tracks" in Play Console.
+#
+# Without the keystore the workflow still builds and uploads an unsigned bundle
+# for inspection, so a fork or a fresh clone can be checked. Without the service
+# account it stops at the artifact, so a dry run never publishes.
+#
+# Play requires targetSdk 36 for submissions from 31 August 2026; see
+# mobile/android/variables.gradle.
 
 on:
   workflow_dispatch:
@@ -21,9 +35,10 @@ jobs:
   bundle:
     runs-on: ubuntu-latest
     # A secret cannot be read in a step's `if:` — GitHub rejects the whole file.
-    # Hoist it to the job env and test that instead.
+    # Hoist them to the job env and test those instead.
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
     defaults:
       run:
         working-directory: mobile
@@ -41,6 +56,22 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The tag names the version for a release build; a manual run uses the
+      # version committed in mobile/package.json. The version code is the run
+      # number, which only ever increases — Play rejects a repeat, and there is
+      # no reliable way to ask it what the highest one is.
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "WARDEN ${VERSION} (${GITHUB_RUN_NUMBER})"
+
       - name: Install
         run: npm ci
 
@@ -49,24 +80,64 @@ jobs:
 
       - name: Decode keystore
         if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           mkdir -p android/keystore
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/keystore/warden-release.keystore
           cat > android/keystore.properties <<EOF
           storeFile=../keystore/warden-release.keystore
-          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
           EOF
 
       - name: Bundle (signed when secrets exist)
         working-directory: mobile/android
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CODE: ${{ steps.version.outputs.code }}
         run: |
-          if [ -f keystore.properties ]; then
-            ./gradlew bundleRelease --no-daemon
-          else
-            ./gradlew bundleRelease --no-daemon -Punsigned=true
+          args=(bundleRelease --no-daemon
+                "-PwardenVersionName=${VERSION}"
+                "-PwardenVersionCode=${CODE}")
+          if [ ! -f keystore.properties ]; then
+            echo "::notice::No keystore configured — building an unsigned bundle for inspection."
+            args+=(-Punsigned=true)
           fi
+          ./gradlew "${args[@]}"
+
+      # A stable name, so the file in the artifact or the Downloads folder says
+      # which build it is without opening it.
+      - name: Name the bundle
+        working-directory: mobile/android/app/build/outputs/bundle/release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -f app-release.aab ]; then
+            mv app-release.aab "WARDEN-${VERSION}.aab"
+          fi
+          ls -la
+
+      # Internal testing needs no review, so this is the fastest way to get a
+      # build onto a phone. The package must already exist in Play Console and
+      # have had its first upload done by hand: the API cannot create the app.
+      - name: Upload to Play internal testing
+        if: env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON != ''
+        uses: r0adkll/upload-google-play@v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: us.innotel.warden
+          releaseFiles: mobile/android/app/build/outputs/bundle/release/WARDEN-${{ steps.version.outputs.version }}.aab
+          tracks: internal
+          status: completed
+
+      - name: Say what happened
+        if: env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON == ''
+        run: |
+          echo "::notice::Signed .aab built but PLAY_SERVICE_ACCOUNT_JSON is not set — upload it in the Play Console, or add the service account to publish from here."
 
       - uses: actions/upload-artifact@v4
         with:

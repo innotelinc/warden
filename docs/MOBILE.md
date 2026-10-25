@@ -41,7 +41,7 @@ mobile/
   android/                generated Gradle project (signed in CI)
   ios/                    generated Xcode project (archive on macOS runners)
   store/android/listing.json, store/ios/listing.json
-  ../.github/workflows/mobile-android.yml, mobile-ios.yml
+  ../.github/workflows/mobile-android.yml, mobile-ios.yml, ios-build-status.yml
   ../web/landing/privacy.html   public privacy policy for both listings
 ```
 
@@ -63,28 +63,74 @@ a tab instead of the native browser surface. That is expected.
 
 ### Android
 
-1. Create the upload key once (keep it out of the repository):
+Play needs two separate credentials, and neither is something automation should
+invent: the **upload keystore**, which is the app's signing identity, and a
+**service account**, if the bundle is to be published from CI rather than
+dragged into the console by hand.
+
+1. Create the upload key once, on your own machine, and keep a copy. A key made
+   in CI is a key nobody can back up — losing it is recoverable, since Play
+   resets upload keys, but it costs a support round-trip.
 
    ```bash
-   keytool -genkeypair -v -keystore warden-release.keystore -alias warden \
+   keytool -genkeypair -v -keystore warden-upload.keystore -alias warden \
      -keyalg RSA -keysize 4096 -validity 10000
-   base64 -w0 warden-release.keystore > warden-release.keystore.b64
+   base64 -w0 warden-upload.keystore > warden-upload.keystore.b64
+
+   gh secret set ANDROID_KEYSTORE_BASE64 < warden-upload.keystore.b64
+   gh secret set ANDROID_KEYSTORE_PASSWORD --body '<store password>'
+   gh secret set ANDROID_KEY_ALIAS --body warden
+   gh secret set ANDROID_KEY_PASSWORD --body '<key password>'
    ```
 
-2. Add repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
-   `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
-3. Run **Mobile (Android)** from the Actions tab (or push a `v*` tag). It
-   produces `warden-android-aab` with a signed bundle.
-4. Play Console → your app → Testing → Internal testing → upload the `.aab`,
-   add yourself as a tester, then promote.
+   Commit neither file. CI writes `android/keystore.properties` from the
+   secrets; without it the build is unsigned, and Play refuses an unsigned
+   bundle by design.
 
-`android/app/build.gradle` reads `android/keystore.properties` (written by CI
-from the secrets); without it the build is unsigned and Play rejects it by
-design.
+2. The bundle is stamped the same way the iOS one is: the version name from the
+   tag (a manual run takes `mobile/package.json`) and the **version code from
+   the run number**, because Play rejects a code it has already seen and cannot
+   be asked which ones are free. Never hand-bump `versionCode`.
 
-Versioning: bump `versionCode` and `versionName` in
-`mobile/android/app/build.gradle` for every upload; Play refuses a repeated
-`versionCode`.
+3. Run **Mobile (Android)**, or push a `v*` tag. Without the keystore it still
+   builds an unsigned bundle so a fork can be inspected; with it, the artifact
+   is `WARDEN-<version>.aab`.
+
+4. **The app must already exist in Play Console, with one release uploaded by
+   hand.** The API uploads a bundle to an existing package and cannot create
+   the app record, so an automated first upload fails with `Package not found`.
+   Play Console → Create app → Internal testing → Create new release → upload
+   that first `.aab` yourself.
+
+5. To let CI publish from then on, create a service account and give it exactly
+   the permission it needs:
+
+   - Google Cloud console → **enable the Google Play Android Developer API**.
+   - Create a service account, then a **JSON key**; save the file.
+   - Play Console → **Users and permissions** → invite the service account's
+     email → app access to WARDEN → **Release apps to testing tracks**. That is
+     enough for internal testing; do not grant production release.
+   - `gh secret set PLAY_SERVICE_ACCOUNT_JSON < service-account.json`
+
+   With that secret present every run uploads `WARDEN-<version>.aab` to the
+   **internal** track marked completed, so the build is installable within
+   minutes of the run finishing. Internal testing needs no review.
+
+6. Install it: Play Console → Internal testing → Testers → add your Google
+   account, open the opt-in link on the phone, then install WARDEN from Play.
+   Internal testers install through Play, not from a side-loaded file.
+
+**targetSdk is 36, and that is not cosmetic.** Play requires 36 for new apps and
+updates submitted from 31 August 2026, and the extension to 1 November 2026 is
+running out; an upload built against 35 is refused at the console. API 36 needs
+an Android Gradle plugin whose ceiling includes it — 8.9 or later, with the
+Gradle its compatibility table names — so both moved: AGP 8.13.2 on Gradle 8.13.
+`tests/mobile-android.test.ts` fails if the SDK level or that pairing slips.
+
+Two more Play checks that need no work here: the app ships no native `.so`
+libraries, so the 16 KB page-size requirement is met by construction, and the
+Data safety form answers the same as the iOS privacy form — nothing collected —
+with `web/landing/privacy.html` as the policy URL.
 
 ### iOS
 

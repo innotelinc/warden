@@ -1,7 +1,10 @@
 ext {
     minSdkVersion = 23
-    compileSdkVersion = 35
-    targetSdkVersion = 35
+    // Play requires targetSdk 36 for new apps and updates submitted from
+    // 31 August 2026 (the extension to 1 November 2026 is expiring), and
+    // compileSdk cannot trail the target.
+    compileSdkVersion = 36
+    targetSdkVersion = 36
     androidxActivityVersion = '1.9.2'
     androidxAppCompatVersion = '1.7.0'
     androidxCoordinatorLayoutVersion = '1.2.0'
