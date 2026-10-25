@@ -446,11 +446,17 @@ Only the NSIS installed build can replace itself. The portable exe reports *port
 update by download* and never touches its own file; download the next `WARDEN-Portable` exe from
 the releases page.
 
-A release makes the feed work only when the metadata goes up with the installers:
+A release is one tag. Pushing `v0.2.4` runs *Build and sign release*, which builds both installers on
+`windows-latest` and creates the GitHub release with `WARDEN-Setup-…`, `WARDEN-Portable-…`,
+`latest.yml` and the block map attached — the workflow uploads them because `dist:ci` builds with
+`--publish never`. With SignPath configured the release stays a draft until the signed installers
+replace the unsigned ones and the signatures have been checked, so an unsigned build is never the
+published asset. Nothing is published from a laptop.
 
 ```bash
+git push origin v0.2.4
+# the same release by hand, when Actions is unavailable:
 npm run dist:release            # builds and publishes with GH_TOKEN set
-# or, when uploading by hand:
 gh release upload v0.2.4 release/WARDEN-Setup-0.2.4.exe \
   release/WARDEN-Portable-0.2.4.exe release/latest.yml \
   release/WARDEN-Setup-0.2.4.exe.blockmap --clobber

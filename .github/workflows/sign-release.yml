@@ -63,6 +63,39 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      - name: Publish the installers
+        # A tag is the release request. dist:ci builds with --publish never, so
+        # nothing goes up unless this step does it: the release page, the two
+        # executables, latest.yml (what electron-updater reads) and the block
+        # map (what makes an update differential instead of a full download).
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          # Non-empty once SignPath is configured: the release then waits as a
+          # draft until the sign job has replaced these with signed copies.
+          SIGNPATH: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+        run: |
+          $assets = @()
+          $assets += Get-ChildItem release/WARDEN-Setup-*.exe -ErrorAction SilentlyContinue
+          $assets += Get-ChildItem release/WARDEN-Portable-*.exe -ErrorAction SilentlyContinue
+          $assets += Get-ChildItem release/latest.yml -ErrorAction SilentlyContinue
+          $assets += Get-ChildItem release/*.blockmap -ErrorAction SilentlyContinue
+          if ($assets.Count -eq 0) { throw 'no build output to publish' }
+          $assets | Select-Object Name, Length | Format-Table -AutoSize
+
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -ne 0) {
+            $title = "WARDEN $($env:TAG -replace '^v','')"
+            if ($env:SIGNPATH) {
+              gh release create $env:TAG --draft --title $title --generate-notes
+            } else {
+              gh release create $env:TAG --title $title --generate-notes
+            }
+          }
+          gh release upload $env:TAG $assets.FullName --clobber
+
       - name: Stage installers
         run: |
           New-Item -ItemType Directory -Force -Path unsigned | Out-Null
@@ -128,5 +161,15 @@ jobs:
           TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           gh release view $env:TAG *> $null
-          if ($LASTEXITCODE -ne 0) { gh release create $env:TAG --title $env:TAG --generate-notes }
+          if ($LASTEXITCODE -ne 0) { gh release create $env:TAG --draft --title "WARDEN $($env:TAG -replace '^v','')" --generate-notes }
           gh release upload $env:TAG signed/*.exe --clobber
+
+      - name: Publish the signed release
+        # The build job leaves a draft when SignPath is configured, so nothing
+        # unsigned is ever the published asset. Signatures already checked above.
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: gh release edit $env:TAG --draft=false
