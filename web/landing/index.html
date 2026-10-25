@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WARDEN — Read everything. Give nothing.</title>
+<meta name="description" content="WARDEN is a privacy-first desktop browser and operator console: ad and tracker filtering, no cookie jar by default, a built-in shell, mail and messaging, and Scry — a tool that deconstructs a live site into a rebuildable project.">
+<meta property="og:title" content="WARDEN — Read everything. Give nothing.">
+<meta property="og:description" content="A privacy-first browser and operator console for security and network administrators. Seven workspaces, five enforcement layers, no cookie database.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0b0e12">
+<link rel="icon" href="warden-icon.png">
+<style>
+  :root {
+    --bg: #0b0e12;
+    --bg-soft: #0e1218;
+    --panel: #12171f;
+    --panel-2: #151b24;
+    --line: #232b36;
+    --line-soft: #1a212b;
+    --ink: #e8eef6;
+    --ink-soft: #aab6c4;
+    --ink-faint: #7b8794;
+    --mint: #4fe3c1;
+    --mint-soft: rgba(79, 227, 193, .12);
+    --amber: #f5b95b;
+    --red: #ff7a7a;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --radius: 14px;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --wrap: 1080px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 520px at 12% -8%, rgba(79, 227, 193, .10), transparent 60%),
+      radial-gradient(900px 460px at 92% 4%, rgba(245, 185, 91, .06), transparent 62%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--mint-soft); color: var(--ink); }
+  a { color: var(--mint); text-decoration: none; }
+  a:hover { color: #7ff0d6; }
+  h1, h2, h3 { letter-spacing: -0.02em; line-height: 1.15; margin: 0; }
+  code, pre, .mono { font-family: var(--mono); }
+  code {
+    background: var(--panel-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: .86em;
+    color: #d7e3f1;
+  }
+  .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(11, 14, 18, .78);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .topbar-inner { display: flex; align-items: center; gap: 18px; height: 62px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 650; letter-spacing: .12em; font-size: 14px; }
+  .brand img { width: 26px; height: 26px; border-radius: 7px; display: block; }
+  .brand .tick { color: var(--mint); }
+  .topbar nav { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .topbar nav a {
+    color: var(--ink-soft); font-size: 14px; padding: 7px 11px; border-radius: 8px;
+    transition: color .15s var(--ease), background .15s var(--ease);
+  }
+  .topbar nav a:hover { color: var(--ink); background: var(--panel-2); }
+  .topbar .gh {
+    border: 1px solid var(--line); border-radius: 9px; color: var(--ink);
+    padding: 7px 13px; font-size: 13.5px; margin-left: 8px;
+  }
+  .topbar .gh:hover { border-color: var(--mint); color: var(--mint); }
+  @media (max-width: 760px) { .topbar nav a:not(.gh) { display: none; } }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 76px 0 40px; }
+  .hero-grid { display: grid; grid-template-columns: 1.35fr .65fr; gap: 44px; align-items: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint); border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 11px; margin-bottom: 22px;
+  }
+  .eyebrow .led { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 10px var(--mint); }
+  .hero h1 { font-size: clamp(44px, 7vw, 74px); font-weight: 700; letter-spacing: .04em; }
+  .hero h1 .bracket { color: var(--mint); }
+  .tagline { margin: 14px 0 0; font-size: clamp(19px, 2.4vw, 25px); color: var(--ink); font-weight: 550; }
+  .hero p.lede { margin: 16px 0 0; color: var(--ink-soft); font-size: 16.5px; max-width: 60ch; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    border-radius: 10px; padding: 11px 18px; font-size: 14.5px; font-weight: 600;
+    border: 1px solid var(--line); color: var(--ink); background: var(--panel);
+    transition: transform .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease);
+  }
+  .btn:hover { transform: translateY(-1px); border-color: #33404f; background: var(--panel-2); color: var(--ink); }
+  .btn.primary { background: var(--mint); color: #04241d; border-color: var(--mint); }
+  .btn.primary:hover { background: #6df0d3; color: #04241d; border-color: #6df0d3; }
+
+  .hero-mark { display: grid; place-items: center; }
+  .hero-mark img {
+    width: min(230px, 46vw); height: auto; display: block;
+    filter: drop-shadow(0 26px 60px rgba(79, 227, 193, .18));
+  }
+  @media (max-width: 860px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 28px; }
+    .hero-mark { order: -1; place-items: start; }
+    .hero-mark img { width: 110px; }
+  }
+
+  /* ---------- fact strip ---------- */
+  .facts { border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); background: rgba(18, 23, 31, .5); }
+  .facts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line-soft); }
+  .fact { background: var(--bg-soft); padding: 18px 20px; }
+  .fact .k { font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); }
+  .fact .v { margin-top: 4px; font-size: 16px; font-weight: 600; }
+  .fact .v span { color: var(--mint); }
+  @media (max-width: 760px) { .facts-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ---------- sections ---------- */
+  section { padding: 66px 0; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 26px; flex-wrap: wrap; }
+  .sec-head .num { font-family: var(--mono); font-size: 11.5px; color: var(--mint); letter-spacing: .18em; }
+  .sec-head h2 { font-size: clamp(25px, 3.4vw, 34px); font-weight: 650; }
+  .sec-head p { width: 100%; margin: 0; color: var(--ink-soft); max-width: 74ch; }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card {
+    border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(180deg, var(--panel), var(--bg-soft));
+    padding: 22px; transition: border-color .2s var(--ease), transform .2s var(--ease);
+  }
+  .card:hover { border-color: #2f3b49; transform: translateY(-2px); }
+  .card .glyph {
+    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--mint-soft); color: var(--mint); margin-bottom: 14px;
+    font-family: var(--mono); font-size: 14px;
+  }
+  .card h3 { font-size: 16.5px; font-weight: 650; }
+  .card p { margin: 8px 0 0; color: var(--ink-soft); font-size: 14.5px; }
+  @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
+
+  /* ---------- table ---------- */
+  .table-wrap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  thead th {
+    text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 500;
+    background: var(--bg-soft); padding: 12px 18px; border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 13px 18px; border-bottom: 1px solid var(--line-soft); color: var(--ink-soft); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(21, 27, 36, .6); }
+  tbody td:first-child { color: var(--ink); font-weight: 600; white-space: nowrap; }
+  .tag {
+    display: inline-block; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+    border-radius: 5px; padding: 1px 6px; border: 1px solid var(--line); color: var(--ink-faint);
+  }
+  .tag.mint { color: var(--mint); border-color: rgba(79, 227, 193, .35); background: rgba(79, 227, 193, .07); }
+  .tag.amber { color: var(--amber); border-color: rgba(245, 185, 91, .35); background: rgba(245, 185, 91, .07); }
+
+  /* ---------- layers ---------- */
+  .layers { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .layer { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; background: var(--panel); }
+  .layer .n { font-family: var(--mono); color: var(--mint); font-size: 11px; letter-spacing: .16em; }
+  .layer b { display: block; margin-top: 6px; font-size: 15.5px; }
+  .layer span { display: block; margin-top: 6px; color: var(--ink-soft); font-size: 14.2px; }
+  @media (max-width: 900px) { .layers { grid-template-columns: 1fr; } }
+
+  .note {
+    margin-top: 20px; border: 1px solid rgba(245, 185, 91, .28); background: rgba(245, 185, 91, .06);
+    border-radius: 12px; padding: 16px 18px; display: flex; gap: 12px;
+  }
+  .note .mark { color: var(--amber); font-family: var(--mono); font-size: 13px; }
+  .note p { margin: 0; color: #e3d7c2; font-size: 14.4px; max-width: 88ch; }
+  .note b { color: var(--amber); }
+
+  /* ---------- install ---------- */
+  .split { display: grid; grid-template-columns: 1.1fr .9fr; gap: 24px; align-items: start; }
+  pre {
+    margin: 0; background: #070a0e; border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; overflow-x: auto; font-size: 13.4px; line-height: 1.75; color: #cfe0f0;
+  }
+  pre .c { color: #6f7d8c; }
+  pre .m { color: var(--mint); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; font-size: 14.3px; }
+  .kv dt { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; padding-top: 3px; }
+  .kv dd { margin: 0; color: var(--ink-soft); }
+  .kv dd b { color: var(--ink); }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+
+  footer { border-top: 1px solid var(--line-soft); padding: 30px 0 44px; color: var(--ink-faint); font-size: 13.4px; }
+  .foot-grid { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  .foot-grid .spacer { margin-left: auto; }
+  footer a { color: var(--ink-soft); }
+  footer a:hover { color: var(--mint); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" href="#top"><img src="warden-icon.png" alt="">WARDEN<span class="tick">.</span></a>
+    <nav>
+      <a href="#why">Why</a>
+      <a href="#workspaces">Workspaces</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#compatibility">Compatibility</a>
+      <a href="#install">Install</a>
+      <a class="gh" href="https://github.com/innotelinc/warden">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <div class="hero-grid">
+      <div>
+        <div class="eyebrow"><span class="led"></span> Windows · x64 · Electron 45 · open source</div>
+        <h1>WARDEN<span class="bracket">.</span></h1>
+        <p class="tagline">Read everything. Give nothing.</p>
+        <p class="lede">
+          A desktop browser built for the people who audit networks: ad and tracker filtering that
+          cannot be talked around, no cookie jar unless you say so, and the operator tools a security
+          team actually needs — a real shell, a mail client, unified messaging, and Scry, which takes a
+          live site apart and hands back a rebuildable project.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/innotelinc/warden/releases">Download for Windows</a>
+          <a class="btn" href="https://github.com/innotelinc/warden#readme">Read the source</a>
+          <a class="btn" href="#privacy">Privacy model</a>
+        </div>
+      </div>
+      <div class="hero-mark">
+        <img src="warden-icon.png" alt="WARDEN shield icon" width="256" height="256">
+      </div>
+    </div>
+  </div>
+
+  <div class="facts">
+    <div class="wrap">
+      <div class="facts-grid">
+        <div class="fact"><div class="k">Cookie jar</div><div class="v"><span>None</span> by default</div></div>
+        <div class="fact"><div class="k">Enforcement layers</div><div class="v"><span>Five</span>, main process</div></div>
+        <div class="fact"><div class="k">Workspaces</div><div class="v"><span>Seven</span> surfaces</div></div>
+        <div class="fact"><div class="k">Session storage</div><div class="v"><span>Memory</span> only</div></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="why">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num">01</span>
+        <h2>Built for the audit, not the ad economy</h2>
+        <p>
+          Most browsers ask you to trust a settings page. WARDEN makes the refusal structural: requests
+          are cancelled before they leave, headers are rewritten in the main process, and the cookie
+          store is guarded rather than merely configured. The same application is also the workbench —
+          inspect, clone and rebuild what you are looking at without opening four other tools.
+        </p>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <div class="glyph">▚</div>
+          <h3>Blocking that argues in code</h3>
+          <p>Adblock-Plus syntax over a seeded EasyList-compatible engine, plus HTTPS upgrades and a
+            page-level fingerprint shim. Every decision is a TypeScript function with unit tests, not a
+            checkbox with a promise.</p>
+        </div>
+        <div class="card">
+          <div class="glyph">⌘</div>
+          <h3>The console is part of the browser</h3>
+          <p>A real PTY shell, IMAP/SMTP mail, and Slack, Teams, Discord and friends each in their own
+            isolated session — docked beside the page you are reading instead of buried in tabs.</p>
+        </div>
+        <div class="card">
+          <div class="glyph">◈</div>
+          <h3>Scry: deconstruct, then rebuild</h3>
+          <p>Attach over CDP or to WARDEN's own tab. Get a recon report, a static clone with rewritten
+            scripts, a Vite + React scaffold, or an "innovate" build that replaces the original
+            behaviour instead of copying it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="workspaces">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num">02</span>
+        <h2>Seven workspaces, one window</h2>
+        <p>Each surface is a first-class pane with its own state; nothing is a web page pretending to be an app.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Workspace</th><th>What it is</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Browse</td><td>Chromium with the full privacy stack: popups blocked by destination, permissions denied, scrollbars that belong to the dark theme.</td></tr>
+            <tr><td>TRENCH</td><td>An embedded shell with PTY, scrollback and the operator palette — PowerShell, bash or whatever the host provides.</td></tr>
+            <tr><td>Relay</td><td>IMAP and SMTP mail, multiple accounts, remote content withheld until you ask for it.</td></tr>
+            <tr><td>Concourse</td><td>Unified messaging: Slack, Teams, Discord, WhatsApp, Telegram, Element, Mattermost — one isolated session each.</td></tr>
+            <tr><td>Scry</td><td>Recon, Clone and Innovate against any reachable target, local tab or remote debug port.</td></tr>
+            <tr><td>Genie</td><td>A built-in assistant over your own gateway, with tool calls streamed into the UI.</td></tr>
+            <tr><td>Policy</td><td>Every switch with its enforcement point stated, plus admin palettes and the compatibility list.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num">03</span>
+        <h2>The privacy model, layer by layer</h2>
+        <p>
+          Electron has no Chrome-style cookie policy switch, so the guarantee is assembled from five
+          independent layers. A site has to get past all of them, and the browsing session is created
+          without the <code>persist:</code> partition — quit WARDEN and there is no cookie database to find.
+        </p>
+      </div>
+      <div class="layers">
+        <div class="layer">
+          <span class="n">LAYER 01</span>
+          <b>Request interception</b>
+          <span>Matched ad and tracker requests are cancelled before transmission; top-level <code>http://</code> is upgraded first.</span>
+        </div>
+        <div class="layer">
+          <span class="n">LAYER 02</span>
+          <b>Request headers</b>
+          <span><code>Cookie</code> is deleted unless the host is allowlisted, <code>Referer</code> is trimmed to origin, <code>DNT</code> and <code>Sec-GPC</code> are asserted.</span>
+        </div>
+        <div class="layer">
+          <span class="n">LAYER 03</span>
+          <b>Response headers</b>
+          <span><code>Set-Cookie</code> is stripped for every host the policy rejects, along with <code>Report-To</code> and NEL beacons.</span>
+        </div>
+        <div class="layer">
+          <span class="n">LAYER 04</span>
+          <b>Cookie store guard</b>
+          <span><code>session.cookies.set</code> is wrapped to refuse disallowed writes, with a sweep on navigation and on demand.</span>
+        </div>
+        <div class="layer">
+          <span class="n">LAYER 05</span>
+          <b>Page-level lock</b>
+          <span>The content preload redefines <code>Document.prototype.cookie</code> and removes <code>cookieStore</code>, so page script cannot create one either.</span>
+        </div>
+        <div class="layer">
+          <span class="n">ALWAYS</span>
+          <b>Everything else</b>
+          <span>Permissions denied outright, <code>webview</code> attachment blocked, popups judged by destination, burner tabs on throwaway sessions.</span>
+        </div>
+      </div>
+
+      <div class="note">
+        <span class="mark">!</span>
+        <p>
+          <b>Honest limits.</b> WARDEN is not a VPN and does not hide your IP; it does not defeat TLS or
+          DNS fingerprinting. Storage APIs other than cookies (localStorage, IndexedDB, Cache) are
+          memory-only per session but not individually blocked. When a site genuinely cannot work without
+          cookies, the allowlist is the intended answer — not a global "accept all".
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="compatibility">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num">04</span>
+        <h2>Compatibility mode, and where it stops</h2>
+        <p>
+          Challenge pages, bank portals and SSO will not load through a privacy stack. One click in the
+          shield panel puts a host — and its subdomains — into compatibility mode: no filtering, headers
+          sent exactly as the page built them, <code>Set-Cookie</code> untouched, and no injected shims.
+          Its cookies are treated as policy-accepted, so a purge does not break it again. Toggling
+          reloads every tab already on that host.
+        </p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Layer</th><th>Default</th><th>Compatibility</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Ad / tracker filtering</td><td><span class="tag mint">on</span></td><td><span class="tag amber">off</span></td></tr>
+            <tr><td>Header rewriting</td><td><span class="tag mint">on</span></td><td><span class="tag amber">off</span></td></tr>
+            <tr><td>Cookie stripping + store guard</td><td><span class="tag mint">on</span></td><td><span class="tag amber">off</span></td></tr>
+            <tr><td>Fingerprint shims + cookie lock</td><td><span class="tag mint">on</span></td><td><span class="tag amber">off</span></td></tr>
+            <tr><td>HTTPS-only upgrade</td><td><span class="tag mint">on</span></td><td><span class="tag mint">on</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <span class="mark">!</span>
+        <p>
+          <b>It removes WARDEN's obstacles, not Cloudflare's.</b> A managed challenge that refuses
+          Electron still refuses it with every layer disabled — verified against a real site that reaches
+          "verification successful" and is then handed another 403 with no clearance cookie. The browser
+          engine is the variable there, and saying so is more useful than a checkbox that implies
+          otherwise.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num">05</span>
+        <h2>Build it, run it, ship it</h2>
+        <p>Node 20+ and a Windows host for packaging. The shell needs no caveats: <code>node-pty</code> ships prebuilds for win32-x64, with a pipe fallback everywhere else.</p>
+      </div>
+      <div class="split">
+        <pre><span class="c"># from source</span>
+git clone https://github.com/innotelinc/warden
+cd warden &amp;&amp; npm install
+
+npm run dev        <span class="c"># electron-vite, hot reload</span>
+npm run verify     <span class="c"># typecheck + unit tests + build + smoke</span>
+
+<span class="c"># shipping artifacts</span>
+npm run dist       <span class="m">→ release/WARDEN-Setup-0.1.0.exe</span>
+                   <span class="m">→ release/WARDEN-Portable-0.1.0.exe</span>
+npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span></pre>
+        <dl class="kv">
+          <dt>Installer</dt><dd><b>NSIS, per-user.</b> Silent with <code>/S</code>; uninstall entry in HKCU with <code>InstallLocation</code>.</dd>
+          <dt>Portable</dt><dd><b>Single exe.</b> Extracts to temp, keeps its own profile, leaves no installed state.</dd>
+          <dt>Profile</dt><dd><b>%APPDATA%\WARDEN</b> — settings, history, bookmarks. No cookie jar, ever.</dd>
+          <dt>Signing</dt><dd>Built unsigned today. Signed free through SignPath Foundation's open-source programme once the project is approved; a self-signed path exists for fleets that deploy their own root.</dd>
+          <dt>Fleet tooling</dt><dd>PowerShell install/detect/uninstall script, an Intune <code>win32LobApp</code> definition, and a Graph app creator.</dd>
+          <dt>Tests</dt><dd>Unit coverage over the filter engine, cookie policy, clone writer, recon and popup policy; the smoke suite drives the real UI and the packaged binary.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-grid">
+    <span>WARDEN · Read everything. Give nothing.</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/innotelinc/warden">Repository</a>
+    <a href="https://github.com/innotelinc/warden/releases">Releases</a>
+    <a href="https://github.com/innotelinc/warden#readme">Documentation</a>
+    <a href="https://github.com/innotelinc/warden/issues">Issues</a>
+  </div>
+</footer>
+
+</body>
+</html>
