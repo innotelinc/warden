@@ -56,6 +56,10 @@ def utc(value: str) -> str:
         )
     except ValueError:
         return value
+
+
+def b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
