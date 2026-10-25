@@ -479,7 +479,9 @@ def submission_report(bearer: str, app: str) -> int:
     rows.append(("primary category", bool(info["category"]), category.get("name") or (info["category"] or {}).get("id") or "not set"))
 
     answer, rated = unrestricted_web(info["rating"])
-    rows.append(("age rating answered", rated, answer))
+    # A browser is required to answer yes here; answering no is a false
+    # declaration rather than a rating choice, so it reads as a gap.
+    rows.append(("age rating: unrestricted web access", rated and answer == "yes", answer))
 
     # --- the version page ---------------------------------------------------
     build = version["build"]

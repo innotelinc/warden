@@ -185,6 +185,22 @@ the testers in it — the difference between "Apple accepted the build" and
 "somebody can install it". `add_build_to_group` does the *Add Builds* step from
 the command line, and refuses unless the build is `VALID`.
 
+`submission=true` answers the other question — what App Store Connect still
+wants before the version can be sent to review:
+
+```
+gh workflow run ios-build-status.yml -f submission=true
+```
+
+It reports every field of the newest iOS version page (description, keywords,
+URLs, promotional text, what's new), the screenshots per display size, the app
+information (name, subtitle, privacy policy URL, primary category), the age
+rating, and whether a build and review details are attached. Each line is `ok`
+or `GAP`, and the job exits non-zero while anything is missing, so a checklist
+cannot drift from the record. The version page and the build carry independent
+numbers: a version page of `1.0` accepts a build stamped `0.2.4`, but keeping
+them equal avoids explaining the difference later.
+
 It prints the marketing version, build number, upload time in UTC and the
 processing state (`PROCESSING`, `VALID`, `FAILED`, `INVALID`) with what each one
 means, runs on Ubuntu in seconds, and exits non-zero when a build is still
