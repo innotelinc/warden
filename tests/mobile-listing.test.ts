@@ -104,6 +104,16 @@ describe('claims the mobile build cannot back up', () => {
     }
   })
 
+  /**
+   * Quick destinations are seen by everyone who installs the app, a store
+   * reviewer included. A team's own paid service is that team's business, not
+   * a feature of the product being submitted.
+   */
+  it('ships no tenant-specific destinations', () => {
+    expect(shell).not.toMatch(/nas\.innotel\.us/i)
+    expect(shell).not.toMatch(/\bNAS SSO\b/i)
+  })
+
   /** What the posture screen says has to match what the code does. */
   it('keeps the posture screen to things the shell does', () => {
     const posture = read('mobile/src/App.tsx')

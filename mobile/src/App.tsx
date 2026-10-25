@@ -25,11 +25,13 @@ const POSTURE = [
   ['Sensors', 'Camera and microphone are not requested by this app.']
 ]
 
+// Only destinations that ship with the product belong here. A team's own
+// paid services are not part of what a store reviewer, or anybody else who
+// installs this, is being given.
 const SHORTCUTS = [
   { label: 'WARDEN', url: 'https://github.com/innotelinc/warden' },
   { label: 'Release notes', url: 'https://github.com/innotelinc/warden/releases' },
-  { label: 'Privacy', url: 'https://innotelinc.github.io/warden/privacy.html' },
-  { label: 'NAS SSO', url: 'https://nas.innotel.us/' }
+  { label: 'Privacy', url: 'https://innotelinc.github.io/warden/privacy.html' }
 ]
 
 export function App(): React.ReactElement {
