@@ -29,6 +29,8 @@ import type { MessagingHub } from './messaging/hub'
 import type { ScryService } from './scry/scry-service'
 import type { GenieService } from './genie/genie-service'
 import type { DownloadManager } from './browser/downloads'
+import type { UpdateService } from './update/update-service'
+import type { LockService } from './security/lock-service'
 
 export interface WardenContext {
   win: BrowserWindow
@@ -41,6 +43,8 @@ export interface WardenContext {
   scry: ScryService
   genie: GenieService
   downloads: DownloadManager
+  update: UpdateService
+  lock: LockService
   stores: {
     settings: JsonStore<Settings>
     history: JsonStore<HistoryEntry[]>
@@ -437,6 +441,7 @@ export function registerIpc(warden: WardenContext): void {
     context().stores.settings.set(merged)
     context().privacy.applySettings(merged)
     context().tabs.setVisible(context().getWorkspace() === 'browse')
+    context().update.applyEnabled(merged.autoUpdate)
     context().sendState()
     return merged
   })
@@ -476,6 +481,21 @@ export function registerIpc(warden: WardenContext): void {
     context().stores.bookmarks.update((list) => list.filter((entry) => entry.id !== id))
     context().sendState()
   })
+
+  // -------------------------------------------------------------- updates
+  handle('warden:update:check', () => context().update.check())
+  handle('warden:update:install', () => context().update.install())
+
+  // ----------------------------------------------------------------- lock
+  handle('warden:lock:lock', () => context().lock.lock(false))
+  handle('warden:lock:unlock', (password: string) =>
+    context().lock.unlock(typeof password === 'string' ? password : '')
+  )
+  handle('warden:lock:bootstrap', () => ({
+    lock: context().lock.snapshot(),
+    background: context().lock.backdrop(),
+    user: context().lock.user()
+  }))
 
   // ----------------------------------------------------------------- app
   handle('warden:app:openExternal', (url: string) => {

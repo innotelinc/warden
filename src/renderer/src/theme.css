@@ -940,6 +940,30 @@ a {
   height: 10px;
   background: var(--line);
 }
+.statusbar .status-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: -3px 0;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--faint);
+  font: 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.statusbar .status-action:hover {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--panel-2);
+}
+.statusbar .status-action.accent {
+  color: var(--mint);
+  border-color: rgba(79, 227, 193, 0.24);
+}
 
 /* ============================================================== workspaces */
 .workspace {

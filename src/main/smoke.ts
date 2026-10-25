@@ -296,6 +296,27 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
     ctx.tabs.close(allowedTab)
     ctx.privacy.applySettings(originalSettings)
 
+    // Privacy lock: cover the app, reject a wrong password, then clear with the
+    // right one. The harness supplies WARDEN_LOCK_TEST_PASSWORD, so the
+    // operator's real Windows password is never involved.
+    await ctx.lock.lock(false)
+    const overlay = ctx.lock.overlayWebContents()
+    const lockInfo: Record<string, unknown> = {
+      locked: ctx.lock.isLocked(),
+      title: overlay
+        ? await overlay.executeJavaScript('document.querySelector("h1")?.textContent ?? ""', true)
+        : '',
+      hasPasswordField: overlay
+        ? await overlay.executeJavaScript('Boolean(document.getElementById("password"))', true)
+        : false
+    }
+    lockInfo.wrongRejected = !(await ctx.lock.unlock('definitely-not-the-password')).ok
+    lockInfo.stillLocked = ctx.lock.isLocked()
+    lockInfo.unlocked = (await ctx.lock.unlock(process.env.WARDEN_LOCK_TEST_PASSWORD ?? '')).ok
+    lockInfo.cleared = !ctx.lock.isLocked()
+    result.lock = lockInfo
+    result.update = ctx.update.snapshot()
+
     const purged = await ctx.privacy.wipeCookies()
     result.purged = purged
     result.cookieCountAfter = (await ctx.privacy.browsingSession.cookies.get({})).length
@@ -310,6 +331,10 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       String(result.heading).includes('smoke') &&
       Number((result.compat as { trackerBlocked?: number } | undefined)?.trackerBlocked) === 0 &&
       Number((result.allowlisted as { stored?: number } | undefined)?.stored) >= 1 &&
+      (result.lock as { locked?: boolean })?.locked === true &&
+      (result.lock as { wrongRejected?: boolean })?.wrongRejected === true &&
+      (result.lock as { stillLocked?: boolean })?.stillLocked === true &&
+      (result.lock as { cleared?: boolean })?.cleared === true &&
       report.requests > 0
   } catch (error) {
     result.error = (error as Error).stack ?? (error as Error).message

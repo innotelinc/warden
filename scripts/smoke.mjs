@@ -66,6 +66,9 @@ const child = binary
         ...process.env,
         WARDEN_SMOKE: '1',
         WARDEN_SMOKE_URL: `http://127.0.0.1:${PORT}/`,
+        // Only this child gets the bypass; the real verifier still runs in the
+        // packaged app and for every non-smoke launch.
+        WARDEN_LOCK_TEST_PASSWORD: 'warden-smoke-pass',
         WARDEN_SMOKE_OUT: outFile
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -76,7 +79,8 @@ const child = binary
       env: {
         ...process.env,
         WARDEN_SMOKE: '1',
-        WARDEN_SMOKE_URL: `http://127.0.0.1:${PORT}/`
+        WARDEN_SMOKE_URL: `http://127.0.0.1:${PORT}/`,
+        WARDEN_LOCK_TEST_PASSWORD: 'warden-smoke-pass'
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
@@ -171,7 +175,14 @@ const verify = (report) => {
     'compatibility lets the site write cookies':
       String(report.compat?.cookie ?? '').includes('compat_probe') && (report.compat?.stored ?? 0) >= 1,
     'compatibility does not filter requests': report.compat?.trackerBlocked === 0,
-    'stats counted blocks': (report.stats?.blockedTotal ?? 0) > 0
+    'stats counted blocks': (report.stats?.blockedTotal ?? 0) > 0,
+    'lock covers the app': report.lock?.locked === true,
+    'lock screen renders its password field':
+      /locked/i.test(String(report.lock?.title ?? '')) && report.lock?.hasPasswordField === true,
+    'lock rejects a wrong password': report.lock?.wrongRejected === true,
+    'lock stays up after a wrong password': report.lock?.stillLocked === true,
+    'lock clears for the right password': report.lock?.cleared === true,
+    'updater reports its state': typeof report.update?.phase === 'string'
   }
   console.log('\n--- WARDEN smoke checks ---')
   let failed = 0

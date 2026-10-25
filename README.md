@@ -39,7 +39,7 @@ page-level cookie lock), on a browsing session created without the `persist:` pa
 and there is no cookie database, no page cache and no session file to recover. Burner tabs get their
 own throwaway session, and every messaging service runs in its own isolated one.
 
-Currently at **v0.1.0**: all seven workspaces are functional, the filter engine parses Adblock-Plus
+Currently at **v0.2.0**: all seven workspaces are functional, the filter engine parses Adblock-Plus
 syntax, Scry captures and rebuilds sites, the terminal runs a real PTY, mail speaks IMAP and SMTP, and
 the Windows installer plus portable build are produced by `npm run dist`. Verified by unit tests over
 the decision surfaces and a smoke suite that drives the real UI and the packaged binary.
@@ -104,6 +104,31 @@ Matching is on the host and its subdomains (`neowin.net` covers `www.neowin.net`
 
 ---
 
+## Privacy lock
+
+`Ctrl+\` covers WARDEN with an opaque overlay built from a heavily blurred capture of the
+page that was on screen, then disables the window underneath. Nothing is readable, nothing is
+clickable, and the tabs keep their scroll position. The lock window cannot be dismissed with
+Escape, Alt+F4 or a second press of the shortcut.
+
+Unlocking needs the **Windows account password**, not a WARDEN passphrase. The check runs in a
+short-lived PowerShell child that P/Invokes `LogonUserW`; the password goes in on stdin and is
+never written to argv, the settings file, or a log. Microsoft accounts sign in with the account
+email, which the verifier tries alongside `DOMAIN\user`. Anything that is not a successful logon —
+including the verifier itself failing — leaves the screen covered.
+
+Policy → **Session lock** sets the idle timeout (`Never`, 1, 5, 15, 30 or 60 minutes). The timer uses
+system-wide idle time, so reading a PDF in another app still counts as activity, and the lock also
+comes down when the Windows session itself locks (Win+L). The timeout is enforced in the main
+process, not by a page script.
+
+**Honest limits:** the overlay depends on the Windows desktop, so a user who can switch to another
+application can still see whatever that application shows; this protects WARDEN's content, not the
+whole desktop. A blank or disabled Windows password is rejected by `LogonUserW`, which means a
+passwordless account cannot unlock — set a password, or leave the timeout at *Never*.
+
+---
+
 ## Running it
 
 ```bash
@@ -152,19 +177,19 @@ npm run icon           # regenerate build/icon.ico + icon.png
 
 | Output | What it is |
 | --- | --- |
-| `release/WARDEN-Setup-0.1.0.exe` | Per-user NSIS installer. Not one-click: the operator picks the directory, and it creates Start menu + desktop shortcuts named WARDEN. |
-| `release/WARDEN-Portable-0.1.0.exe` | Single executable. Extracts to a temp directory at launch, keeps its own profile, leaves no installed state. |
+| `release/WARDEN-Setup-0.2.0.exe` | Per-user NSIS installer. Not one-click: the operator picks the directory, and it creates Start menu + desktop shortcuts named WARDEN. |
+| `release/WARDEN-Portable-0.2.0.exe` | Single executable. Extracts to a temp directory at launch, keeps its own profile, leaves no installed state. |
 | `release/win-unpacked/` | Raw app directory, useful for smoke tests and for copying to a lab share. |
 
 The packaged app is verified, not just built: `npm run smoke:dist` runs the same 17 checks as `npm run smoke` (cookies inert, trackers blocked, PTY shell, all six workspaces) against `release/win-unpacked/WARDEN.exe`. Point it at the portable artifact to test that instead:
 
 ```bash
-WARDEN_SMOKE_BIN=release/WARDEN-Portable-0.1.0.exe npm run smoke:dist
+WARDEN_SMOKE_BIN=release/WARDEN-Portable-0.2.0.exe npm run smoke:dist
 ```
 
 Both were run through the suite last build, 32/32. `node-pty` is unpacked from the asar archive (`asarUnpack`) because it loads a native `.node` binary; `npmRebuild` is off because the shipped prebuilds are the ones that were tested against Electron 45.
 
-App metadata is embedded in both executables: `ProductName` WARDEN, `FileDescription` from the package description, version 0.1.0, company WARDEN, and the generated shield icon at 16–256px.
+App metadata is embedded in both executables: `ProductName` WARDEN, `FileDescription` from the package description, version 0.2.0, company WARDEN, and the generated shield icon at 16–256px.
 
 **The builds are unsigned as shipped today.** Windows SmartScreen warns on first run until a certificate backs them. There are two routes, and only one of them is both free and publicly trusted.
 
@@ -204,10 +229,10 @@ Both actions are per-user and need no administrator rights, so they work under a
 
 ```bash
 # Silent install, default path (%LOCALAPPDATA%\Programs\WARDEN)
-WARDEN-Setup-0.1.0.exe /S
+WARDEN-Setup-0.2.0.exe /S
 
 # Silent install to a chosen directory: /D= must be last, unquoted, no trailing backslash
-WARDEN-Setup-0.1.0.exe /S /D=C:\Tools\WARDEN
+WARDEN-Setup-0.2.0.exe /S /D=C:\Tools\WARDEN
 
 # Silent uninstall
 "%LOCALAPPDATA%\Programs\WARDEN\Uninstall WARDEN.exe" /currentuser /S
@@ -231,6 +256,39 @@ GPU caches — and no cookie jar, since the profile is memory-only for cookies.
 Removing the directory is what makes an uninstall total, and it also clears
 allowlists, so decide per fleet whether reinstall should preserve settings. The
 install directory, both shortcuts, and every registry key are removed.
+
+### Updates
+
+Packaged builds update themselves from GitHub releases (`innotelinc/warden`). The feed is baked
+into `resources/app-update.yml` by electron-builder from the `publish` block, and the app checks
+it 20 seconds after launch and every four hours after that. A newer release downloads in the
+background; the status bar shows the percentage, and the restart happens from Policy →
+**Updates** (or on the next normal quit, since `autoInstallOnAppQuit` is on). Policy carries the
+version, the last check result and a **check now** button, and a switch to turn automatic checks
+off without losing the manual one.
+
+Only the NSIS installed build can replace itself. The portable exe reports *portable build —
+update by download* and never touches its own file; download the next `WARDEN-Portable` exe from
+the releases page.
+
+A release makes the feed work only when the metadata goes up with the installers:
+
+```bash
+npm run dist:release            # builds and publishes with GH_TOKEN set
+# or, when uploading by hand:
+gh release upload v0.2.0 release/WARDEN-Setup-0.2.0.exe \
+  release/WARDEN-Portable-0.2.0.exe release/latest.yml \
+  release/WARDEN-Setup-0.2.0.exe.blockmap --clobber
+```
+
+`latest.yml` and the `.blockmap` files are not optional: without `latest.yml` no client sees an
+update, and without the blockmap every update is a full download. Builds are unsigned, so
+SmartScreen may warn once per release and `electron-updater` accepts the installer on the
+content hash rather than a publisher signature — decide deliberately before pointing a fleet at
+`latest`.
+
+**The installed 0.1.0 build has no updater**, so it cannot pick 0.2.0 up on its own: install 0.2.0
+once by hand (or through Intune), and every release after that is automatic.
 
 **Portable caveat:** the portable exe extracts a full Electron tree to
 `%TEMP%\WARDEN` (about 375 MB) and deletes it only on a graceful exit. A killed
@@ -272,6 +330,7 @@ tool is available.
 | `Ctrl+T` / `Ctrl+W` | New tab / close tab |
 | Drag a tab | Reorder the strip; the active page and its state are untouched |
 | `Ctrl+Shift+N` | Burner tab |
+| `Ctrl+\` | Lock the screen; the Windows password clears it |
 | `Ctrl+1…6` | Browse / Trench / Relay / Concourse / Scry / Policy |
 | `Ctrl+J` | Toggle Splay dock |
 | `` Ctrl+` `` | Toggle Trench drawer |

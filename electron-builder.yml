@@ -6,6 +6,15 @@ directories:
   output: release
   buildResources: build
 
+# The update feed. electron-builder writes resources/app-update.yml from this,
+# and electron-updater reads latest.yml from the matching GitHub release. Local
+# builds never publish on their own: the release script uploads the artifacts.
+publish:
+  provider: github
+  owner: innotelinc
+  repo: warden
+  releaseType: release
+
 # Ship the compiled app and its production dependencies. Sources, tests and the
 # harness stay out of the package.
 files:
@@ -47,6 +56,9 @@ win:
 nsis:
   # Local hooks; adds InstallLocation to the Apps & Features key (see file).
   include: build/installer.nsh
+  # Differential updates need the block map that electron-builder emits next to
+  # the installer; without it every update is a full download.
+  differentialPackage: true
   artifactName: "${productName}-Setup-${version}.${ext}"
   oneClick: false
   perMachine: false

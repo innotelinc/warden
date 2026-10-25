@@ -138,7 +138,7 @@
   .sec-head h2 { font-size: clamp(25px, 3.4vw, 34px); font-weight: 650; }
   .sec-head p { width: 100%; margin: 0; color: var(--ink-soft); max-width: 74ch; }
 
-  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
   .card {
     border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(180deg, var(--panel), var(--bg-soft));
     padding: 22px; transition: border-color .2s var(--ease), transform .2s var(--ease);
@@ -239,7 +239,7 @@
           live site apart and hands back a rebuildable project.
         </p>
         <div class="cta">
-          <a class="btn primary" href="https://github.com/innotelinc/warden/releases/latest">Download 0.1.0 for Windows</a>
+          <a class="btn primary" href="https://github.com/innotelinc/warden/releases/latest">Download 0.2.0 for Windows</a>
           <a class="btn" href="https://github.com/innotelinc/warden#readme">Read the source</a>
           <a class="btn" href="#privacy">Privacy model</a>
         </div>
@@ -257,6 +257,8 @@
         <div class="fact"><div class="k">Enforcement layers</div><div class="v"><span>Five</span>, main process</div></div>
         <div class="fact"><div class="k">Workspaces</div><div class="v"><span>Seven</span> surfaces</div></div>
         <div class="fact"><div class="k">Session storage</div><div class="v"><span>Memory</span> only</div></div>
+        <div class="fact"><div class="k">Screen lock</div><div class="v"><span>Ctrl + \</span> · Windows password</div></div>
+        <div class="fact"><div class="k">Updates</div><div class="v"><span>Automatic</span> from GitHub</div></div>
       </div>
     </div>
   </div>
@@ -293,6 +295,13 @@
           <p>Attach over CDP or to WARDEN's own tab. Get a recon report, a static clone with rewritten
             scripts, a Vite + React scaffold, or an "innovate" build that replaces the original
             behaviour instead of copying it.</p>
+        </div>
+        <div class="card">
+          <div class="glyph">◼</div>
+          <h3>Cover the screen, keep the shift</h3>
+          <p>Ctrl + \ blurs the page into an opaque lock and disables everything underneath until the
+            Windows password checks out, with an idle timer for the desk you walked away from.
+            Packaged builds update themselves from signed release metadata on GitHub.</p>
         </div>
       </div>
     </div>
@@ -436,8 +445,8 @@ npm run dev        <span class="c"># electron-vite, hot reload</span>
 npm run verify     <span class="c"># typecheck + unit tests + build + smoke</span>
 
 <span class="c"># shipping artifacts</span>
-npm run dist       <span class="m">→ release/WARDEN-Setup-0.1.0.exe</span>
-                   <span class="m">→ release/WARDEN-Portable-0.1.0.exe</span>
+npm run dist       <span class="m">→ release/WARDEN-Setup-0.2.0.exe</span>
+                   <span class="m">→ release/WARDEN-Portable-0.2.0.exe</span>
 npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span></pre>
         <dl class="kv">
           <dt>Installer</dt><dd><b>NSIS, per-user.</b> Silent with <code>/S</code>; uninstall entry in HKCU with <code>InstallLocation</code>.</dd>
