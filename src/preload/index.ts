@@ -45,6 +45,7 @@ const api: WardenApi = {
 
   privacy: {
     allow: (host, allowed) => invoke('warden:privacy:allow', host, allowed),
+    compatibility: (host, on) => invoke('warden:privacy:compatibility', host, on),
     clearCookies: () => invoke<number>('warden:privacy:clearCookies'),
     syncLists: () => invoke<{ rules: number }>('warden:privacy:sync'),
     refresh: () => invoke('warden:privacy:refresh')

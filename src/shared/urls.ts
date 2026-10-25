@@ -31,6 +31,21 @@ export function hostOfUrl(url: string): string {
   }
 }
 
+/**
+ * True when `host` is one of `entries` or a subdomain of one.
+ *
+ * Entries are bare hosts (`example.com`), never origins or wildcards, which is
+ * what the allowlist and the compatibility list both store.
+ */
+export function hostMatches(host: string, entries: string[]): boolean {
+  const value = host.trim().toLowerCase()
+  if (!value) return false
+  return entries.some((entry) => {
+    const candidate = entry.trim().toLowerCase()
+    return candidate.length > 0 && (value === candidate || value.endsWith(`.${candidate}`))
+  })
+}
+
 /** Unread counts that chat apps encode into document.title. */
 export function parseUnreadTitle(title: string): number {
   const patterns = [/^\((\d+)\)/, /^\[(\d+)\]/, /^(\d+)\s*[•·]/, /\b(\d+)\s+unread\b/i]

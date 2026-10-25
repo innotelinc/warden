@@ -15,6 +15,7 @@ import { session, type DownloadItem, type Session } from 'electron'
 import type { PrivacyStats, Settings } from '@shared/types'
 import { builtinRules } from './builtin-lists'
 import { parseFilterList, safeHost, FilterEngine, type RequestInfo, type ResourceType } from './filter-engine'
+import { hostMatches } from '@shared/urls'
 import {
   filterResponseHeaders,
   shouldAcceptCookie,
@@ -174,6 +175,9 @@ export class PrivacyService {
         const cookies = await ses.cookies.get({})
         for (const cookie of cookies) {
           const host = cookie.domain?.replace(/^\./, '') || ''
+          // Compatibility sites are policy-accepted, exactly like allowlisted
+          // ones; purging them would just break the site again.
+          if (this.isCompatible(host)) continue
           if (!shouldAcceptCookie(this.cookieContext(host), host, cookie.domain)) {
             const scheme = cookie.secure ? 'https' : 'http'
             const url = `${scheme}://${host}${cookie.path || '/'}`
@@ -190,6 +194,18 @@ export class PrivacyService {
       this.emit()
     }
     return removed
+  }
+
+  /**
+   * Sites the operator has put into compatibility mode.
+   *
+   * A challenge page or a bank portal that refuses to work through a privacy
+   * stack needs WARDEN to behave like a plain browser for that host and nothing
+   * else — so every layer here checks this first, and the page preload asks the
+   * same question synchronously before it injects anything.
+   */
+  isCompatible(host: string | null): boolean {
+    return host !== null && hostMatches(host, this.settings.compatibility)
   }
 
   private cookieContext(siteHost: string | null, mode: CookieMode = this.settings.cookieMode) {
@@ -240,6 +256,12 @@ export class PrivacyService {
 
     ses.webRequest.onBeforeSendHeaders(REQUEST_FILTER, (details, callback) => {
       try {
+        // Compatibility mode sends the request exactly as the page built it:
+        // no cookie removal, no Referer trimming, no added DNT/GPC, and none of
+        // the client-hint headers deleted below.
+        if (this.isCompatible(this.siteHostFor(details.webContentsId))) {
+          return callback({})
+        }
         callback({ requestHeaders: this.hardenHeaders(details, mode) })
       } catch {
         callback({})
@@ -250,6 +272,7 @@ export class PrivacyService {
       try {
         const host = safeHost(details.url)
         const siteHost = this.siteHostFor(details.webContentsId) ?? host
+        if (this.isCompatible(siteHost)) return callback({})
         const { headers, stripped } = filterResponseHeaders(
           (details.responseHeaders ?? {}) as Record<string, string | string[]>,
           this.cookieContext(siteHost, mode),
@@ -297,6 +320,9 @@ export class PrivacyService {
         else if (details.url) host = safeHost(details.url)
       } catch {
         host = ''
+      }
+      if (this.isCompatible(host)) {
+        return original(details)
       }
       if (!host || !shouldAcceptCookie(this.cookieContext(this.siteHostFor(-1) ?? host, mode), host, details.domain)) {
         this.stats.cookiesStripped += 1
@@ -359,6 +385,13 @@ export class PrivacyService {
         this.emit()
         return { redirectURL: upgraded }
       }
+    }
+
+    // Nothing is filtered on a compatible site, including its own analytics and
+    // the third-party scripts a challenge needs.
+    if (this.isCompatible(this.siteHostFor(details.webContentsId))) {
+      this.emit()
+      return {}
     }
 
     if (!this.settings.javascriptEnabled && details.resourceType === 'script') {

@@ -450,6 +450,9 @@ export function BastionPanel({
   const allowed = host
     ? state.settings.allowlist.some((entry) => host === entry || host.endsWith(`.${entry}`))
     : false
+  const compatible = host
+    ? state.settings.compatibility.some((entry) => host === entry || host.endsWith(`.${entry}`))
+    : false
 
   return (
     <div className="dock fade-in" style={{ width }}>
@@ -468,6 +471,10 @@ export function BastionPanel({
           <dd>{host || tab.url}</dd>
           <dt>Cookie policy</dt>
           <dd>{state.settings.cookieMode === 'block' ? 'block unless allowed' : 'first-party only'}</dd>
+          <dt>Compatibility</dt>
+          <dd style={compatible ? { color: 'var(--amber)' } : undefined}>
+            {compatible ? 'plain browser for this site' : 'full privacy stack'}
+          </dd>
           <dt>This session</dt>
           <dd>
             {formatCount(state.stats.requestsSeen)} inspected · {formatCount(state.stats.cookiesStripped)} cookies refused
@@ -475,15 +482,32 @@ export function BastionPanel({
         </div>
 
         {host ? (
-          <button
-            className={`btn ${allowed ? 'danger' : 'primary'}`}
-            onClick={() => {
-              void window.warden.privacy.allow(host, !allowed)
-              notify(allowed ? `Cookies blocked again for ${host}` : `Cookies allowed for ${host} (memory only)`, allowed ? 'info' : 'ok')
-            }}
-          >
-            {allowed ? 'Revoke cookie allowance' : 'Allow cookies for this site'}
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              className={`btn ${allowed ? 'danger' : 'primary'}`}
+              onClick={() => {
+                void window.warden.privacy.allow(host, !allowed)
+                notify(allowed ? `Cookies blocked again for ${host}` : `Cookies allowed for ${host} (memory only)`, allowed ? 'info' : 'ok')
+              }}
+            >
+              {allowed ? 'Revoke cookie allowance' : 'Allow cookies for this site'}
+            </button>
+            <button
+              className={`btn ${compatible ? 'danger' : ''}`}
+              onClick={() => {
+                void window.warden.privacy.compatibility(host, !compatible)
+                notify(
+                  compatible
+                    ? `${host} is back under the full privacy stack`
+                    : `${host} reloaded as a plain browser: no filtering, cookies kept`,
+                  compatible ? 'info' : 'ok'
+                )
+              }}
+              title="For challenge pages, SSO and portals that refuse to load through the privacy stack"
+            >
+              {compatible ? 'Leave compatibility mode' : 'Reload in compatibility mode'}
+            </button>
+          </div>
         ) : null}
 
         <div>

@@ -56,6 +56,12 @@ export interface Settings {
   webrtcLeakProtection: boolean
   /** Hosts permitted to keep cookies for this session. Nothing persists to disk. */
   allowlist: string[]
+  /**
+   * Hosts where WARDEN steps out of the way: no filtering, no header
+   * rewriting, no cookie stripping, no fingerprint noise. For sites that refuse
+   * to work through a privacy stack (challenge pages, banking portals, SSO).
+   */
+  compatibility: string[]
   customRules: string
   searchEngine: string
   homepage: string
@@ -421,6 +427,8 @@ export interface WardenApi {
 
   privacy: {
     allow(host: string, allowed: boolean): Promise<void>
+    /** Steps WARDEN aside for one host; resolves with the stored settings. */
+    compatibility(host: string, on: boolean): Promise<Settings>
     clearCookies(): Promise<number>
     syncLists(): Promise<{ rules: number }>
     refresh(): Promise<PrivacyStats>

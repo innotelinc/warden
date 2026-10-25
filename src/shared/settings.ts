@@ -12,6 +12,12 @@ export function sanitizeSettings(value: unknown): Settings {
         .filter((host): host is string => typeof host === 'string' && host.trim().length > 0)
         .map((host) => host.trim().toLowerCase())
     : []
+  merged.compatibility = Array.isArray(input.compatibility)
+    ? input.compatibility
+        .filter((host): host is string => typeof host === 'string' && host.trim().length > 0)
+        .map((host) => host.trim().toLowerCase())
+    : []
+  merged.compatibility = [...new Set(merged.compatibility)].slice(0, 100)
   merged.customRules = typeof input.customRules === 'string' ? input.customRules.slice(0, 200_000) : ''
   merged.terminalFontSize = Math.min(22, Math.max(10, Number(input.terminalFontSize) || 13))
   merged.scryPort = Math.min(65535, Math.max(1024, Number(input.scryPort) || 9222))

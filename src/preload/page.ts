@@ -39,6 +39,24 @@ const host = (() => {
   }
 })()
 
+/**
+ * Compatibility sites get no page-level shims.
+ *
+ * Asked of the main process synchronously at preload time rather than baked
+ * into a tab's argv: the operator can flip a site into compatibility mode and
+ * reload, and the answer has to be current for that same reload. A challenge
+ * page that reads a patched `navigator` — or that has its `document.cookie`
+ * writes swallowed — fails exactly like a site with cookies disabled.
+ */
+const compatibilitySite = (() => {
+  if (!host) return false
+  try {
+    return ipcRenderer.sendSync('warden:compat:sync', host) === true
+  } catch {
+    return false
+  }
+})()
+
 const cookiesAllowed =
   cookieMode === 'first-party' ||
   allowlist.some((entry) => host === entry || host.endsWith(`.${entry}`))
@@ -62,6 +80,9 @@ const COOKIE_LOCK = `(() => {
 
 function installHardening(): void {
   try {
+    // Nothing is injected into a compatibility site; the main process has
+    // already stopped filtering its traffic and stripping its cookies.
+    if (compatibilitySite) return
     if (!cookiesAllowed) void webFrame.executeJavaScript(COOKIE_LOCK, false)
     void webFrame.executeJavaScript(HARDENING_SCRIPT, false)
   } catch {
