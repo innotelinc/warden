@@ -1,0 +1,66 @@
+name: iOS build status
+
+# Asks App Store Connect what became of the iOS builds that were uploaded.
+#
+# A build prints "Upload succeeded" long before TestFlight will hand it to a
+# tester: App Store Connect processes it for 5-15 minutes afterwards, and only
+# Apple can say when that has finished — or if it failed. Nothing is built,
+# signed or uploaded here, so it runs on Ubuntu in seconds and costs nothing.
+#
+# Reads the same four repository secrets as Mobile (iOS).
+#
+#   gh workflow run ios-build-status.yml
+#   gh workflow run ios-build-status.yml -f wait_minutes=20 -f build_version=0.2.4
+
+on:
+  workflow_dispatch:
+    inputs:
+      wait_minutes:
+        description: Keep checking until processing finishes (0 reports once)
+        type: number
+        default: 0
+      build_version:
+        description: Only report this marketing version, e.g. 0.2.4
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The script signs its own token with openssl, so nothing is installed.
+      - name: Write App Store Connect key
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+        run: |
+          if [ -z "${KEY_P8:-}" ]; then
+            echo "::error::APP_STORE_CONNECT_KEY_P8 is not set — add the App Store Connect secrets first."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+
+      # Inputs arrive through the environment, never through the command line,
+      # so a version string cannot become shell syntax.
+      - name: Report build status
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+          WAIT_MINUTES: ${{ inputs.wait_minutes || 0 }}
+          BUILD_VERSION: ${{ inputs.build_version }}
+        run: |
+          args=(--wait-minutes "${WAIT_MINUTES:-0}")
+          if [ -n "${BUILD_VERSION:-}" ]; then
+            args+=(--build-version "$BUILD_VERSION")
+          fi
+          python3 scripts/ios-build-status.py "${args[@]}"

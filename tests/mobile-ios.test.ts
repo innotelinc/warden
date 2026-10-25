@@ -145,3 +145,29 @@ describe('iOS workflow', () => {
     expect(workflow).toContain('if [ ! -d "$RUNNER_TEMP/export" ]')
   })
 })
+
+/**
+ * "Upload succeeded" is not "installable": Apple processes the build for a
+ * while afterwards and may still throw it out. The status workflow is the only
+ * way to ask what actually became of it, so it has to stay wired to the script
+ * and to the same key the build uses.
+ */
+describe('iOS build status workflow', () => {
+  const status = read('.github/workflows/ios-build-status.yml')
+  const script = read('scripts/ios-build-status.py')
+
+  it('runs the status script with the App Store Connect secrets', () => {
+    expect(status).toContain('python3 scripts/ios-build-status.py')
+    expect(status).toContain('secrets.APP_STORE_CONNECT_KEY_ID')
+    expect(status).toContain('secrets.APP_STORE_CONNECT_ISSUER_ID')
+    expect(status).toContain('secrets.APP_STORE_CONNECT_KEY_P8')
+  })
+
+  /** Every state the API can report has to mean something to a human. */
+  it('explains each state the API can return', () => {
+    for (const state of ['PROCESSING', 'VALID', 'FAILED', 'INVALID']) {
+      expect(script).toContain(`"${state}"`)
+    }
+    expect(script).toContain('us.innotel.warden')
+  })
+})
