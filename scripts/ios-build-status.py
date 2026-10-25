@@ -201,6 +201,14 @@ def summarise(rows: list[dict], wait_minutes: int) -> None:
             summary.write(f"\nWaited up to {wait_minutes} minutes for processing to finish.\n")
 
 
+def select_target(rows: list[dict], build_number: str) -> dict | None:
+    """The build the caller is asking about, or None if it is not listed yet."""
+    if not build_number:
+        return rows[0] if rows else None
+    wanted = [row for row in rows if str(row["number"]) == str(build_number)]
+    return wanted[0] if wanted else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--wait-minutes", type=int, default=0, help="poll until the build leaves PROCESSING")
@@ -253,8 +261,7 @@ def main() -> int:
         # otherwise the newest — the one somebody just uploaded. An older build
         # of the same version being VALID says nothing about the new one, and
         # treating it as the answer reports yesterday's state.
-        wanted = [row for row in rows if row["number"] == str(args.build_number)]
-        target = wanted[0] if args.build_number else rows[0]
+        target = select_target(rows, args.build_number)
 
         if target is None:
             # Apple lists a build only once it has begun processing it, so a
