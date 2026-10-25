@@ -515,6 +515,13 @@ export function registerIpc(warden: WardenContext): void {
     context().lock.unlock(typeof password === 'string' ? password : '')
   )
   handle('warden:lock:hello', () => context().lock.unlockWithHello())
+  handle('warden:lock:unlockWithPin', (pin: string) =>
+    context().lock.unlockWithPin(typeof pin === 'string' ? pin : '')
+  )
+  handle('warden:lock:setPin', (pin: string) =>
+    context().lock.setPin(typeof pin === 'string' ? pin : '')
+  )
+  handle('warden:lock:clearPin', () => context().lock.clearPin())
   handle('warden:lock:helloStatus', () => context().lock.helloReport())
   handle('warden:lock:bootstrap', () => ({
     lock: context().lock.snapshot(),

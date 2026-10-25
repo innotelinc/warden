@@ -267,9 +267,18 @@ stays live with a note that the password is there if no prompt appears. Only sil
 `NotConfiguredForUser`, `DisabledByPolicy`, `Busy` and `Available` are answers the verifier gave,
 and a file on disk does not get to contradict them.
 
-The field underneath is the fallback for machines with no Hello enrolment, and it takes the
-**account password**, not a WARDEN passphrase — a PIN is not an account password and `LogonUserW`,
-the only supported local check, cannot verify one. That path runs in a short-lived PowerShell child
+**The WARDEN PIN is the way in when Windows has nothing to verify.** Policy → Session lock sets a
+PIN of 4 to 10 digits; it belongs to WARDEN rather than to Windows, so it works on a local account
+with no Hello enrolment and no password to type — the case where every Windows-backed path on this
+screen had nothing to offer. Only a salted scrypt hash is written (`lock-pin.json`), never the PIN,
+and the comparison is constant-time; the data is still protected by the Windows account itself, so
+this is a desk lock, not encryption. When a PIN is set the lock screen leads with it and offers
+*Use the Windows account instead*; with no PIN it shows the Windows paths only. Changing or
+removing the PIN is refused while the screen is covered.
+
+The field underneath the Windows path takes the **account password**, not a Hello or WARDEN PIN — a
+Windows PIN is not an account password and `LogonUserW`, the only supported local check, cannot
+verify one. That path runs in a short-lived PowerShell child
 that P/Invokes `LogonUserW`; the password goes in on stdin and is never written to argv, the
 settings file, or a log. Microsoft accounts sign in with the account email, which the verifier
 tries alongside `DOMAIN\user`. Anything that is not a successful verification — from either path,
@@ -283,9 +292,11 @@ process, not by a page script.
 **Honest limits:** the overlay depends on the Windows desktop, so a user who can switch to another
 application can still see whatever that application shows; this protects WARDEN's content, not the
 whole desktop. Hello is asked through `UserConsentVerifier`, so an account with no Hello enrolment
-(and no sensor) falls back to the password field, and an account with neither cannot unlock — leave
-the timeout at *Never* on those. Hello also counts its own retries: enough wrong PINs and Windows
-stops accepting it until the password is used, which is Windows' rule rather than WARDEN's.
+(and no sensor) falls back to the WARDEN PIN or the password field, and an account with none of the
+three cannot unlock — set a WARDEN PIN before trusting the idle timer on such a machine. Hello also
+counts its own retries: enough wrong PINs and Windows stops accepting it until the password is used,
+which is Windows' rule rather than WARDEN's. The WARDEN PIN has no server-side counter, so its
+resistance comes from scrypt and from the length the operator chose.
 
 ---
 

@@ -90,11 +90,36 @@ export function SettingsWorkspace() {
   const [homepage, setHomepage] = useState<string | null>(null)
   const [shell, setShell] = useState<string | null>(null)
   const [scryDir, setScryDir] = useState<string | null>(null)
+  const [pinInput, setPinInput] = useState('')
 
   if (!settings) return <div className="workspace" />
 
   const update = (patch: Partial<Settings>): void => {
     void window.warden.settings.update(patch).catch((error: Error) => notify(error.message, 'err'))
+  }
+
+  const savePin = (): void => {
+    void window.warden.lock
+      .setPin(pinInput)
+      .then((result) => {
+        if (!result.ok) {
+          notify(result.error ?? 'The PIN was not saved.', 'err')
+          return
+        }
+        setPinInput('')
+        notify('WARDEN PIN saved — it unlocks the lock screen.', 'ok')
+      })
+      .catch((error: Error) => notify(error.message, 'err'))
+  }
+
+  const forgetPin = (): void => {
+    void window.warden.lock
+      .clearPin()
+      .then((result) => {
+        if (!result.ok) notify(result.error ?? 'The PIN was not removed.', 'err')
+        else notify('WARDEN PIN removed — Windows unlocks the lock screen again.', 'ok')
+      })
+      .catch((error: Error) => notify(error.message, 'err'))
   }
 
   return (
@@ -698,6 +723,33 @@ export function SettingsWorkspace() {
               </span>
             </div>
             <div className="row wrap" style={{ marginTop: 8 }}>
+              <input
+                className="input"
+                type="password"
+                inputMode="numeric"
+                maxLength={10}
+                spellCheck={false}
+                autoComplete="off"
+                placeholder="WARDEN PIN — 4 to 10 digits"
+                value={pinInput}
+                onChange={(event) => setPinInput(event.target.value)}
+                style={{ maxWidth: 240 }}
+              />
+              <button className="btn sm" onClick={savePin} title="Unlock this screen with a PIN that belongs to WARDEN, not to Windows">
+                <IconLock size={11} /> {state.lock.pinSet ? 'change PIN' : 'set PIN'}
+              </button>
+              {state.lock.pinSet ? (
+                <button className="btn sm" onClick={forgetPin} title="Remove the WARDEN PIN; Windows unlocks the screen again">
+                  <IconTrash size={11} /> remove PIN
+                </button>
+              ) : null}
+              <span className="faint tiny" style={{ alignSelf: 'center' }}>
+                {state.lock.pinSet
+                  ? 'PIN set — it unlocks this screen on its own'
+                  : 'no PIN — only Windows Hello or the Windows account can unlock'}
+              </span>
+            </div>
+            <div className="row wrap" style={{ marginTop: 8 }}>
               <button
                 className="btn sm"
                 onClick={() => {
@@ -714,12 +766,14 @@ export function SettingsWorkspace() {
               </span>
             </div>
             <div className="faint tiny" style={{ marginTop: 10, lineHeight: 1.7 }}>
-              Ctrl + \ covers the window with a blurred capture of the page and disables the app underneath. Windows
-              Hello clears it — the same PIN, fingerprint or face you sign in with, verified by Windows and never by
-              WARDEN. Machines without Hello fall back to the account password through LogonUser, so Microsoft accounts
-              need the account email; a PIN is not an account password. Check here first, not while the screen is
-              covered. The lock also comes down on its own when the machine has been idle for the selected time, and
-              when the Windows session locks.
+              Ctrl + \ covers the window with a blurred capture of the page and disables the app underneath. Set a
+              WARDEN PIN above and that PIN clears it on its own — the way in on a local account with no Hello enrolment
+              and no password to type. Only a salted scrypt hash is stored, never the PIN. Windows Hello also works when
+              it is enrolled (its PIN, fingerprint or face, verified by Windows and never by WARDEN), and the Windows
+              account password still unlocks through LogonUser for Microsoft accounts — a Hello PIN is not an account
+              password, which is why the other two exist. Check here first, not while the screen is covered. The lock
+              also comes down on its own when the machine has been idle for the selected time, and when the Windows
+              session locks.
             </div>
 
             <div className="panel-title" style={{ marginTop: 18 }}>

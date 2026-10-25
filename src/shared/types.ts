@@ -182,6 +182,8 @@ export interface LockState {
   byTimeout: boolean
   /** Cached Windows Hello availability; see `helloStatus` for a fresh check. */
   hello: LockHelloStatus
+  /** A WARDEN PIN is set, so this screen unlocks without the Windows account. */
+  pinSet: boolean
 }
 
 export interface BlockedHost {
@@ -686,6 +688,15 @@ export interface WardenApi {
     unlock(password: string): Promise<{ ok: boolean; error?: string }>
     /** Unlock with the Windows Hello PIN, fingerprint or face. */
     hello(): Promise<{ ok: boolean; error?: string }>
+    /**
+     * Unlock with the WARDEN PIN — the way in when the Windows account has no
+     * Hello enrolment and no password to type.
+     */
+    unlockWithPin(pin: string): Promise<{ ok: boolean; error?: string }>
+    /** Set or replace the WARDEN PIN (4–10 digits). Refused while locked. */
+    setPin(pin: string): Promise<{ ok: boolean; error?: string }>
+    /** Remove the WARDEN PIN. Refused while locked. */
+    clearPin(): Promise<{ ok: boolean; error?: string }>
     /**
      * Is Windows Hello enrolled and usable? Never prompts, so it can be asked
      * from Policy and from the lock screen before anything is verified.

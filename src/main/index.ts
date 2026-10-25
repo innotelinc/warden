@@ -391,6 +391,19 @@ async function createWindow(stores: Stores): Promise<void> {
   const vault = new SecretVault(path.join(app.getPath('userData'), 'secrets.json'))
   await vault.load()
 
+  // The WARDEN PIN lives in its own record, not settings.json: settings are
+  // handed to the renderer whole, and a credential does not belong in them.
+  // Only the salted scrypt hash is stored, never the PIN.
+  const lockPinStore = new JsonStore<{ hash: string | null }>(
+    path.join(app.getPath('userData'), 'lock-pin.json'),
+    { hash: null },
+    (value) => {
+      const hash = (value as { hash?: unknown } | null)?.hash
+      return { hash: typeof hash === 'string' && hash ? hash : null }
+    }
+  )
+  await lockPinStore.load()
+
   const mailStore = new JsonStore<MailStore>(path.join(app.getPath('userData'), 'mail.json'), {
     accounts: [],
     activeAccountId: null,
@@ -424,6 +437,15 @@ async function createWindow(stores: Stores): Promise<void> {
     activePage: () => (tabs.activeTabId ? tabs.getWebContents(tabs.activeTabId) : null),
     timeoutMinutes: () => stores.settings.get().lockTimeoutMinutes,
     setSuppressed: applySuppressed,
+    pins: {
+      get: () => lockPinStore.get().hash,
+      // Flushed immediately: a PIN the operator set and then lost to a crash
+      // would leave them outside the lock screen they just configured.
+      set: async (hash) => {
+        lockPinStore.set({ hash })
+        await lockPinStore.flush()
+      }
+    },
     onState: () => {
       if (browserWindow.isDestroyed()) return
       browserWindow.webContents.send('warden:lock:state', lock.snapshot())

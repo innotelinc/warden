@@ -148,6 +148,10 @@ const api: WardenApi = {
     lock: () => invoke('warden:lock:lock'),
     unlock: (password) => invoke<{ ok: boolean; error?: string }>('warden:lock:unlock', password),
     hello: () => invoke<{ ok: boolean; error?: string }>('warden:lock:hello'),
+    unlockWithPin: (pin: string) =>
+      invoke<{ ok: boolean; error?: string }>('warden:lock:unlockWithPin', pin),
+    setPin: (pin: string) => invoke<{ ok: boolean; error?: string }>('warden:lock:setPin', pin),
+    clearPin: () => invoke<{ ok: boolean; error?: string }>('warden:lock:clearPin'),
     helloStatus: () => invoke<LockHelloReport>('warden:lock:helloStatus'),
     bootstrap: () => invoke<LockBootstrap>('warden:lock:bootstrap'),
     onState: (listener) => subscribe<[LockState]>('warden:lock:state', listener)

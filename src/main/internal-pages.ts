@@ -478,6 +478,24 @@ export function lockPageHtml(): string {
   }
   .hello-note:empty { display: none; }
   .hello[disabled] { opacity: 0.5; }
+  /* The WARDEN PIN comes first whenever one is set: it is the credential that
+     works on a local account with no Hello enrolment and no password to type. */
+  .pin-block { margin-top: 22px; }
+  .pin-block[hidden], #windows[hidden], .switch[hidden] { display: none; }
+  .switch {
+    margin-top: 12px;
+    width: 100%;
+    padding: 6px 0;
+    border: 0;
+    background: none;
+    color: var(--mint);
+    font: 600 11.5px/1.5 "Segoe UI", system-ui, sans-serif;
+    letter-spacing: 0.02em;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .switch:hover { filter: brightness(1.15); }
   .or {
     margin: 12px 0 0;
     color: var(--muted);
@@ -533,6 +551,16 @@ export function lockPageHtml(): string {
     <div class="eyebrow">Warden protected</div>
     <h1>Screen locked</h1>
     <div class="user">Signed in as <strong id="user">this device</strong></div>
+    <div class="pin-block" id="pinBlock" hidden>
+      <form id="pinForm" autocomplete="off">
+        <div class="field">
+          <input id="pin" type="password" inputmode="numeric" maxlength="10" placeholder="WARDEN PIN"
+            spellcheck="false" autocomplete="off" />
+          <button id="pinSubmit" type="submit">Unlock</button>
+        </div>
+      </form>
+    </div>
+    <div id="windows">
     <button class="hello" id="hello" type="button">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3.6c-3.1 0-5.6 2.5-5.6 5.6v2.2c0 2.1-.5 4-1.6 5.6" />
@@ -544,13 +572,15 @@ export function lockPageHtml(): string {
       <span>Unlock with Windows Hello</span>
     </button>
     <div class="hello-note" id="helloNote"></div>
-    <div class="or">PIN, fingerprint or face · or your account password</div>
+    <div class="or">Windows Hello — PIN, fingerprint or face · or your account password</div>
     <form id="form" autocomplete="off">
       <div class="field">
-        <input id="password" type="password" placeholder="Account password" spellcheck="false" autofocus />
+        <input id="password" type="password" placeholder="Windows account password" spellcheck="false" />
         <button id="submit" type="submit">Unlock</button>
       </div>
     </form>
+    </div>
+    <button class="switch" id="switchMode" type="button" hidden>Use the Windows account instead</button>
     <div class="error" id="error"></div>
     <div class="hint"><span><kbd>Ctrl</kbd> <kbd>\\</kbd> locks</span><span>·</span><span id="reason">Hello unlocks this screen</span></div>
   </div>
@@ -562,6 +592,15 @@ export function lockPageHtml(): string {
     var hello = document.getElementById('hello');
     var helloNote = document.getElementById('helloNote');
     var helloUsable = true;
+    var pinBlock = document.getElementById('pinBlock');
+    var pinInput = document.getElementById('pin');
+    var pinButton = document.getElementById('pinSubmit');
+    var pinForm = document.getElementById('pinForm');
+    var windowsBlock = document.getElementById('windows');
+    var switchMode = document.getElementById('switchMode');
+    var reason = document.getElementById('reason');
+    var pinSet = false;
+    var mode = 'windows';
     var error = document.getElementById('error');
     var backdrop = document.getElementById('backdrop');
     var clock = document.getElementById('clock');
@@ -571,6 +610,21 @@ export function lockPageHtml(): string {
     }, 1000);
     clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    // One card, two ways in: the WARDEN PIN the operator set, or the Windows
+    // account underneath. Whichever is showing gets the focus and the Enter key.
+    function applyMode() {
+      pinBlock.hidden = mode !== 'pin';
+      windowsBlock.hidden = mode !== 'windows';
+      switchMode.hidden = !pinSet;
+      switchMode.textContent = mode === 'pin' ? 'Use the Windows account instead' : 'Use the WARDEN PIN instead';
+      reason.textContent = pinSet
+        ? 'Your WARDEN PIN unlocks this screen'
+        : 'Windows Hello or your account password unlocks this screen';
+    }
+    function activeInput() {
+      return mode === 'pin' ? pinInput : input;
+    }
+
     if (!api || !api.lock) {
       error.textContent = 'Lock channel unavailable.';
       return;
@@ -578,19 +632,31 @@ export function lockPageHtml(): string {
 
     var boot = await api.lock.bootstrap();
     document.getElementById('user').textContent = boot.user || 'this device';
-    if (boot.background && /^data:image\//.test(boot.background)) {
+    if (boot.background && /^data:image\\//.test(boot.background)) {
       backdrop.style.backgroundImage = 'url("' + boot.background + '")';
     }
+    pinSet = Boolean(boot.lock && boot.lock.pinSet);
+    mode = pinSet ? 'pin' : 'windows';
+    applyMode();
     if (boot.lock && boot.lock.byTimeout) {
-      document.getElementById('reason').textContent = 'Locked after ' + boot.lock.timeoutMinutes + ' min idle';
+      reason.textContent = 'Locked after ' + boot.lock.timeoutMinutes + ' min idle';
     }
+    activeInput().focus();
 
     api.lock.onState(function (state) {
       error.textContent = state.error || '';
-      button.disabled = Boolean(state.busy);
-      input.disabled = Boolean(state.busy);
-      hello.disabled = Boolean(state.busy) || !helloUsable;
-      if (!state.busy) input.focus();
+      var busy = Boolean(state.busy);
+      button.disabled = busy;
+      input.disabled = busy;
+      pinButton.disabled = busy;
+      pinInput.disabled = busy;
+      hello.disabled = busy || !helloUsable;
+      if (Boolean(state.pinSet) !== pinSet) {
+        pinSet = Boolean(state.pinSet);
+        if (!pinSet && mode === 'pin') mode = 'windows';
+        applyMode();
+      }
+      if (!busy) activeInput().focus();
     });
 
     // Ask the verifier before it is needed. If this account has no Hello
@@ -612,10 +678,30 @@ export function lockPageHtml(): string {
       error.textContent = '';
       hello.disabled = true;
       var result = await api.lock.hello();
-      hello.disabled = false;
+      // A failed attempt must not re-arm a button this machine cannot use.
+      hello.disabled = !helloUsable;
       if (!result.ok) error.textContent = result.error || 'Windows Hello did not verify you.';
     }
     hello.addEventListener('click', withHello);
+
+    switchMode.addEventListener('click', function () {
+      mode = mode === 'pin' ? 'windows' : 'pin';
+      applyMode();
+      activeInput().focus();
+    });
+
+    pinForm.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      error.textContent = '';
+      pinButton.disabled = true;
+      var result = await api.lock.unlockWithPin(pinInput.value);
+      if (!result.ok) {
+        error.textContent = result.error || 'Unlock failed.';
+        pinInput.value = '';
+        pinInput.focus();
+      }
+      pinButton.disabled = false;
+    });
 
     document.getElementById('form').addEventListener('submit', async function (event) {
       event.preventDefault();
@@ -636,7 +722,7 @@ export function lockPageHtml(): string {
       if (event.key === 'Escape' || event.key === 'F12') event.preventDefault();
     });
     document.addEventListener('contextmenu', function (event) { event.preventDefault(); });
-    input.focus();
+    activeInput().focus();
   })();
 </script>
 </body></html>`

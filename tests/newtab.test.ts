@@ -94,4 +94,41 @@ describe('lock screen', () => {
     expect(lock).toContain("event.key === 'Escape'")
     expect(lock).toContain('event.preventDefault()')
   })
+
+  /**
+   * A local Windows account with no Hello enrolment and no password to type had
+   * nothing on this screen that could verify it. The WARDEN PIN is that way in —
+   * set in Policy, hashed in the main process, checked without Windows.
+   */
+  it('offers the WARDEN PIN and the Windows account as two ways in', () => {
+    expect(lock).toContain('id="pin"')
+    expect(lock).toContain('inputmode="numeric"')
+    expect(lock).toContain('api.lock.unlockWithPin(pinInput.value)')
+    expect(lock).toContain('id="switchMode"')
+    expect(lock).toContain('Use the Windows account instead')
+  })
+
+  it('opens on whichever credential this machine actually has', () => {
+    expect(lock).toContain("var mode = 'windows'")
+    expect(lock).toContain("mode = pinSet ? 'pin' : 'windows'")
+    expect(lock).toContain("windowsBlock.hidden = mode !== 'windows'")
+  })
+
+  /** A hidden input cannot take focus, so the visible one is chosen at runtime. */
+  it('never autofocuses a field that may not be on screen', () => {
+    expect(lock).not.toContain('autofocus')
+    expect(lock).toContain('function activeInput()')
+  })
+
+  /**
+   * The screen is one inline script, so a single bad escape inside the
+   * TypeScript template leaves the page rendered but inert: the markup looks
+   * right, and not one button works. The smoke harness drives the service
+   * directly and cannot see that, so the shipped script is parsed here.
+   */
+  it('ships an inline script that actually parses', () => {
+    const script = /<script>([\s\S]*?)<\/script>/.exec(lock)?.[1] ?? ''
+    expect(script.length).toBeGreaterThan(1000)
+    expect(() => new Function(script)).not.toThrow()
+  })
 })

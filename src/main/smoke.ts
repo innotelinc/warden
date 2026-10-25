@@ -370,6 +370,21 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
     lockInfo.stillLocked = ctx.lock.isLocked()
     lockInfo.unlocked = (await ctx.lock.unlock(process.env.WARDEN_LOCK_TEST_PASSWORD ?? '')).ok
     lockInfo.cleared = !ctx.lock.isLocked()
+
+    // The WARDEN PIN: the way in on a local account with no Hello enrolment and
+    // no password to type. It is set here, checked while covered, and removed
+    // again so the harness leaves no credential behind.
+    lockInfo.pinSet = (await ctx.lock.setPin('4821')).ok
+    await ctx.lock.lock(false)
+    const pinOverlay = ctx.lock.overlayWebContents()
+    lockInfo.pinField = pinOverlay
+      ? await pinOverlay.executeJavaScript('Boolean(document.getElementById("pin"))', true)
+      : false
+    lockInfo.pinWrongRejected = !(await ctx.lock.unlockWithPin('0000')).ok
+    lockInfo.pinStillLocked = ctx.lock.isLocked()
+    lockInfo.pinUnlocked = (await ctx.lock.unlockWithPin('4821')).ok
+    lockInfo.pinCleared = !ctx.lock.isLocked()
+    lockInfo.pinRemoved = (await ctx.lock.clearPin()).ok
     result.lock = lockInfo
     result.update = ctx.update.snapshot()
 
@@ -391,6 +406,13 @@ export async function runSmoke(ctx: WardenContext, url: string): Promise<void> {
       (result.lock as { wrongRejected?: boolean })?.wrongRejected === true &&
       (result.lock as { stillLocked?: boolean })?.stillLocked === true &&
       (result.lock as { cleared?: boolean })?.cleared === true &&
+      (result.lock as { pinSet?: boolean })?.pinSet === true &&
+      (result.lock as { pinField?: boolean })?.pinField === true &&
+      (result.lock as { pinWrongRejected?: boolean })?.pinWrongRejected === true &&
+      (result.lock as { pinStillLocked?: boolean })?.pinStillLocked === true &&
+      (result.lock as { pinUnlocked?: boolean })?.pinUnlocked === true &&
+      (result.lock as { pinCleared?: boolean })?.pinCleared === true &&
+      (result.lock as { pinRemoved?: boolean })?.pinRemoved === true &&
       result.privateTab === true &&
       (result.ui as { windowControls?: { count?: number } })?.windowControls?.count === 3 &&
       Number((result.sensors as { video?: number } | undefined)?.video) >= 1 &&

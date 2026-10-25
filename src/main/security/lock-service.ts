@@ -13,6 +13,7 @@
  */
 import { BrowserWindow, powerMonitor } from 'electron'
 import os from 'node:os'
+import { normalizePin, pinProblem } from '@shared/lock-pin'
 import { shouldAutoLock } from '@shared/lock-policy'
 import type { LockState } from '@shared/types'
 import {
@@ -23,7 +24,19 @@ import {
   verifyWindowsPassword,
   type HelloOutcome
 } from './win-auth'
+import { hashPin, verifyPin } from './lock-pin'
 import type { LockHelloReport, LockHelloStatus } from '@shared/types'
+
+/**
+ * Where the WARDEN PIN hash lives.
+ *
+ * Kept behind an interface so the service never touches the filesystem and the
+ * settings file never has to carry a credential: the hash is its own record.
+ */
+export interface PinStore {
+  get(): string | null
+  set(hash: string | null): void | Promise<void>
+}
 
 interface Options {
   parent: () => BrowserWindow | null
@@ -33,6 +46,8 @@ interface Options {
   timeoutMinutes: () => number
   /** Hides tab views while locked; the overlay supplies the only pixels. */
   setSuppressed: (suppressed: boolean) => void
+  /** Salted scrypt hash of the operator's WARDEN PIN, or null when unset. */
+  pins: PinStore
   onState: () => void
 }
 
@@ -70,8 +85,39 @@ export class LockService {
       timeoutMinutes: this.options.timeoutMinutes(),
       idleSeconds: this.safeIdle(),
       byTimeout: this.byTimeout,
-      hello: this.hello
+      hello: this.hello,
+      pinSet: this.hasPin()
     }
+  }
+
+  /** Is there a WARDEN PIN to unlock with? */
+  hasPin(): boolean {
+    return Boolean(this.options.pins.get())
+  }
+
+  /**
+   * Set or replace the WARDEN PIN.
+   *
+   * Refused while the screen is covered: the same preload that draws the lock
+   * screen can reach this channel, and a credential that can be replaced from
+   * behind a lock is not a lock.
+   */
+  async setPin(pin: string): Promise<{ ok: boolean; error?: string }> {
+    if (this.overlay) return { ok: false, error: 'Unlock WARDEN before changing the PIN.' }
+    const problem = pinProblem(pin)
+    if (problem) return { ok: false, error: problem }
+    await this.options.pins.set(await hashPin(normalizePin(pin)))
+    this.emit()
+    return { ok: true }
+  }
+
+  /** Forget the WARDEN PIN; the Windows account and Hello are then the ways in. */
+  async clearPin(): Promise<{ ok: boolean; error?: string }> {
+    if (this.overlay) return { ok: false, error: 'Unlock WARDEN before changing the PIN.' }
+    if (!this.hasPin()) return { ok: false, error: 'No WARDEN PIN is set.' }
+    await this.options.pins.set(null)
+    this.emit()
+    return { ok: true }
   }
 
   private safeIdle(): number {
@@ -300,11 +346,61 @@ export class LockService {
     return { ok: false, error: this.error }
   }
 
+  /**
+   * Unlock with the WARDEN PIN the operator set here.
+   *
+   * This is the way in for a local account with no Hello enrolment and no
+   * password to type — the case where every Windows-backed path on this screen
+   * had nothing to verify. `verifyPin` fails closed, so an unreadable record
+   * leaves the screen covered rather than opening it.
+   */
+  async unlockWithPin(pin: string): Promise<{ ok: boolean; error?: string }> {
+    const overlay = this.overlay
+    if (!overlay) return { ok: false, error: 'Nothing is locked.' }
+    if (this.busy) return { ok: false, error: 'Checking…' }
+    const stored = this.options.pins.get()
+    if (!stored) {
+      this.error = 'No WARDEN PIN is set. Use your Windows account below.'
+      this.emit()
+      return { ok: false, error: this.error }
+    }
+    const problem = pinProblem(pin)
+    if (problem) {
+      this.error = problem
+      this.emit()
+      return { ok: false, error: problem }
+    }
+
+    this.busy = true
+    this.error = null
+    this.emit()
+    const ok = await verifyPin(pin, stored)
+    this.busy = false
+    // A capture or a forced release can land while scrypt is running; only
+    // clear the overlay this attempt belongs to.
+    if (this.overlay !== overlay) return { ok: false, error: 'Nothing is locked.' }
+
+    if (!ok) {
+      this.attempts += 1
+      this.error =
+        this.attempts >= 3
+          ? 'Still not accepted. Try the PIN again, use Windows Hello, or unlock with your Windows account below.'
+          : 'That PIN did not match. Try again, or unlock with your Windows account below.'
+      this.emit()
+      return { ok: false, error: this.error }
+    }
+
+    this.release()
+    return { ok: true }
+  }
+
   async unlock(password: string): Promise<{ ok: boolean; error?: string }> {
     if (!this.overlay) return { ok: false, error: 'Nothing is locked.' }
     if (this.busy) return { ok: false, error: 'Checking…' }
     if (!password) {
-      this.error = 'Use Windows Hello above, or enter your account password.'
+      this.error = this.hasPin()
+        ? 'Enter your WARDEN PIN, use Windows Hello, or enter your account password.'
+        : 'Use Windows Hello above, or enter your account password.'
       this.emit()
       return { ok: false, error: this.error }
     }
@@ -322,8 +418,8 @@ export class LockService {
       this.attempts += 1
       this.error =
         this.attempts >= 3
-          ? 'Still not accepted. Use Windows Hello above, or your account password — a PIN is not an account password.'
-          : 'That password did not match this Windows account. A PIN is not the account password.'
+          ? 'Still not accepted. Use your WARDEN PIN or Windows Hello above, or the Windows account password — a Hello PIN is not an account password.'
+          : 'That password did not match this Windows account. A Hello PIN is not the account password; a WARDEN PIN is entered above.'
       this.emit()
       return { ok: false, error: this.error }
     }
@@ -334,6 +430,7 @@ export class LockService {
 
   /** Tear the overlay down and give the app back. */
   private release(): void {
+    if (!this.overlay) return
     const parent = this.options.parent()
     this.closing = true
     this.overlay?.destroy()
