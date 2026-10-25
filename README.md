@@ -1,8 +1,56 @@
+<div align="center">
+
+<img src="build/icon.png" width="96" alt="WARDEN shield">
+
 # WARDEN
 
 **Read everything. Give nothing.**
 
-A privacy-first operations browser for security and network administrators. WARDEN is a real Chromium browser (Electron 45) with a cookieless browsing profile, a request-level ad/tracker engine, an embedded shell, a site deconstructor, native mail, and a unified messaging hub — in one dense, keyboard-driven console.
+A privacy-first operations browser for security and network administrators: a real Chromium browser
+with a cookieless profile, a request-level ad and tracker engine, an embedded shell, a site
+deconstructor, native mail and a unified messaging hub — in one dense, keyboard-driven console.
+
+[![Platform: Windows x64](https://img.shields.io/badge/platform-Windows%20x64-18181b)](https://github.com/innotelinc/warden/releases)
+[![Electron 45](https://img.shields.io/badge/electron-45-4fe3c1)](package.json)
+[![Node 20+](https://img.shields.io/badge/node-20%2B-339933)](package.json)
+[![Landing page](https://img.shields.io/badge/landing-innotelinc.github.io%2Fwarden-2ea043)](https://innotelinc.github.io/warden/)
+[![No cookie jar](https://img.shields.io/badge/cookies-none%20by%20default-f5b95b)](https://github.com/innotelinc/warden#privacy-model-what-is-actually-enforced)
+
+**Landing page:** [innotelinc.github.io/warden](https://innotelinc.github.io/warden/) ·
+**Packaging & deployment:** [below](#packaging-windows) ·
+**Known limits:** [below](#known-limits)
+
+</div>
+
+---
+
+## About WARDEN
+
+WARDEN is the browser for the person who has to answer "what is this site doing?" — and then prove it.
+It refuses cookies instead of asking, filters at the request level instead of the settings level, and
+keeps the operator's tools in the same window as the page: a PTY shell, IMAP/SMTP mail, isolated
+messaging panes, a streaming assistant, and **Scry**, which captures a live page over Chrome DevTools
+Protocol and hands back a recon report, a static clone with rewritten scripts, a Vite + React scaffold,
+or an "innovate" rebuild that replaces the original behaviour rather than copying it.
+
+The privacy guarantee is structural, not a preference: five independent layers in the main process
+(request interception, header rewriting, response header stripping, a guarded cookie store, and a
+page-level cookie lock), on a browsing session created without the `persist:` partition. Quit the app
+and there is no cookie database, no page cache and no session file to recover. Burner tabs get their
+own throwaway session, and every messaging service runs in its own isolated one.
+
+Currently at **v0.1.0**: all seven workspaces are functional, the filter engine parses Adblock-Plus
+syntax, Scry captures and rebuilds sites, the terminal runs a real PTY, mail speaks IMAP and SMTP, and
+the Windows installer plus portable build are produced by `npm run dist`. Verified by unit tests over
+the decision surfaces and a smoke suite that drives the real UI and the packaged binary.
+
+**Deliberate limits, stated up front:** no VPN and no IP hiding, no TLS or DNS fingerprint defence, and
+no promise that a hostile challenge page can be bypassed — [compatibility mode](#compatibility-mode-per-site)
+removes WARDEN's obstacles and says plainly where Cloudflare's begin.
+
+---
+
+## Modules
 
 | Module | What it is |
 | --- | --- |
@@ -114,11 +162,41 @@ The packaged app is verified, not just built: `npm run smoke:dist` runs the same
 WARDEN_SMOKE_BIN=release/WARDEN-Portable-0.1.0.exe npm run smoke:dist
 ```
 
-Both were run through the suite last build, 17/17. `node-pty` is unpacked from the asar archive (`asarUnpack`) because it loads a native `.node` binary; `npmRebuild` is off because the shipped prebuilds are the ones that were tested against Electron 45.
+Both were run through the suite last build, 32/32. `node-pty` is unpacked from the asar archive (`asarUnpack`) because it loads a native `.node` binary; `npmRebuild` is off because the shipped prebuilds are the ones that were tested against Electron 45.
 
 App metadata is embedded in both executables: `ProductName` WARDEN, `FileDescription` from the package description, version 0.1.0, company WARDEN, and the generated shield icon at 16–256px.
 
-**The builds are unsigned.** Windows SmartScreen will warn on first run; that is expected without a code-signing certificate. To sign, set `CSC_LINK` and `CSC_KEY_PASSWORD` before `npm run dist`. Nothing else changes.
+**The builds are unsigned as shipped today.** Windows SmartScreen warns on first run until a certificate backs them. There are two routes, and only one of them is both free and publicly trusted.
+
+### Code signing
+
+**SignPath Foundation — free, publicly trusted.** SignPath signs qualifying open-source projects at no cost with an OV-level certificate, so the installers show `innotelinc` as the publisher and SmartScreen reputation starts accumulating. The catch is that it is an application, not a download: the certificate is only issued after SignPath reviews the project, and every signature is made by their service against an artifact built in your CI, never by a key on a laptop. WARDEN is eligible on paper — [the repository is public](https://github.com/innotelinc/warden) and the build is reproducible from a tag.
+
+What is already in this repo:
+
+| Path | Purpose |
+| --- | --- |
+| [`.github/workflows/sign-release.yml`](.github/workflows/sign-release.yml) | Builds both installers on `windows-latest`, uploads them as one artifact, submits the signing request, checks the returned signatures are valid *and* timestamped, then attaches them to the release. |
+| [`signing/artifact-configuration.xml`](signing/artifact-configuration.xml) | Tells SignPath which files inside the uploaded ZIP to Authenticode-sign. |
+| [`scripts/sign-build.ps1`](scripts/sign-build.ps1) | The local fallback described below. |
+
+To switch it on:
+
+1. Apply at [signpath.org](https://signpath.org/) with the repository URL and a short project description. Approval is a review of the project, so a public history of real commits helps.
+2. Install the SignPath GitHub App on the repository — it supplies the origin metadata SignPath verifies before signing.
+3. In SignPath, create the project and a signing policy for release builds, then paste [`signing/artifact-configuration.xml`](signing/artifact-configuration.xml) as a new artifact configuration and note its slug.
+4. Add repository secret `SIGNPATH_API_TOKEN` and repository variables `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`, `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` (Settings → Secrets and variables → Actions).
+5. Push a `v*` tag, or run *Build and sign release* from the Actions tab. The workflow fails loudly if a signature comes back invalid or without a timestamp.
+
+Until that approval lands, the installers stay unsigned and SmartScreen keeps warning. Nothing in the build is blocked on it.
+
+**Self-signed — free, not publicly trusted.** [`scripts/sign-build.ps1`](scripts/sign-build.ps1) creates a code-signing certificate in the current user's store, exports it to `%USERPROFILE%\.warden-signing` (owner-only ACL), and signs everything in `release/` with an RFC 3161 timestamp:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-build.ps1
+```
+
+Every file then carries a publisher name, digest and timestamp — visible in file properties and in `Get-AuthenticodeSignature` — but no public CA vouches for it, so other machines still report an untrusted publisher until `warden-codesign.cer` is deployed to Trusted Root + Trusted Publisher. That is a reasonable internal-fleet arrangement (GPO or Intune certificate deployment) and a poor public-distribution one. `-TrustCurrentUser` adds the certificate to this account's stores, which makes it verify locally; Windows asks for confirmation, so it cannot be done silently. Pass `-PfxPath` to sign with a CA-issued certificate instead, or set `CSC_LINK`/`CSC_KEY_PASSWORD` and let electron-builder sign during `npm run dist`.
 
 ### Deploying it
 

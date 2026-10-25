@@ -1,0 +1,46 @@
+name: Pages (landing)
+
+# Publishes web/landing/ to https://innotelinc.github.io/warden/
+#
+# Requires Pages to be enabled once: Settings → Pages → Source: "GitHub Actions".
+# After that every push to main that touches the landing directory republishes.
+# The page is a single static HTML file with one image and no build step, so
+# there is nothing to install or compile here.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/landing/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the landing page
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/landing
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
