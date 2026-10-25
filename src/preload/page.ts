@@ -57,9 +57,24 @@ const compatibilitySite = (() => {
   }
 })()
 
-const cookiesAllowed =
-  cookieMode === 'first-party' ||
-  allowlist.some((entry) => host === entry || host.endsWith(`.${entry}`))
+/**
+ * The cookie lock is decided by the main process on every document, not by the
+ * list passed at tab creation: granting an allowance must take effect on the
+ * next reload, and the same reload re-runs this preload with the old argv.
+ */
+const cookiesAllowed = (() => {
+  if (!host) return false
+  try {
+    const answer = ipcRenderer.sendSync('warden:cookie:sync', host)
+    if (typeof answer === 'boolean') return answer
+  } catch {
+    /* fall through to the arguments baked into the tab */
+  }
+  return (
+    cookieMode === 'first-party' ||
+    allowlist.some((entry) => host === entry || host.endsWith(`.${entry}`))
+  )
+})()
 
 /**
  * Belt and braces: even if a page sets document.cookie in JavaScript, the

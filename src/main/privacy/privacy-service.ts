@@ -18,6 +18,8 @@ import { parseFilterList, safeHost, FilterEngine, type RequestInfo, type Resourc
 import { hostMatches } from '@shared/urls'
 import {
   filterResponseHeaders,
+  isAllowlisted,
+  isCookieKeptByAllowlist,
   shouldAcceptCookie,
   shouldSendCookies,
   upgradeToHttps,
@@ -178,6 +180,9 @@ export class PrivacyService {
           // Compatibility sites are policy-accepted, exactly like allowlisted
           // ones; purging them would just break the site again.
           if (this.isCompatible(host)) continue
+          // A parent-domain cookie belongs to the allowlisted site that set it
+          // (`auth.example.com` → `.example.com`), so the purge keeps it too.
+          if (isCookieKeptByAllowlist(host, this.settings.allowlist)) continue
           if (!shouldAcceptCookie(this.cookieContext(host), host, cookie.domain)) {
             const scheme = cookie.secure ? 'https' : 'http'
             const url = `${scheme}://${host}${cookie.path || '/'}`
@@ -206,6 +211,19 @@ export class PrivacyService {
    */
   isCompatible(host: string | null): boolean {
     return host !== null && hostMatches(host, this.settings.compatibility)
+  }
+
+  /**
+   * May the page's own JavaScript touch cookies for this host?
+   *
+   * Asked by the content preload at document start, synchronously, so granting
+   * an allowance and reloading takes effect immediately instead of waiting for a
+   * tab to be recreated with a newer argument list.
+   */
+  cookiesAllowedFor(host: string | null): boolean {
+    if (!host) return false
+    if (this.settings.cookieMode === 'first-party') return true
+    return isAllowlisted(host, this.settings.allowlist) || this.isCompatible(host)
   }
 
   private cookieContext(siteHost: string | null, mode: CookieMode = this.settings.cookieMode) {
@@ -282,9 +300,10 @@ export class PrivacyService {
           this.stats.cookiesStripped += stripped
           this.emit()
         }
-        if (mode === 'block') {
-          delete (headers as Record<string, unknown>)['set-cookie']
-        }
+        // No blanket delete here: filterResponseHeaders has already dropped
+        // every cookie the policy rejects, and deleting the key again would
+        // throw away the cookies an allowlisted site just set. That is what
+        // made an allowed login impossible — the store was always empty.
         callback({ responseHeaders: headers as Record<string, string[]> })
       } catch {
         callback({})
@@ -324,7 +343,10 @@ export class PrivacyService {
       if (this.isCompatible(host)) {
         return original(details)
       }
-      if (!host || !shouldAcceptCookie(this.cookieContext(this.siteHostFor(-1) ?? host, mode), host, details.domain)) {
+      // The site setting the cookie is the request's own host when the store is
+      // written outside a tracked tab navigation.
+      const siteHost = (details.url ? safeHost(details.url) : '') || host
+      if (!host || !shouldAcceptCookie(this.cookieContext(siteHost, mode), host, details.domain)) {
         this.stats.cookiesStripped += 1
         this.emit()
         return Promise.resolve()

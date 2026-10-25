@@ -435,6 +435,11 @@ export interface WardenApi {
     allow(host: string, allowed: boolean): Promise<void>
     /** Steps WARDEN aside for one host; resolves with the stored settings. */
     compatibility(host: string, on: boolean): Promise<Settings>
+    /**
+     * Allows cookies for an SSO login identified from the page URL: the identity
+     * provider and the application it returns to, and nothing else.
+     */
+    allowSignIn(url: string): Promise<{ allowed: string[]; settings: Settings }>
     clearCookies(): Promise<number>
     syncLists(): Promise<{ rules: number }>
     refresh(): Promise<PrivacyStats>

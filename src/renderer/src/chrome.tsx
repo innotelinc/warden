@@ -27,6 +27,7 @@ import {
   IconVolume,
   IconVolumeOff
 } from './icons'
+import { signInHostsFor } from '@shared/auth-flow'
 import { formatCount, useWarden } from './state'
 import { DOCK_HEAD, SLOT_FOOT, SLOT_GAP, DOCK_PAD } from './layout'
 
@@ -494,6 +495,15 @@ export function BastionPanel({
   const compatible = host
     ? state.settings.compatibility.some((entry) => host === entry || host.endsWith(`.${entry}`))
     : false
+  // A login spans the provider and the application; work out both so one click
+  // can allow the pair instead of making the operator diagnose the flow.
+  const signIn = signInHostsFor(tab.url)
+  const signInHosts = signIn
+    ? [signIn.provider, signIn.application].filter((entry): entry is string => Boolean(entry))
+    : []
+  const signInMissing = signInHosts.filter(
+    (entry) => !state.settings.allowlist.some((allowed) => entry === allowed || entry.endsWith(`.${allowed}`))
+  )
 
   return (
     <div className="dock fade-in" style={{ width }}>
@@ -533,6 +543,31 @@ export function BastionPanel({
             >
               {allowed ? 'Revoke cookie allowance' : 'Allow cookies for this site'}
             </button>
+            {signIn && signInMissing.length ? (
+              <button
+                className="btn primary"
+                onClick={() => {
+                  void window.warden.privacy.allowSignIn(tab.url).then((result) => {
+                    notify(
+                      result.allowed.length
+                        ? `Cookies allowed for ${result.allowed.join(' + ')} — sign-in retried`
+                        : 'No sign-in flow in this URL',
+                      result.allowed.length ? 'ok' : 'info'
+                    )
+                  })
+                }}
+                title="Allow cookies for the identity provider and the application it returns to, then reload"
+              >
+                Allow cookies for this sign-in
+              </button>
+            ) : null}
+            {signIn && signInMissing.length ? (
+              <div className="faint small" style={{ lineHeight: 1.5 }}>
+                Sign-in spans {signIn.provider}
+                {signIn.application ? ` → ${signIn.application}` : ''}. Both need cookies to
+                complete; they stay memory-only like every other allowance.
+              </div>
+            ) : null}
             <button
               className={`btn ${compatible ? 'danger' : ''}`}
               onClick={() => {

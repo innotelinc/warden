@@ -227,11 +227,18 @@ async function createWindow(stores: Stores): Promise<void> {
   const mediaByTab = new Map<string, AppState['mediaAvailable']>()
 
   let pushTimer: NodeJS.Timeout | null = null
+  /**
+   * Startup ordering, not politeness: `snapshot` is defined further down, and
+   * privacy.start() reports its first stats before that. Without this flag the
+   * 40 ms timer fires during an await and hits `snapshot` inside its temporal
+   * dead zone, which aborts startup before any IPC handler is registered.
+   */
+  let stateReady = false
   const sendState = (): void => {
-    if (pushTimer) return
+    if (!stateReady || pushTimer) return
     pushTimer = setTimeout(() => {
       pushTimer = null
-      if (!win || win.isDestroyed()) return
+      if (!stateReady || !win || win.isDestroyed()) return
       win.webContents.send('warden:state', snapshot())
     }, 40)
   }
@@ -403,6 +410,11 @@ async function createWindow(stores: Stores): Promise<void> {
     version: app.getVersion(),
     platform: process.platform
   })
+
+  // Every collaborator the snapshot reads now exists, so state pushes are safe.
+  // The pending timer from privacy.start() still returns to the renderer.
+  stateReady = true
+  sendState()
 
   const handleShortcut = (command: ShortcutCommand, tabId: string | null): void => {
     const activeId = tabId ?? tabs.activeTabId
