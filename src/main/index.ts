@@ -7,6 +7,7 @@ import {
   session,
   shell
 } from 'electron'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_SETTINGS, APP_NAME } from '@shared/defaults'
@@ -20,6 +21,7 @@ import type {
   ScryReport,
   Settings,
   CloneResult,
+  MediaItem,
   WorkspaceId
 } from '@shared/types'
 import { JsonStore } from './store/json-store'
@@ -41,6 +43,11 @@ import { buildChromeMenu } from './chrome-menu'
 const isDev = !app.isPackaged
 
 // ---------------------------------------------------------------- privacy switches
+// Page scrollbars are drawn by Chromium, not by our CSS: ask for the overlay
+// kind so a site's content keeps its width and the bar fades out instead of
+// sitting there as a bright strip against a dark page.
+app.commandLine.appendSwitch('enable-features', 'OverlayScrollbar')
+
 app.commandLine.appendSwitch('no-pings')
 app.commandLine.appendSwitch('disable-background-networking')
 app.commandLine.appendSwitch('disable-component-update')
@@ -254,6 +261,29 @@ async function createWindow(stores: Stores): Promise<void> {
     },
     onCookiesCheck: () => {
       void privacy.wipeCookies()
+    },
+    onMedia: (tabId, source) => {
+      const page = tabs.list().find((entry) => entry.id === tabId)?.url ?? ''
+      const url = source.url
+      const item: MediaItem = {
+        id: `media-${createHash('sha1').update(url).digest('hex').slice(0, 12)}`,
+        url,
+        kind: source.kind,
+        title: source.title,
+        poster: null,
+        width: null,
+        height: null,
+        duration: null,
+        isLive: /\.m3u8(\?|$)/i.test(url),
+        playable: !/\.m3u8(\?|$)/i.test(url),
+        viewerUrl: url,
+        currentTime: 0,
+        playing: false,
+        source: 'direct',
+        pageUrl: page
+      }
+      media.open(item, page)
+      sendState()
     }
   })
 

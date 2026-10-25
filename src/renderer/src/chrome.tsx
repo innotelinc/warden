@@ -109,10 +109,32 @@ export function Toolbar({
   const focused = useRef(false)
   // First click on an unfocused address bar selects the whole URL, like Chrome.
   const selectOnRelease = useRef(false)
+  // The tab whose address bar was already focused, so a re-render on the same
+  // new tab cannot steal focus back from the page.
+  const addressedTab = useRef<string | null>(null)
 
   useEffect(() => {
     if (!focused.current) setDraft(tab?.url ?? '')
   }, [tab?.url])
+
+  // A fresh tab should be ready to type into: focus the bar and select what is
+  // there, so the first keystroke replaces `warden://newtab` instead of
+  // appending to it.
+  useEffect(() => {
+    if (!tab) return
+    const blank = !tab.url || tab.url.startsWith('warden://newtab') || tab.url === 'about:blank'
+    if (!blank) {
+      addressedTab.current = tab.id
+      return
+    }
+    if (addressedTab.current === tab.id) return
+    addressedTab.current = tab.id
+    const timer = setTimeout(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [tab?.id, tab?.url])
 
   useEffect(() => {
     const focus = (): void => {
