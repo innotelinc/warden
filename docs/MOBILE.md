@@ -217,6 +217,89 @@ What is already in the repository, so nobody regenerates it by hand:
 - `App.xcodeproj/xcshareddata/xcschemes/App.xcscheme` — a shared scheme, without
   which `xcodebuild -scheme App` has nothing to build on a fresh checkout.
 
+## Submitting to the App Store
+
+Everything below is copied from `mobile/store/ios/listing.json`, which is the
+source of truth; the limits are Apple's and a test enforces them.
+
+**App Information**
+
+| Field | Value | Limit |
+|---|---|---|
+| Name | `WARDEN — private browser` | 30 |
+| Subtitle | `No account. No telemetry.` | 30 |
+| Primary language | English (U.S.) | — |
+| Bundle ID | `us.innotel.warden` | — |
+| SKU | `WARDEN-MOBILE` | — |
+| Primary category | Utilities | — |
+| Content rights | Does not contain third-party content | — |
+| Age rating | see below — **16+** | — |
+
+**Age rating: 16+, and this is not a marketing choice.** The app has an address
+field, so it offers unrestricted web access. Answer that question **Yes**; Apple
+defines that capability as 16+ under the current 4+/9+/13+/16+/18+ scheme (17+
+on older OS versions), and every comparable browser is rated the same — Chrome,
+Firefox and DuckDuckGo are all 16+ in the US store. Answer everything else
+None, and *Made for Kids* No. New submissions also require the social-media
+questions added in September 2026; a browser displaying websites is not a
+social feature, so answer No to those.
+
+**App Privacy** — *Data Not Collected*. That is real: the app stores no history,
+profile or identifiers of its own, ships no analytics or ad SDK, and pages open
+in `SFSafariViewController`, which the app cannot read. Browsing history does
+**not** have to be declared merely because users browse the open web; declare it
+only if the app or an SDK actually logs or uploads visited URLs. It does not.
+`App/PrivacyInfo.xcprivacy` states the same inside the bundle, and Capacitor
+ships its own manifest, so the listed-SDK expectation is met.
+
+**Version page**
+
+| Field | Value | Limit |
+|---|---|---|
+| Promotional text | from `listing.json` | 170 |
+| Description | from `listing.json` | 4,000 |
+| Keywords | `privacy,browser,security,network admin,private browsing,no tracking,sysadmin,web` | 100 **bytes** |
+| Support URL | `https://github.com/innotelinc/warden/issues` | required |
+| Marketing URL | `https://innotelinc.github.io/warden/` | optional |
+| Privacy Policy URL | `https://innotelinc.github.io/warden/privacy.html` | required |
+| Copyright | `2026 Innotel` | required |
+| What's New | blank for 0.2.4 — it is the first version | 4,000 |
+| Build | select `0.2.4 (9)` once it is `VALID` | — |
+| Sign-in required | **No** — no demo account to supply | — |
+| Review notes | from `listing.json` | 4,000 |
+
+**Screenshots — both sizes, and they must be real.** `TARGETED_DEVICE_FAMILY`
+is `"1,2"`, so App Store Connect demands 6.9" iPhone (1290×2796) **and** 13"
+iPad (2048×2732) shots. They have to come from the running build on a device or
+simulator; nothing in this repository can generate them, and a mockup of a UI
+that does not exist is a 2.3 rejection.
+
+**Review notes have one job: explain what the app is before a reviewer decides
+it is a wrapper.** They are in the listing file and say, in order: no sign-in
+needed; how to test (type `example.com`, press return, the page opens full
+screen in the system browser view, dismiss it, no permission prompt appears);
+why it is not a repackaged website (no bundled site, no server, no account, its
+own address resolution, posture screen and quick destinations); and what is
+deliberately absent.
+
+**Be honest about 4.2.** A browser shell is exactly the shape of app that
+guideline 4.2 (minimum functionality) questions, and using
+`SFSafariViewController` instead of a `WKWebView` does not exempt it. Good
+review notes explain the product; they cannot supply functionality that is not
+there. The real answer is on the roadmap: `WKContentRuleList` blocking,
+per-tab isolation and DoH via `NEDNSProxyProvider`. Until that ships, treat
+rejection on 4.2 as a live possibility rather than a surprise.
+
+**Two claims the app must never make, because they are not true in this build:**
+that it encrypts DNS, and that it blocks trackers. The posture screen used to
+claim the first (there is no DNS profile in the app and no filter engine) and
+the listings used to claim both. `tests/mobile-listing.test.ts` fails if either
+comes back.
+
+**Export compliance** is answered in `Info.plist`
+(`ITSAppUsesNonExemptEncryption = false`), so selecting a build does not stop for
+the encryption questionnaire.
+
 ## Store metadata
 
 `mobile/store/android/listing.json` and `mobile/store/ios/listing.json` hold the

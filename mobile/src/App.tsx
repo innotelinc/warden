@@ -15,9 +15,12 @@ export function resolveTarget(input: string): string | null {
   return `https://duckduckgo.com/?q=${encodeURIComponent(value)}`
 }
 
+// Each line here has to survive being checked. There is no DNS profile in the
+// app and no filter engine yet, so neither is claimed: the posture screen says
+// what shipped, and the roadmap is named in the note below it.
 const POSTURE = [
-  ['Private session', 'Nothing is written to shared storage; the app keeps no cookie jar.'],
-  ['Encrypted DNS', 'DoH is enforced by the platform profile — see docs/MOBILE.md.'],
+  ['No account', 'Nothing to sign in to, and no profile is stored on this device.'],
+  ['System browser', 'Pages open in the platform browser view, which this app cannot read.'],
   ['No telemetry', 'The shell has no analytics, crash or ad SDKs.'],
   ['Sensors', 'Camera and microphone are not requested by this app.']
 ]

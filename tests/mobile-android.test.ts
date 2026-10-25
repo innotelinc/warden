@@ -20,8 +20,8 @@ const VARIABLES = 'mobile/android/variables.gradle'
 const WRAPPER = 'mobile/android/gradle/wrapper/gradle-wrapper.properties'
 
 const majorMinor = (version: string): number => {
-  const [major, minor] = version.split('.').map(Number)
-  return major * 100 + minor
+  const parts = version.split('.').map(Number)
+  return (parts[0] ?? 0) * 100 + (parts[1] ?? 0)
 }
 
 describe('Android release bundle', () => {

@@ -4,25 +4,42 @@
   "sku": "WARDEN-MOBILE",
   "primaryLanguage": "en-US",
   "name": "WARDEN — private browser",
-  "subtitle": "No cookie jar, no telemetry",
-  "promotionalText": "A privacy-first entry point for security and network administrators. No accounts, no analytics, no sensor access.",
-  "keywords": "privacy,browser,security,admin,no cookies,dns,encrypted,no telemetry",
+  "subtitle": "No account. No telemetry.",
+  "promotionalText": "A private entry point for people who run networks: no account, no analytics, no sensor access, and a posture screen that states only what is actually enforced.",
+  "keywords": "privacy,browser,security,network admin,private browsing,no tracking,sysadmin,web",
   "supportUrl": "https://github.com/innotelinc/warden/issues",
   "marketingUrl": "https://innotelinc.github.io/warden/",
   "privacyPolicyUrl": "https://innotelinc.github.io/warden/privacy.html",
-  "description": "WARDEN is a privacy-first browser and operator console for security and network administrators.\n\nThis mobile build is the secure entry point: pages open in the platform's private browser surface, the app keeps no cookie jar or shared profile of its own, and it ships no analytics, crash or advertising SDKs.\n\n• Private by default — no browsing history, cookies or identifiers are stored by the app.\n• No telemetry — no analytics, no crash reporter, no tracking identifiers, no ad SDKs.\n• No sensors — the app never requests camera or microphone.\n• Honest posture — the session screen states what is enforced rather than showing a decorative shield.\n\nThe desktop WARDEN for Windows adds request-level ad and tracker blocking, a PTY shell, mail, messaging and site deconstruction. The mobile roadmap is public in the repository.\n\nNo account, no purchase, no configuration required.",
+  "copyright": "2026 Innotel",
+  "description": "WARDEN is a private entry point to the web for security and network administrators. This is the mobile companion to WARDEN for Windows.\n\nIt opens on an address field and a short, honest statement of what the session does and does not do — no decorative shield, no badge claiming protections the app does not have.\n\nWHAT IT DOES\n• Opens any address or search in the system browser view, so a page never shares an origin, a script context or a session with the app's own interface.\n• Keeps no browsing history, no profile and no identifiers of its own. The app cannot read the pages it opens.\n• Ships no analytics, crash-reporting or advertising SDKs, and requests no camera, microphone or location access.\n• Offers quick destinations to the project's repository, its release notes, the privacy policy and a team NAS sign-in.\n\nWHAT IT DOES NOT DO YET\n• It does not block ads or trackers, and it does not encrypt DNS. Request-level blocking, per-tab isolation and DNS over HTTPS are the next phase, planned in the public repository; the app itself says so rather than implying otherwise.\n• There is no account, no purchase, no subscription and nothing to configure before the first page loads.\n\nWHO IT IS FOR\nAdministrators who want a small, auditable starting point on a phone that asks for no permissions and phones home to nobody.\n\nPRIVACY\nData collected: none. Full policy: https://innotelinc.github.io/warden/privacy.html",
+  "whatsNew": "",
   "ageRating": {
-    "expected": "4+",
-    "notes": "No user-generated content, no web search of its own, no ads, no purchases. The app opens pages in SFSafariViewController, which is rated 17+ in isolation; the listing declares that the app itself contains no objectionable material, and review should be answered accordingly."
+    "expected": "16+",
+    "answers": {
+      "Unrestricted Web Access": "Yes — the address field opens any public URL. This is the capability that sets the rating; Chrome, Firefox and DuckDuckGo are all rated 16+ for the same reason.",
+      "Violence, Profanity, Horror, Medical, Alcohol/Tobacco/Drugs, Gambling, Mature themes, Sexual content": "None — the app ships no content of its own beyond its own interface text.",
+      "Made for Kids": "No",
+      "In-App Controls": "None claimed. The app has no content of its own to gate."
+    },
+    "note": "App Store Connect now uses 4+/9+/13+/16+/18+, and the questionnaire requires answers for new submissions. Answering 'Unrestricted Web Access' honestly is what produces 16+; do not answer 4+ to make the listing look friendlier."
   },
-  "reviewNotes": "Sign-in is not required. Reviewers can open any public site from the address field. The app hands URLs to SFSafariViewController; it does not embed a custom engine in this release. It is not a shortcut to one website: it ships no bundled site, no account and no server of its own, and the session posture and quick destinations screens are the app's own UI. No permissions are requested at any point.",
+  "reviewNotes": "WARDEN is a browser entry point for security and network administrators, and the mobile companion to an existing desktop product whose source is public at https://github.com/innotelinc/warden. No sign-in, demo account or purchase is required, and no permission prompt appears at any point.\n\nHOW TO TEST\n1. Launch the app. The first screen is an address field and a 'Session posture' list that states in plain language what the app does and does not do.\n2. Type a host such as example.com and press return, or tap a Quick destination. The page opens full screen in a system browser view (SFSafariViewController).\n3. Dismiss that view to return to the app. The camera, microphone, location, contacts and tracking permissions are never requested.\n\nWHY THIS IS NOT A WRAPPER AROUND ONE WEBSITE\nThe app bundles no site, runs no server of its own and has no account, so there is no website being repackaged. The interface is the product: address resolution (bare host, IP address or search term), the posture screen, and the quick destinations. Pages are deliberately handed to the system browser view instead of an in-app web view, so a page can never see or script the app's interface.\n\nWHAT IS DELIBERATELY ABSENT\nRequest-level ad and tracker blocking, per-tab isolation and DNS over HTTPS are on the public roadmap and are not in this build. The app says that on its own first screen, and the description says it too, rather than implying protections it does not have.\n\nAGE RATING\n'Unrestricted Web Access' is answered Yes, because the address field opens any public URL. That answer is what sets the rating to 16+.\n\nEXPORT COMPLIANCE\nITSAppUsesNonExemptEncryption is false in Info.plist: the app uses only the HTTPS provided by the operating system and implements no cryptography of its own. App/PrivacyInfo.xcprivacy declares no tracking and no collected data, and no required-reason API beyond the two Capacitor's bridge touches (UserDefaults and file timestamps).",
   "exportCompliance": "ITSAppUsesNonExemptEncryption is false in Info.plist: the app uses only OS-provided HTTPS, no custom cryptography.",
   "graphics": {
     "appIcon": "icon-1024.png",
     "screenshots": {
-      "iphone-6.9": ["iphone-1.png", "iphone-2.png", "iphone-3.png"],
-      "ipad-13": ["ipad-1.png", "ipad-2.png"]
-    }
+      "iphone-6.9": {
+        "size": "1290 x 2796",
+        "files": ["iphone-1.png", "iphone-2.png", "iphone-3.png"],
+        "content": ["The opening screen with the shield mark and address field", "Session posture, listing what the app does not do", "Quick destinations"]
+      },
+      "ipad-13": {
+        "size": "2048 x 2732",
+        "files": ["ipad-1.png", "ipad-2.png"],
+        "content": ["The opening screen", "Session posture"]
+      }
+    },
+    "note": "Both sizes are required because TARGETED_DEVICE_FAMILY is \"1,2\". They must be captured from the running build on a device or simulator; nothing in this repository can produce them."
   },
-  "notes": "Push a v* tag: .github/workflows/mobile-ios.yml archives, exports and uploads the build to TestFlight. A manual run exports a signed .ipa instead unless upload_to_testflight is ticked. Fill the App Privacy form as 'Data Not Collected' — App/PrivacyInfo.xcprivacy says the same inside the bundle."
+  "notes": "Push a v* tag: .github/workflows/mobile-ios.yml archives, exports and uploads the build to TestFlight. Manual runs export a signed .ipa unless upload_to_testflight is ticked. Check processing with the 'iOS build status' workflow. Fill App Privacy as 'Data Not Collected' — App/PrivacyInfo.xcprivacy says the same inside the bundle. Answer 'Unrestricted Web Access: Yes' for the 16+ rating."
 }
