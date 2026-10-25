@@ -521,6 +521,22 @@ a {
 .tab.active .close {
   opacity: 1;
 }
+
+/* Drag to reorder: the dragged tab fades, the destination slot shows a mint
+   edge so the drop point is unambiguous. */
+.tab.dragging {
+  opacity: 0.45;
+}
+.tab.drop-target {
+  box-shadow: inset 2px 0 0 var(--mint);
+  background: rgba(79, 227, 193, 0.06);
+}
+.tab {
+  cursor: grab;
+}
+.tab:active {
+  cursor: grabbing;
+}
 .tab .close:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
@@ -802,6 +818,64 @@ a {
   color: var(--violet);
   border-color: rgba(167, 139, 250, 0.32);
 }
+/* Session type toggle: SHELL | SSH. The SSH bar only appears in ssh mode, so
+   the drawer keeps its height for the terminal. */
+.term-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--line-soft);
+  background: #070a0d;
+  margin-right: 2px;
+}
+.term-mode .tchip {
+  font: 9.5px/1 var(--mono);
+  letter-spacing: 0.1em;
+  height: 18px;
+  padding: 0 7px;
+}
+.ssh-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #080c11;
+  flex: none;
+}
+.ssh-bar .ssh-tag {
+  font: 9.5px/1 var(--mono);
+  letter-spacing: 0.14em;
+  color: var(--mint);
+  border: 1px solid rgba(79, 227, 193, 0.3);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.ssh-bar .ssh-target {
+  flex: 1;
+  min-width: 120px;
+  height: 26px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.ssh-bar .ssh-port {
+  width: 68px;
+  height: 26px;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+}
+.ssh-bar .ssh-error {
+  font-size: 11.5px;
+  color: var(--red, #ff6b81);
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .term-body {
   flex: 1;
   min-height: 0;

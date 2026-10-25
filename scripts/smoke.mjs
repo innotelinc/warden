@@ -140,6 +140,12 @@ const verify = (report) => {
       report.ui?.findBar?.bottom <= report.ui?.findBar?.stripLimit &&
       parseFloat(report.ui?.findBar?.radius ?? '0') > 0,
     'find button collapses the bar again': report.ui?.findClosed === true,
+    'dragging a tab reorders the strip': report.ui?.tabReorder?.moved === true,
+    'trench offers shell and ssh modes':
+      JSON.stringify(report.ui?.terminalModes ?? []) === JSON.stringify(['SHELL', 'SSH']),
+    'ssh bar opens and closes with the toggle':
+      report.ui?.sshBar === true && report.ui?.sshBarClosed === true,
+    'ssh destination cannot become an option': report.ssh?.rejectedOptionInjection === true,
     'bastion offers compatibility mode for the current site':
       (report.ui?.bastionButtons ?? []).some((label) => /compatibility mode/i.test(label)),
     'send to scry carries the tab into scry':

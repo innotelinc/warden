@@ -274,17 +274,58 @@ export function Toolbar({
 }
 
 export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: string | null }) {
+  // Dragged tab and the slot the pointer is currently over. Index-based, so the
+  // drop lands exactly where the operator sees the gap.
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [dropIndex, setDropIndex] = useState<number | null>(null)
+
+  const commitDrop = (index: number | null): void => {
+    if (dragging && index !== null) void window.warden.tab.move(dragging, index)
+    setDragging(null)
+    setDropIndex(null)
+  }
+
   return (
-    <div className="tabstrip">
-      {tabs.map((tab) => (
+    <div
+      className="tabstrip"
+      onDragOver={(event) => {
+        if (dragging) event.preventDefault()
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        commitDrop(dropIndex)
+      }}
+    >
+      {tabs.map((tab, index) => (
         <div
           key={tab.id}
-          className={`tab ${tab.id === activeId ? 'active' : ''}`}
+          className={`tab ${tab.id === activeId ? 'active' : ''} ${dragging === tab.id ? 'dragging' : ''} ${
+            dropIndex === index && dragging !== tab.id ? 'drop-target' : ''
+          }`}
+          draggable
+          onDragStart={(event) => {
+            setDragging(tab.id)
+            event.dataTransfer.effectAllowed = 'move'
+            // Firefox refuses to start a drag without payload.
+            event.dataTransfer.setData('text/plain', tab.id)
+          }}
+          onDragEnter={() => setDropIndex(index)}
+          onDragOver={(event) => {
+            if (!dragging) return
+            event.preventDefault()
+            setDropIndex(index)
+          }}
+          onDragEnd={() => commitDrop(null)}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setDropIndex((current) => (current === index ? null : current))
+            }
+          }}
           onClick={() => void window.warden.tab.activate(tab.id)}
           onAuxClick={(event) => {
             if (event.button === 1) void window.warden.tab.close(tab.id)
           }}
-          title={`${tab.title}\n${tab.url}`}
+          title={`${tab.title}\n${tab.url}\nDrag to reorder`}
         >
           {tab.loading ? (
             <span className="spin" />

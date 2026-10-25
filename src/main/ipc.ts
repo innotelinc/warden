@@ -109,6 +109,10 @@ export function registerIpc(warden: WardenContext): void {
 
   handle('warden:tab:close', (id: string) => context().tabs.close(id))
   handle('warden:tab:activate', (id: string) => context().tabs.activate(id))
+  handle('warden:tab:move', (id: string, index: number) => {
+    context().tabs.move(id, index)
+    context().sendState()
+  })
 
   handle('warden:tab:navigate', (id: string, input: string) => {
     const target = resolveInput(input, searchUrl())
@@ -242,6 +246,15 @@ export function registerIpc(warden: WardenContext): void {
   // ------------------------------------------------------------ terminal
   handle('warden:term:create', (shell?: string) => {
     const info = context().terminal.create(shell || context().stores.settings.get().terminalShell)
+    context().setDrawer(true)
+    context().sendState()
+    return info
+  })
+  handle('warden:term:ssh', (input: { target: string; port?: number }) => {
+    const info = context().terminal.createSsh({
+      target: String(input?.target ?? ''),
+      port: Number(input?.port) || undefined
+    })
     context().setDrawer(true)
     context().sendState()
     return info

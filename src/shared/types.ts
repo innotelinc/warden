@@ -307,6 +307,10 @@ export interface TerminalInfo {
   id: string
   title: string
   shell: string
+  /** A local shell, or an ssh login running in the same PTY. */
+  kind?: 'shell' | 'ssh'
+  /** The ssh destination (`user@host`), null for local shells. */
+  target?: string | null
   backend: 'pty' | 'pipe'
   cols: number
   rows: number
@@ -400,6 +404,8 @@ export interface WardenApi {
   tab: {
     create(url?: string, burner?: boolean): Promise<string>
     close(id: string): Promise<void>
+    /** Reorder the strip; index is the destination slot. */
+    move(id: string, index: number): Promise<void>
     activate(id: string): Promise<void>
     navigate(id: string, url: string): Promise<void>
     back(id: string): Promise<void>
@@ -444,6 +450,8 @@ export interface WardenApi {
 
   terminal: {
     create(shell?: string): Promise<TerminalInfo>
+    /** Open an ssh login in a new Trench session. */
+    ssh(input: { target: string; port?: number }): Promise<TerminalInfo>
     input(id: string, data: string): Promise<void>
     resize(id: string, cols: number, rows: number): Promise<void>
     kill(id: string): Promise<void>
