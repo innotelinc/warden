@@ -337,6 +337,167 @@ def select_target(rows: list[dict], build_number: str) -> dict | None:
     return wanted[0] if wanted else None
 
 
+# The screenshots a universal app needs before Apple lets a version be
+# submitted: one set for the largest iPhone and one for the largest iPad.
+RECOMMENDED_SHOTS = 3
+
+def newest_version(bearer: str, app: str) -> dict:
+    """The version page a submission is made against, with its build, its
+    per-language text and its review notes attached."""
+    payload = get(
+        "/v1/appStoreVersions",
+        bearer,
+        {
+            "filter[app]": app,
+            "filter[platform]": "IOS",
+            "sort": "-createdDate",
+            "limit": "1",
+            "include": "build,appStoreVersionLocalizations,appStoreReviewDetail",
+        },
+    )
+    data = payload.get("data") or []
+    if not data:
+        raise SystemExit(
+            "no iOS version page exists yet. App Store Connect -> Apps -> WARDEN -> "
+            "the iOS version must exist before a build can be attached to it."
+        )
+    version = data[0]
+    included = payload.get("included") or []
+
+    def first(kind: str) -> dict | None:
+        return next((item for item in included if item.get("type") == kind), None)
+
+    return {
+        "id": version["id"],
+        "version": version["attributes"].get("versionString") or "?",
+        "state": version["attributes"].get("appStoreState") or "?",
+        "build": first("builds"),
+        "review": first("appStoreReviewDetails"),
+        "localizations": [item for item in included if item.get("type") == "appStoreVersionLocalizations"],
+    }
+
+
+def screenshots(bearer: str, localization: str) -> list[dict]:
+    sets = get(
+        f"/v1/appStoreVersionLocalizations/{localization}/appScreenshotSets",
+        bearer,
+        {"limit": "50"},
+    )
+    rows = []
+    for shot_set in sets.get("data") or []:
+        shots = get(
+            f"/v1/appScreenshotSets/{shot_set['id']}/appScreenshots",
+            bearer,
+            {"limit": "50"},
+        )
+        rows.append(
+            {
+                "display": shot_set["attributes"].get("screenshotDisplayType") or "?",
+                "count": len(shots.get("data") or []),
+            }
+        )
+    return rows
+
+
+def app_info(bearer: str, app: str) -> dict:
+    payload = get(
+        "/v1/appInfos",
+        bearer,
+        {
+            "filter[app]": app,
+            "limit": "5",
+            "include": "appInfoLocalizations,primaryCategory,ageRatingDeclaration",
+        },
+    )
+    included = payload.get("included") or []
+    info = (payload.get("data") or [{}])[0]
+    return {
+        "category": next((i for i in included if i.get("type") == "appCategories"), None),
+        "localizations": [i for i in included if i.get("type") == "appInfoLocalizations"],
+        "rating": next((i for i in included if i.get("type") == "ageRatingDeclarations"), None),
+        "state": (info.get("attributes") or {}).get("appStoreState") if info else None,
+    }
+
+
+def unrestricted_web(rating: dict | None) -> tuple[str, bool]:
+    """The age-rating answer a browser lives or dies by, whatever Apple calls it."""
+    if not rating:
+        return "not answered yet", False
+    for key, value in (rating.get("attributes") or {}).items():
+        if "nrestrictedweb" in key.lower():
+            return ("yes" if value else "no"), True
+    return "not exposed by the API", True
+
+
+def submission_report(bearer: str, app: str) -> int:
+    version = newest_version(bearer, app)
+    info = app_info(bearer, app)
+
+    rows: list[tuple[str, bool, str]] = []
+
+    # --- text, per language -------------------------------------------------
+    for localization in version["localizations"]:
+        attributes = localization.get("attributes") or {}
+        language = attributes.get("locale") or "?"
+        for field, label in (
+            ("description", "description"),
+            ("keywords", "keywords"),
+            ("supportUrl", "support URL"),
+            ("marketingUrl", "marketing URL"),
+            ("promotionalText", "promotional text"),
+            ("whatsNew", "what's new"),
+        ):
+            value = attributes.get(field) or ""
+            rows.append((f"{language} {label}", bool(value), value[:40] or "empty"))
+
+        # --- screenshots ----------------------------------------------------
+        shots = screenshots(bearer, localization["id"])
+        kinds = ", ".join(f"{row['display']}={row['count']}" for row in shots) or "none"
+        has_iphone = any(row["display"].startswith("APP_IPHONE") for row in shots)
+        has_ipad = any(row["display"].startswith("APP_IPAD") for row in shots)
+        enough = all(row["count"] >= RECOMMENDED_SHOTS for row in shots) if shots else False
+        rows.append((f"{language} iPhone screenshots", has_iphone, kinds))
+        rows.append((f"{language} iPad screenshots", has_ipad, kinds))
+        rows.append((f"{language} {RECOMMENDED_SHOTS}+ per size", enough, kinds))
+
+    # --- app information ----------------------------------------------------
+    for localization in info["localizations"]:
+        attributes = localization.get("attributes") or {}
+        language = attributes.get("locale") or "?"
+        for field in ("name", "subtitle", "privacyPolicyUrl"):
+            value = attributes.get(field) or ""
+            rows.append((f"{language} {field}", bool(value), value[:40] or "empty"))
+
+    category = (info["category"] or {}).get("attributes") or {}
+    # appCategories has no attributes; the id itself is the platform category.
+    rows.append(("primary category", bool(info["category"]), category.get("name") or (info["category"] or {}).get("id") or "not set"))
+
+    answer, rated = unrestricted_web(info["rating"])
+    rows.append(("age rating answered", rated, answer))
+
+    # --- the version page ---------------------------------------------------
+    build = version["build"]
+    rows.append(("build attached", build is not None, (build or {}).get("attributes", {}).get("version") or "none"))
+    review = (version["review"] or {}).get("attributes") or {}
+    rows.append(("review notes", bool(review.get("notes")), (review.get("notes") or "empty")[:40]))
+    rows.append(("review contact", bool(review.get("contactEmail")), review.get("contactEmail") or "empty"))
+
+    width = max((len(row[0]) for row in rows), default=0)
+    print(f"App Store submission for {version['version']}  [{version['state']}]\n")
+    for label, ok, detail in rows:
+        print(f"{'ok  ' if ok else 'GAP '} {label.ljust(width)}  {detail}")
+
+    gaps = [label for label, ok, _ in rows if not ok]
+    print()
+    if gaps:
+        print(f"{len(gaps)} field(s) still needed before this version can be submitted:")
+        for gap in gaps:
+            print(f"  - {gap}")
+        return 1
+    print("nothing missing that the API reports; the version can be submitted.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--wait-minutes", type=int, default=0, help="poll until the build leaves PROCESSING")
@@ -347,6 +508,11 @@ def main() -> int:
         help="follow this build number, waiting even before Apple lists it",
     )
     parser.add_argument("--limit", type=int, default=5, help="how many builds to list")
+    parser.add_argument(
+        "--submission",
+        action="store_true",
+        help="report what the current iOS version still needs before it can be submitted",
+    )
     parser.add_argument(
         "--groups",
         action="store_true",
@@ -381,6 +547,9 @@ def main() -> int:
 
     bearer = token(key_id, issuer_id, key_path)
     app = app_id(bearer)
+
+    if args.submission:
+        return submission_report(bearer, app)
 
     deadline = time.monotonic() + args.wait_minutes * 60
     target: dict | None = None

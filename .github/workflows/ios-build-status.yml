@@ -35,6 +35,10 @@ on:
         description: Add the reported build to this TestFlight group (must be VALID)
         type: string
         default: ''
+      submission:
+        description: Report what the current App Store version still needs before submitting
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -73,8 +77,12 @@ jobs:
           BUILD_NUMBER: ${{ inputs.build_number }}
           GROUPS: ${{ inputs.groups }}
           ADD_TO_GROUP: ${{ inputs.add_build_to_group }}
+          SUBMISSION: ${{ inputs.submission }}
         run: |
           args=(--wait-minutes "${WAIT_MINUTES:-0}")
+          if [ "${SUBMISSION:-false}" = "true" ]; then
+            args+=(--submission)
+          fi
           if [ "${GROUPS:-false}" = "true" ]; then
             args+=(--groups)
           fi
