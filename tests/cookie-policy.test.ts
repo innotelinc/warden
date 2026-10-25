@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   filterResponseHeaders,
   isAllowlisted,
+  isCookieKeptByCompatibility,
   referrerFor,
   shouldAcceptCookie,
   shouldSendCookies,
@@ -55,6 +56,41 @@ describe('shouldAcceptCookie', () => {
 
   it('rejects everything under strict block mode', () => {
     expect(shouldAcceptCookie(block, 'news.example', null)).toBe(false)
+  })
+})
+
+/**
+ * Compatibility mode is granted for the host the operator was on
+ * (`www.amazon.com`), but a site's session cookies are written to the parent
+ * domain (`.amazon.com`). Judging the cookie by its own domain alone purged them
+ * on the next navigation, which left Amazon's challenge page without the session
+ * it had just been given and looped until "Max challenge attempts exceeded".
+ */
+describe('cookies kept by compatibility mode', () => {
+  const compatibility = ['www.amazon.com']
+
+  it('keeps a cookie written to the parent of the compatible host', () => {
+    expect(isCookieKeptByCompatibility('amazon.com', compatibility)).toBe(true)
+    expect(isCookieKeptByCompatibility('www.amazon.com', compatibility)).toBe(true)
+  })
+
+  it('keeps a cookie written on a subdomain of the compatible host', () => {
+    expect(isCookieKeptByCompatibility('checkout.www.amazon.com', compatibility)).toBe(true)
+  })
+
+  it('refuses sibling and lookalike domains', () => {
+    expect(isCookieKeptByCompatibility('evil-amazon.com', compatibility)).toBe(false)
+    expect(isCookieKeptByCompatibility('amazon.co.uk', compatibility)).toBe(false)
+    expect(isCookieKeptByCompatibility('tracker.example', compatibility)).toBe(false)
+  })
+
+  it('normalises casing and a leading dot on either side', () => {
+    expect(isCookieKeptByCompatibility('.Amazon.COM', compatibility)).toBe(true)
+    expect(isCookieKeptByCompatibility('amazon.com', ['WWW.Amazon.com'])).toBe(true)
+  })
+
+  it('keeps nothing when no host is in compatibility mode', () => {
+    expect(isCookieKeptByCompatibility('amazon.com', [])).toBe(false)
   })
 })
 

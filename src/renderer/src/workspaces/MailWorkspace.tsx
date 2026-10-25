@@ -7,6 +7,49 @@ function AddressList({ list }: { list: { name: string; address: string }[] }) {
   return <>{list.map((entry) => entry.name || entry.address).filter(Boolean).join(', ')}</>
 }
 
+/**
+ * Genie's verdict on the open message, next to the headers it was drawn from.
+ *
+ * A verdict is a tag with its reasons in the tooltip; the button is always
+ * there, so a message Genie skipped can still be checked on demand.
+ */
+function FraudRow({
+  fraud,
+  busy,
+  error
+}: {
+  fraud: { verdict: 'clear' | 'suspicious' | 'dangerous'; score: number; summary: string; reasons: string[] } | null
+  busy: boolean
+  error: string | null
+}) {
+  const label = fraud
+    ? fraud.verdict === 'clear'
+      ? `Genie: clear · ${fraud.score}`
+      : fraud.verdict === 'suspicious'
+        ? `Genie: suspicious · ${fraud.score}`
+        : `Genie: likely fraud · ${fraud.score}`
+    : ''
+  return (
+    <>
+      {busy ? <span className="tag amber">Genie is reading this message…</span> : null}
+      {!busy && fraud ? (
+        <span
+          className={`tag ${fraud.verdict === 'clear' ? 'mint' : fraud.verdict === 'suspicious' ? 'amber' : 'red'}`}
+          title={[fraud.summary, ...fraud.reasons].filter(Boolean).join('\n')}
+        >
+          {label}
+        </span>
+      ) : null}
+      {!busy && error ? <span className="tag red" title={error}>Genie: {error}</span> : null}
+      {!busy ? (
+        <button className="chip" onClick={() => void window.warden.mail.checkFraud()} title="Ask Genie to read this message for fraud">
+          {fraud || error ? 'Re-check with Genie' : 'Check with Genie'}
+        </button>
+      ) : null}
+    </>
+  )
+}
+
 export function MailWorkspace() {
   const { state, notify } = useWarden()
   const [composeOpen, setComposeOpen] = useState(false)
@@ -166,11 +209,16 @@ export function MailWorkspace() {
                     {new Date(mail.selected.date).toLocaleString()}
                   </div>
                 </div>
-                {mail.selected.remoteContentCount > 0 ? (
-                  <div className="row" style={{ marginTop: 8 }}>
+                <div className="row wrap" style={{ marginTop: 8 }}>
+                  {mail.selected.remoteContentCount > 0 ? (
                     <span className="tag amber">{mail.selected.remoteContentCount} remote references withheld</span>
-                  </div>
-                ) : null}
+                  ) : null}
+                  <FraudRow
+                    fraud={mail.fraud && mail.fraud.uid === mail.selected.uid ? mail.fraud : null}
+                    busy={mail.fraudBusy}
+                    error={mail.fraudError}
+                  />
+                </div>
               </div>
               <div className="reader-body">
                 <iframe

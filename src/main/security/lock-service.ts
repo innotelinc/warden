@@ -15,7 +15,15 @@ import { BrowserWindow, powerMonitor } from 'electron'
 import os from 'node:os'
 import { shouldAutoLock } from '@shared/lock-policy'
 import type { LockState } from '@shared/types'
-import { verifyWindowsPassword } from './win-auth'
+import {
+  checkWindowsHello,
+  helloAvailabilityMessage,
+  helloMessage,
+  promptWindowsHello,
+  verifyWindowsPassword,
+  type HelloOutcome
+} from './win-auth'
+import type { LockHelloReport, LockHelloStatus } from '@shared/types'
 
 interface Options {
   parent: () => BrowserWindow | null
@@ -41,6 +49,8 @@ export class LockService {
   private closing = false
   private timer: NodeJS.Timeout | null = null
   private readonly startedAt = Date.now()
+  /** Last answer from the verifier; `unknown` until the check runs. */
+  private hello: LockHelloStatus = 'unknown'
   /** Set only by the smoke harness, which has no Windows password to offer. */
   private readonly testPassword: string | null = null
 
@@ -59,7 +69,8 @@ export class LockService {
       error: this.error,
       timeoutMinutes: this.options.timeoutMinutes(),
       idleSeconds: this.safeIdle(),
-      byTimeout: this.byTimeout
+      byTimeout: this.byTimeout,
+      hello: this.hello
     }
   }
 
@@ -133,6 +144,24 @@ export class LockService {
     ) {
       void this.lock(true)
     }
+  }
+
+  /**
+   * Ask the verifier whether Hello is enrolled here, without prompting.
+   *
+   * Runs on demand — from Policy, and from the lock screen itself once it is up
+   * — so an operator finds out their PIN will not work *before* the screen is
+   * covered, not after three failed attempts.
+   */
+  async helloReport(): Promise<LockHelloReport> {
+    if (this.testPassword !== null) {
+      this.hello = 'available'
+      this.emit()
+      return { hello: 'available', note: helloAvailabilityMessage('available') }
+    }
+    this.hello = await checkWindowsHello()
+    this.emit()
+    return { hello: this.hello, note: helloAvailabilityMessage(this.hello) }
   }
 
   async lock(byTimeout = false): Promise<void> {
@@ -234,11 +263,48 @@ export class LockService {
     void this.startedAt
   }
 
+  /**
+   * Unlock with whatever Windows has enrolled: PIN, fingerprint or face.
+   *
+   * The previous lock screen only accepted the account password, which is the
+   * one credential most people no longer type to sign in. A PIN is verified by
+   * the Hello stack, never by this process, so the OS prompt does the checking
+   * and WARDEN only learns whether it passed.
+   */
+  async unlockWithHello(): Promise<{ ok: boolean; error?: string }> {
+    if (!this.overlay) return { ok: false, error: 'Nothing is locked.' }
+    if (this.busy) return { ok: false, error: 'Checking…' }
+
+    this.busy = true
+    this.error = null
+    this.emit()
+
+    // The overlay is pinned at `screen-saver` level; the OS prompt has to be
+    // able to appear above it, or the operator would be looking at a lock screen
+    // that seems to do nothing while an invisible dialog times out.
+    this.overlay.setAlwaysOnTop(false)
+    const outcome: HelloOutcome = this.testPassword !== null ? 'verified' : await promptWindowsHello('Unlock WARDEN')
+    if (this.overlay && !this.overlay.isDestroyed()) {
+      this.overlay.setAlwaysOnTop(true, 'screen-saver')
+      this.overlay.focus()
+    }
+
+    this.busy = false
+    if (outcome === 'verified') {
+      this.release()
+      return { ok: true }
+    }
+
+    this.error = helloMessage(outcome)
+    this.emit()
+    return { ok: false, error: this.error }
+  }
+
   async unlock(password: string): Promise<{ ok: boolean; error?: string }> {
     if (!this.overlay) return { ok: false, error: 'Nothing is locked.' }
     if (this.busy) return { ok: false, error: 'Checking…' }
     if (!password) {
-      this.error = 'Enter your Windows password.'
+      this.error = 'Use Windows Hello above, or enter your account password.'
       this.emit()
       return { ok: false, error: this.error }
     }
@@ -256,8 +322,8 @@ export class LockService {
       this.attempts += 1
       this.error =
         this.attempts >= 3
-          ? 'Still not accepted. Use your Windows sign-in password, or restart WARDEN and sign out.'
-          : 'That password did not match this Windows account.'
+          ? 'Still not accepted. Use Windows Hello above, or your account password — a PIN is not an account password.'
+          : 'That password did not match this Windows account. A PIN is not the account password.'
       this.emit()
       return { ok: false, error: this.error }
     }

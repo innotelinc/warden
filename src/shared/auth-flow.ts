@@ -19,9 +19,13 @@ export interface SignInHosts {
   application: string | null
 }
 
-/** Paths used by the identity providers WARDEN is likely to meet. */
+/**
+ * Paths used by the identity providers WARDEN is likely to meet, plus the
+ * application-side start routes (`/api/auth/oidc/start`, `/auth/login`) that
+ * an SSO-only control plane opens in a popup before any provider is named.
+ */
 const AUTH_PATH =
-  /\/(application\/o\/authorize|if\/flow|oauth2?|openid-connect|realms\/[^/]+\/protocol\/openid-connect|saml|saml2|adfs|wsfed|signin-oidc|login|signin|authorize|sso)(\/|$)/i
+  /\/(application\/o\/authorize|if\/flow|oauth2?|oidc|openid-connect|realms\/[^/]+\/protocol\/openid-connect|saml|saml2|adfs|wsfed|signin-oidc|login|signin|authorize|auth|sso)(\/|$)/i
 
 /** Parameters that carry the application's callback URL, directly or nested. */
 const CALLBACK_PARAMS = [

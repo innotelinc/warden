@@ -31,12 +31,27 @@ export interface TabState {
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
-  isBurner: boolean
+  /** Cloak on: the tab is in its own throwaway memory session. */
+  cloaked: boolean
   muted: boolean
   crashed: boolean
   secure: SecureState
   blocked: number
   mediaCount: number
+}
+
+/**
+ * A tab that keeps loading the same page instead of navigating: the shape of a
+ * challenge loop (bot wall, cookie gate, restarting login) that WARDEN's own
+ * cookie policy is usually the reason for. The remedy is per-site compatibility
+ * mode, so the hint names the host to exempt and never decides for the operator.
+ */
+export interface ChallengeHint {
+  host: string
+  /** `loop` = the tab keeps reloading; `wall` = the page is a captcha gate. */
+  kind: 'loop' | 'wall'
+  /** Loop only: main-frame loads of that host inside the observation window. */
+  attempts?: number
 }
 
 export type CookieMode = 'block' | 'first-party'
@@ -81,6 +96,10 @@ export interface Settings {
   debugPort: number
   /** Check GitHub for a newer WARDEN and download it in the background. */
   autoUpdate: boolean
+  /** Genie reads each mail message it opens and flags fraud and deception. */
+  autoFraudCheck: boolean
+  /** The first-launch walkthrough has been finished or skipped. */
+  walkthroughSeen: boolean
   /** Minutes of no keyboard or mouse input before the lock screen covers WARDEN. 0 = off. */
   lockTimeoutMinutes: number
   /** Resolve DNS over HTTPS instead of the system resolver. Needs a relaunch. */
@@ -95,6 +114,11 @@ export interface Settings {
   vpnHost: string
   vpnPort: number
   vpnBypass: string
+  /**
+   * Fail closed: when a tunnel is configured but its endpoint is not answering,
+   * page traffic is refused instead of quietly going out direct. On by default.
+   */
+  vpnKillSwitch: boolean
   cameraMode: 'off' | 'soften' | 'portrait' | 'pixelate' | 'silhouette'
   /** 0-100; scales blur radius and pixel size. */
   cameraStrength: number
@@ -123,6 +147,28 @@ export interface UpdateState {
   automatic: boolean
 }
 
+/**
+ * What Windows Hello can do here, as far as WARDEN has checked.
+ *
+ * `unknown` means the check has not run yet — it is never treated as a yes.
+ */
+export type LockHelloStatus =
+  | 'available'
+  /** Enrolled, but the verifier did not answer: try it, password still works. */
+  | 'enrolled'
+  | 'not-configured'
+  | 'not-present'
+  | 'disabled'
+  | 'busy'
+  | 'unavailable'
+  | 'unknown'
+
+export interface LockHelloReport {
+  hello: LockHelloStatus
+  /** One sentence for the UI: what works here, and what to use instead. */
+  note: string
+}
+
 export interface LockState {
   locked: boolean
   /** Password attempts in this lock session. */
@@ -134,6 +180,8 @@ export interface LockState {
   idleSeconds: number
   /** True when the lock was raised by the idle timer rather than Ctrl+\ . */
   byTimeout: boolean
+  /** Cached Windows Hello availability; see `helloStatus` for a fresh check. */
+  hello: LockHelloStatus
 }
 
 export interface BlockedHost {
@@ -239,6 +287,31 @@ export interface MailSummary {
   hasAttachments: boolean
   preview: string
   size: number
+}
+
+export type FraudVerdict = 'clear' | 'suspicious' | 'dangerous'
+
+/** What Genie is given to judge: the message, reduced to what matters. */
+export interface FraudInput {
+  uid: number
+  subject: string
+  from: string[]
+  to: string[]
+  date: string
+  text: string
+  links: string[]
+}
+
+/** Genie's read on one message: what it is, how risky, and why. */
+export interface FraudAssessment {
+  /** The message it belongs to, so a stale verdict cannot dress a new one. */
+  uid: number
+  verdict: FraudVerdict
+  /** 0-100; higher is more dangerous. */
+  score: number
+  summary: string
+  reasons: string[]
+  checkedAt: number
 }
 
 export interface MailBody {
@@ -389,9 +462,21 @@ export interface DownloadItem {
 export interface AppState {
   tabs: TabState[]
   activeTabId: string | null
+  /** Set when the active tab is stuck reloading a challenge page. */
+  challenge: ChallengeHint | null
   workspace: WorkspaceId
   settings: Settings
   stats: PrivacyStats
+  /**
+   * Egress posture, including whether the tunnel endpoint answered. `down` with
+   * the kill switch on means page traffic is being refused, not sent direct.
+   */
+  egress: {
+    kind: 'direct' | 'proxy'
+    label: string
+    health: 'unknown' | 'up' | 'down'
+    killSwitch: boolean
+  }
   media: MediaSlot[]
   mediaForTab: string | null
   mediaAvailable: MediaItem[]
@@ -407,6 +492,10 @@ export interface AppState {
     selected: MailBody | null
     busy: boolean
     error: string | null
+    /** Genie's fraud read on the selected message, when there is one. */
+    fraud: FraudAssessment | null
+    fraudBusy: boolean
+    fraudError: string | null
   }
   messaging: {
     services: MessagingService[]
@@ -466,6 +555,14 @@ export interface WardenApi {
     /** Reorder the strip; index is the destination slot. */
     move(id: string, index: number): Promise<void>
     activate(id: string): Promise<void>
+    /** Silence the challenge hint for this tab until it loops again. */
+    dismissChallenge(id: string, host: string): Promise<void>
+    /**
+     * Turn the cloak on or off. The session is fixed when a view is created, so
+     * the page reopens in a new tab on the other session and the old one closes;
+     * history does not carry over.
+     */
+    cloak(id: string, on: boolean): Promise<void>
     navigate(id: string, url: string): Promise<void>
     back(id: string): Promise<void>
     forward(id: string): Promise<void>
@@ -500,6 +597,8 @@ export interface WardenApi {
      */
     allowSignIn(url: string): Promise<{ allowed: string[]; settings: Settings }>
     clearCookies(): Promise<number>
+    /** TCP-connect the configured tunnel endpoint; no page traffic involved. */
+    probeEgress(): Promise<'unknown' | 'up' | 'down'>
     syncLists(): Promise<{ rules: number }>
     refresh(): Promise<PrivacyStats>
   }
@@ -535,6 +634,8 @@ export interface WardenApi {
     send(input: SendMailInput): Promise<void>
     setFlag(uid: number, flag: 'seen' | 'flagged', value: boolean): Promise<void>
     refresh(): Promise<void>
+    /** Ask Genie to read the selected message for fraud, ignoring the cache. */
+    checkFraud(): Promise<FraudAssessment | null>
   }
 
   messaging: {
@@ -583,6 +684,13 @@ export interface WardenApi {
     lock(): Promise<void>
     /** Verify the Windows password and, on success, uncover the app. */
     unlock(password: string): Promise<{ ok: boolean; error?: string }>
+    /** Unlock with the Windows Hello PIN, fingerprint or face. */
+    hello(): Promise<{ ok: boolean; error?: string }>
+    /**
+     * Is Windows Hello enrolled and usable? Never prompts, so it can be asked
+     * from Policy and from the lock screen before anything is verified.
+     */
+    helloStatus(): Promise<LockHelloReport>
     /** State for the lock window itself. */
     bootstrap(): Promise<{ lock: LockState; background: string | null; user: string }>
     onState(listener: (state: LockState) => void): () => void

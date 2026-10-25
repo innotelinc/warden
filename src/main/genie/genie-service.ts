@@ -7,7 +7,7 @@
  * sitting in (the active page, privacy counters, the last Scry report), which
  * is what makes it useful without being allowed to act on the machine.
  */
-import type { GenieEvent } from '@shared/types'
+import type { FraudAssessment, FraudInput, GenieEvent } from '@shared/types'
 
 export type { GenieEvent }
 
@@ -69,6 +69,51 @@ const TOOLS = [
     }
   }
 ] as const
+
+const FRAUD_PROMPT = `You are a fraud analyst inside WARDEN's mail client. Read one message and judge whether it is a phishing or deception attempt.
+
+Weigh: display name against address, lookalike or free-mail domains where a company should write, urgency and threats, requests for credentials or payment, invoice/refund bait, links whose host does not match the claimed sender, and mismatched reply-to. Treat poor grammar as a weak signal only.
+
+Answer with JSON only, no prose and no code fences:
+{"verdict":"clear|suspicious|dangerous","score":0-100,"summary":"one sentence","reasons":["short reason"]}
+
+Never invent evidence that is not in the message. An ordinary message is "clear" with a score under 20. Give at most five reasons, each under 120 characters.`
+
+/**
+ * Read Genie's answer into an assessment.
+ *
+ * The gateway is a general chat endpoint, so it may wrap JSON in prose or a
+ * code fence even when told not to. Anything that cannot be read as a valid
+ * verdict is rejected rather than guessed at: a wrong "clear" is worse than an
+ * error the operator can see.
+ */
+export function parseFraudAssessment(raw: string, uid: number): FraudAssessment | null {
+  const text = raw.replace(/```[a-z]*\n?/gi, '')
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start === -1 || end <= start) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const record = parsed as Record<string, unknown>
+  const verdict = record.verdict
+  if (verdict !== 'clear' && verdict !== 'suspicious' && verdict !== 'dangerous') return null
+
+  const scoreRaw = Number(record.score)
+  const score = Number.isFinite(scoreRaw) ? Math.min(100, Math.max(0, Math.round(scoreRaw))) : 0
+  const summary = typeof record.summary === 'string' ? record.summary.trim().slice(0, 240) : ''
+  const reasons = Array.isArray(record.reasons)
+    ? record.reasons
+        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        .map((entry) => entry.trim().slice(0, 180))
+        .slice(0, 5)
+    : []
+  return { uid, verdict, score, summary, reasons, checkedAt: Date.now() }
+}
 
 const SYSTEM_PROMPT = `You are Genie, the assistant inside WARDEN — a privacy-first operations browser used by security and network administrators.
 
@@ -149,6 +194,54 @@ export class GenieService {
       return this.deps.scrySummary() ?? JSON.stringify({ note: 'No Scry capture has been run yet.' })
     }
     return JSON.stringify({ error: `Unknown tool: ${name}` })
+  }
+
+  /**
+   * Read one message for fraud. Separate from the chat turn: it does not stream,
+   * does not touch the panel's history, and cannot collide with an answer the
+   * operator is reading.
+   */
+  async assessFraud(input: FraudInput): Promise<FraudAssessment> {
+    const key = this.deps.apiKey()
+    if (!key) {
+      throw new Error('No gateway key. Set one in Policy → Genie, or start WARDEN with INNOTEL_GATEWAY_KEY set.')
+    }
+    const abort = new AbortController()
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      abort.abort()
+    }, 45000)
+    try {
+      const response = await fetch(`${this.deps.gatewayUrl().replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: this.deps.model(),
+          stream: false,
+          temperature: 0,
+          messages: [
+            { role: 'system', content: FRAUD_PROMPT },
+            { role: 'user', content: JSON.stringify(input).slice(0, 12000) }
+          ]
+        }),
+        signal: abort.signal
+      })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(`Gateway ${response.status}: ${detail.slice(0, 200) || response.statusText}`)
+      }
+      const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] }
+      const content = payload.choices?.[0]?.message?.content ?? ''
+      const assessment = parseFraudAssessment(content, input.uid)
+      if (!assessment) throw new Error('Genie returned an unreadable assessment.')
+      return assessment
+    } catch (error) {
+      if (timedOut) throw new Error('Genie did not answer within 45s. Try again when the gateway is up.')
+      throw error
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   async ask(messages: GenieMessage[], model?: string): Promise<{ ok: boolean }> {

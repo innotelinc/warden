@@ -29,10 +29,14 @@ export function sanitizeSettings(value: unknown): Settings {
   merged.debugPort =
     Number.isInteger(debugPort) && debugPort >= 1024 && debugPort <= 65535 ? debugPort : 0
   merged.autoUpdate = merged.autoUpdate !== false
+  merged.autoFraudCheck = merged.autoFraudCheck !== false
+  merged.walkthroughSeen = merged.walkthroughSeen === true
   merged.dnsOverHttps = merged.dnsOverHttps !== false
   merged.dnsProvider = dohTemplateFor(input.dnsProvider ?? '') ? String(input.dnsProvider) : DEFAULT_DOH_PROVIDER
   merged.privateByDefault = merged.privateByDefault !== false
   merged.vpnEnabled = merged.vpnEnabled !== false
+  // Fail closed unless the operator turned it off explicitly.
+  merged.vpnKillSwitch = merged.vpnKillSwitch !== false
   const proxy = normalizeProxy({
     mode: merged.vpnMode,
     host: merged.vpnHost,

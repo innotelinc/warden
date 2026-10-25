@@ -55,9 +55,54 @@ export function proxyRule(settings: ProxySettings): ProxyState {
   return { kind: 'proxy', rule: `${scheme}://${clean.host}:${clean.port}` }
 }
 
+/**
+ * Whether the endpoint is answering, checked without carrying any traffic.
+ *
+ * `unknown` is a real state: the probe has not answered yet, and treating that
+ * as a failure would block every page while WARDEN is still starting.
+ */
+export type EgressHealth = 'unknown' | 'up' | 'down'
+
+export type EgressVerdict =
+  | { allow: true; via: 'direct' | 'tunnel' }
+  | { allow: false; via: 'kill-switch'; reason: string }
+
+/**
+ * The kill switch.
+ *
+ * A tunnel you believe in is worse than no tunnel: if the endpoint stops
+ * answering, Chromium would fall back to direct egress and the operator would
+ * not notice until much later. With `vpnKillSwitch` on — the default — a
+ * configured tunnel whose endpoint is down refuses page traffic outright.
+ *
+ * It never blocks when there is no tunnel to protect (nothing configured), and
+ * it never blocks internal pages: those come from WARDEN itself.
+ */
+export function egressVerdict(input: {
+  state: ProxyState
+  health: EgressHealth
+  killSwitch: boolean
+  /** WARDEN's own pages and devtools: always allowed. */
+  internal?: boolean
+}): EgressVerdict {
+  if (input.internal) return { allow: true, via: 'direct' }
+  if (input.state.kind === 'direct') return { allow: true, via: 'direct' }
+  if (input.health !== 'down') return { allow: true, via: 'tunnel' }
+  if (!input.killSwitch) return { allow: true, via: 'tunnel' }
+  return {
+    allow: false,
+    via: 'kill-switch',
+    reason: 'The tunnel endpoint is not answering, so WARDEN is refusing to send traffic direct.'
+  }
+}
+
 /** Human-readable one-liner for Policy and the new-tab footer. */
-export function egressLabel(settings: ProxySettings): string {
+export function egressLabel(settings: ProxySettings, health: EgressHealth = 'unknown'): string {
   const state = proxyRule(settings)
-  if (state.kind === 'proxy') return `tunnel ${state.rule}`
-  return state.reason === 'disabled' ? 'direct egress' : 'no endpoint configured'
+  if (state.kind === 'direct') {
+    return state.reason === 'disabled' ? 'direct egress' : 'no endpoint configured'
+  }
+  if (health === 'down') return `tunnel ${state.rule} · endpoint down`
+  if (health === 'up') return `tunnel ${state.rule}`
+  return `tunnel ${state.rule} · checking`
 }

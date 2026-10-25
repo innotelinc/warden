@@ -19,6 +19,7 @@ import type {
 import type { JsonStore } from './store/json-store'
 import type { TabManager } from './browser/tabs'
 import { resolveInput } from './browser/tabs'
+import { docUrl, resolveDocPath } from './browser/local-doc'
 import { hostMatches, hostOfUrl } from '@shared/urls'
 import { signInHostsFor } from '@shared/auth-flow'
 import type { PrivacyService } from './privacy/privacy-service'
@@ -107,22 +108,41 @@ export function registerIpc(warden: WardenContext): void {
   })
 
   // --------------------------------------------------------------- tabs
+  /**
+   * Where an address-bar string goes.
+   *
+   * A path to a document on this machine is not a search and not a `file://`
+   * navigation the page guard would refuse: it opens the read-only reader.
+   */
+  const targetFor = (input: string): string => {
+    const doc = resolveDocPath(input)
+    if (doc) return docUrl(doc)
+    return resolveInput(input, searchUrl()) ?? 'warden://newtab'
+  }
+
   handle('warden:tab:create', (url: string, burner: boolean) => {
-    const target = url ? resolveInput(url, searchUrl()) ?? 'warden://newtab' : 'warden://newtab'
+    const target = url ? targetFor(url) : 'warden://newtab'
     return context().tabs.create(target, Boolean(burner))
   })
 
   handle('warden:tab:close', (id: string) => context().tabs.close(id))
   handle('warden:tab:activate', (id: string) => context().tabs.activate(id))
+  handle('warden:tab:dismissChallenge', (id: string, host: string) => {
+    context().tabs.dismissChallenge(id, host)
+    context().sendState()
+  })
+  handle('warden:tab:cloak', (id: string, on: boolean) => {
+    context().tabs.setCloak(id, Boolean(on))
+    context().sendState()
+  })
   handle('warden:tab:move', (id: string, index: number) => {
     context().tabs.move(id, index)
     context().sendState()
   })
 
   handle('warden:tab:navigate', (id: string, input: string) => {
-    const target = resolveInput(input, searchUrl())
-    if (!target) return
-    context().tabs.navigate(id, target)
+    if (!input.trim()) return
+    context().tabs.navigate(id, targetFor(input))
   })
 
   handle('warden:tab:back', (id: string) => context().tabs.back(id))
@@ -239,6 +259,8 @@ export function registerIpc(warden: WardenContext): void {
   })
 
   handle('warden:privacy:clearCookies', () => context().privacy.wipeCookies())
+  /** Is the configured tunnel endpoint answering? Adds no traffic of its own. */
+  handle('warden:privacy:probeEgress', () => context().privacy.probeEgressNow())
   handle('warden:privacy:sync', async () => {
     const rules = await context().privacy.syncRemoteLists()
     context().sendState()
@@ -256,7 +278,7 @@ export function registerIpc(warden: WardenContext): void {
 
   handle('warden:media:open', (tabId: string, item: MediaItem) => {
     const url = context().tabs.getTabUrl(tabId) ?? ''
-    const slot = context().media.open(item, url)
+    const slot = context().media.open(item, url, context().tabs.getSession(tabId) ?? undefined)
     if (slot !== null) {
       context().tabs.getWebContents(tabId)?.send('warden:media:claim', item.url)
       context().sendState()
@@ -324,6 +346,7 @@ export function registerIpc(warden: WardenContext): void {
   handle('warden:mail:flag', (uid: number, flag: 'seen' | 'flagged', value: boolean) =>
     context().mail.setFlag(uid, flag, value)
   )
+  handle('warden:mail:fraud', () => context().mail.checkSelected())
   handle('warden:mail:refresh', async () => {
     await context().mail.refreshFolders()
     await context().mail.refreshMessages()
@@ -491,6 +514,8 @@ export function registerIpc(warden: WardenContext): void {
   handle('warden:lock:unlock', (password: string) =>
     context().lock.unlock(typeof password === 'string' ? password : '')
   )
+  handle('warden:lock:hello', () => context().lock.unlockWithHello())
+  handle('warden:lock:helloStatus', () => context().lock.helloReport())
   handle('warden:lock:bootstrap', () => ({
     lock: context().lock.snapshot(),
     background: context().lock.backdrop(),
@@ -502,7 +527,7 @@ export function registerIpc(warden: WardenContext): void {
     if (!/^https?:/i.test(url)) return { opened: false, reason: 'Only http(s) handoff is considered, and WARDEN refuses it.' }
     return {
       opened: false,
-      reason: 'WARDEN does not hand pages to another browser. Open it in a burner tab instead.'
+      reason: 'WARDEN does not hand pages to another browser. Open it in a cloaked tab instead.'
     }
   })
 
@@ -519,6 +544,17 @@ export function registerIpc(warden: WardenContext): void {
     event.returnValue = context().privacy.cookiesAllowedFor(
       typeof host === 'string' && host ? host : null
     )
+  })
+
+  // The content preload answers whether the document it just loaded is a
+  // human-verification wall. A tab's own view is the only sender that may speak
+  // for it, and the answer is replaced on every load, so a solved wall clears
+  // the prompt instead of leaving it behind.
+  ipcMain.on('warden:challenge:wall', (event, tabId: unknown, reason: unknown) => {
+    if (typeof tabId !== 'string' || !tabId) return
+    if (context().tabs.getWebContents(tabId)?.id !== event.sender.id) return
+    const changed = context().tabs.setChallengeWall(tabId, typeof reason === 'string' ? reason : null)
+    if (changed) context().sendState()
   })
 
   ipcMain.on('warden:window:minimize', () => context().win.minimize())

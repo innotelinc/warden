@@ -447,8 +447,46 @@ export function lockPageHtml(): string {
   button:hover { filter: brightness(1.06); }
   button:active { transform: translateY(1px); }
   button[disabled] { opacity: 0.55; cursor: default; }
+  /* Windows Hello first: it is the credential people actually use to sign in,
+     and the PIN never enters this document — Windows verifies it. */
+  .hello {
+    margin-top: 22px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 12px 16px;
+    border: 0;
+    border-radius: 10px;
+    font: 600 12.5px/1 "Segoe UI", system-ui, sans-serif;
+    letter-spacing: 0.03em;
+    color: #04120f;
+    background: linear-gradient(180deg, #5df0cf, #35c9ab);
+    cursor: pointer;
+    transition: filter 140ms ease, transform 140ms ease;
+  }
+  .hello svg { width: 18px; height: 18px; }
+  .hello:hover { filter: brightness(1.06); }
+  .hello:active { transform: translateY(1px); }
+  .hello[disabled] { opacity: 0.55; cursor: default; }
+  .hello-note {
+    margin-top: 9px;
+    color: var(--amber);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .hello-note:empty { display: none; }
+  .hello[disabled] { opacity: 0.5; }
+  .or {
+    margin: 12px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
   .error {
     min-height: 16px;
+    margin-top: 12px;
     color: var(--danger);
     font-size: 12px;
     text-align: left;
@@ -495,20 +533,35 @@ export function lockPageHtml(): string {
     <div class="eyebrow">Warden protected</div>
     <h1>Screen locked</h1>
     <div class="user">Signed in as <strong id="user">this device</strong></div>
+    <button class="hello" id="hello" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3.6c-3.1 0-5.6 2.5-5.6 5.6v2.2c0 2.1-.5 4-1.6 5.6" />
+        <path d="M12 6.6a2.6 2.6 0 0 0-2.6 2.6v2.6c0 1.7-.4 3.2-1.2 4.5" />
+        <path d="M14.6 9.2v2.6c0 2.6-.7 5-2 7" />
+        <path d="M17.6 9.2v2.6c0 3.3-1 6.3-2.8 8.6" />
+        <path d="M12 12.6v.6" />
+      </svg>
+      <span>Unlock with Windows Hello</span>
+    </button>
+    <div class="hello-note" id="helloNote"></div>
+    <div class="or">PIN, fingerprint or face · or your account password</div>
     <form id="form" autocomplete="off">
       <div class="field">
-        <input id="password" type="password" placeholder="Windows password" spellcheck="false" autofocus />
+        <input id="password" type="password" placeholder="Account password" spellcheck="false" autofocus />
         <button id="submit" type="submit">Unlock</button>
       </div>
-      <div class="error" id="error"></div>
     </form>
-    <div class="hint"><span><kbd>Ctrl</kbd> <kbd>\\</kbd> locks</span><span>·</span><span id="reason">Your Windows password unlocks</span></div>
+    <div class="error" id="error"></div>
+    <div class="hint"><span><kbd>Ctrl</kbd> <kbd>\\</kbd> locks</span><span>·</span><span id="reason">Hello unlocks this screen</span></div>
   </div>
 <script>
   (async function () {
     var api = window.warden;
     var input = document.getElementById('password');
     var button = document.getElementById('submit');
+    var hello = document.getElementById('hello');
+    var helloNote = document.getElementById('helloNote');
+    var helloUsable = true;
     var error = document.getElementById('error');
     var backdrop = document.getElementById('backdrop');
     var clock = document.getElementById('clock');
@@ -536,8 +589,33 @@ export function lockPageHtml(): string {
       error.textContent = state.error || '';
       button.disabled = Boolean(state.busy);
       input.disabled = Boolean(state.busy);
+      hello.disabled = Boolean(state.busy) || !helloUsable;
       if (!state.busy) input.focus();
     });
+
+    // Ask the verifier before it is needed. If this account has no Hello
+    // enrolment, say so here instead of letting the operator press a button
+    // that cannot work while the screen is covered.
+    function applyHello(report) {
+      if (!report || !report.hello) return;
+      // "enrolled" means the verifier stayed silent on a machine that has a
+      // Hello container, so the button stays live and the password waits below.
+      helloUsable = report.hello === 'available' || report.hello === 'enrolled';
+      hello.disabled = !helloUsable;
+      helloNote.textContent = helloUsable ? '' : report.note || '';
+    }
+    api.lock.helloStatus().then(applyHello).catch(function () {
+      /* the password field remains the way in */
+    });
+
+    async function withHello() {
+      error.textContent = '';
+      hello.disabled = true;
+      var result = await api.lock.hello();
+      hello.disabled = false;
+      if (!result.ok) error.textContent = result.error || 'Windows Hello did not verify you.';
+    }
+    hello.addEventListener('click', withHello);
 
     document.getElementById('form').addEventListener('submit', async function (event) {
       event.preventDefault();

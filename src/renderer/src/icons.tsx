@@ -21,6 +21,17 @@ function Icon({ size = 16, children, ...rest }: IconProps & { children: React.Re
   )
 }
 
+/**
+ * A cape: the cloak toggle in the tab strip. The session a tab runs in is a
+ * privacy switch, not an accessory, so it gets a mark of its own.
+ */
+export const IconCloak = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M12 4 5.6 6.3c-.9.3-1.4 1.3-1.2 2.2l2 9.3 3.3-2.2 2.3 1.8 2.3-1.8 3.3 2.2 2-9.3c.2-.9-.3-1.9-1.2-2.2L12 4Z" />
+    <path d="M8.6 5.5c2.2 1 4.6 1 6.8 0" />
+  </Icon>
+)
+
 export const IconShield = (props: IconProps) => (
   <Icon {...props}>
     <path d="M12 3 5 6v6c0 4.2 3 7.5 7 9 4-1.5 7-4.8 7-9V6l-7-3Z" />

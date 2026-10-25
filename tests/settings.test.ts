@@ -24,6 +24,18 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ debugPort: 'nope' }).debugPort).toBe(0)
   })
 
+  /**
+   * The kill switch is the default: a tunnel that quietly falls back to direct
+   * egress is the failure mode it exists to prevent, so leaving it unset must
+   * read as on, and only an explicit false turns it off.
+   */
+  it('fails closed on egress unless the operator opts out', () => {
+    expect(DEFAULT_SETTINGS.vpnKillSwitch).toBe(true)
+    expect(sanitizeSettings({}).vpnKillSwitch).toBe(true)
+    expect(sanitizeSettings({ vpnKillSwitch: 'yes' }).vpnKillSwitch).toBe(true)
+    expect(sanitizeSettings({ vpnKillSwitch: false }).vpnKillSwitch).toBe(false)
+  })
+
   it('still guards the other port and keeps defaults for junk input', () => {
     const sanitized = sanitizeSettings({ scryPort: 1, terminalFontSize: 900 })
     expect(sanitized.scryPort).toBe(1024)

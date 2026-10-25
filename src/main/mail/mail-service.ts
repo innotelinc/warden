@@ -2,6 +2,8 @@ import { ImapFlow } from 'imapflow'
 import nodemailer from 'nodemailer'
 import { simpleParser } from 'mailparser'
 import type {
+  FraudAssessment,
+  FraudInput,
   MailAccountInput,
   MailAccountPublic,
   MailAddress,
@@ -34,6 +36,12 @@ function toAddresses(value: unknown): MailAddress[] {
     .filter((entry) => Boolean(entry.address))
 }
 
+/** Links in the plain-text body, deduplicated: what the analyst has to judge. */
+function extractLinks(text: string): string[] {
+  const found = text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []
+  return [...new Set(found)].slice(0, 20)
+}
+
 function countAttachments(structure: unknown): boolean {
   const node = structure as { childNodes?: unknown[]; disposition?: string; parameters?: Record<string, string> } | null
   if (!node) return false
@@ -51,12 +59,105 @@ export class MailService {
   private selected: MailBody | null = null
   private busy = false
   private error: string | null = null
+  private fraud: FraudAssessment | null = null
+  private fraudBusy = false
+  private fraudError: string | null = null
+  private fraudCache = new Map<number, FraudAssessment>()
+  private fraudChecker: ((input: FraudInput) => Promise<FraudAssessment>) | null = null
+  private fraudAvailable: (() => boolean) | null = null
 
   constructor(
     private readonly store: JsonStore<MailStore>,
     private readonly vault: SecretVault,
-    private readonly onChange: () => void
+    private readonly onChange: () => void,
+    /** Policy: should an opened message be read by Genie without being asked? */
+    private readonly autoFraud: () => boolean = () => false
   ) {}
+
+  /**
+   * Genie is built after the mail service, and its gateway can be unset for the
+   * whole session: the checker is attached when it exists, not assumed.
+   */
+  setFraudChecker(
+    checker: (input: FraudInput) => Promise<FraudAssessment>,
+    available: () => boolean = () => true
+  ): void {
+    this.fraudChecker = checker
+    this.fraudAvailable = available
+  }
+
+  /**
+   * Genie's read on the selected message.
+   *
+   * `manual` distinguishes a click from the automatic pass: an operator who
+   * asked deserves to be told why nothing happened, while automatic checks stay
+   * quiet until a gateway key exists.
+   */
+  async checkSelected(): Promise<FraudAssessment | null> {
+    if (!this.selected) return null
+    return this.runFraud(this.selected, true)
+  }
+
+  private canCheckFraud(): boolean {
+    return Boolean(this.fraudChecker) && (this.fraudAvailable?.() ?? true)
+  }
+
+  private resetFraud(): void {
+    this.fraud = null
+    this.fraudError = null
+    this.fraudBusy = false
+    this.fraudCache.clear()
+  }
+
+  private async runFraud(body: MailBody, manual = false): Promise<FraudAssessment | null> {
+    if (!this.canCheckFraud()) {
+      if (manual) {
+        this.fraudError = 'Genie is not configured. Set a gateway key in Policy → Genie.'
+        this.onChange()
+      }
+      return null
+    }
+    const cached = this.fraudCache.get(body.uid)
+    if (cached && !manual) {
+      this.fraud = cached
+      this.onChange()
+      return cached
+    }
+    if (this.fraudBusy) return null
+
+    this.fraudBusy = true
+    this.fraudError = null
+    this.onChange()
+    try {
+      const assessment = await this.fraudChecker!(this.fraudInput(body))
+      this.fraudCache.set(body.uid, assessment)
+      if (this.fraudCache.size > 50) {
+        const oldest = this.fraudCache.keys().next()
+        if (!oldest.done) this.fraudCache.delete(oldest.value)
+      }
+      // The operator may have opened another message while Genie was reading.
+      if (this.selected?.uid === body.uid) this.fraud = assessment
+      return assessment
+    } catch (error) {
+      if (this.selected?.uid === body.uid) this.fraudError = (error as Error).message
+      return null
+    } finally {
+      this.fraudBusy = false
+      this.onChange()
+    }
+  }
+
+  private fraudInput(body: MailBody): FraudInput {
+    return {
+      uid: body.uid,
+      subject: body.subject,
+      from: body.from.map((entry) => (entry.name ? `${entry.name} <${entry.address}>` : entry.address)),
+      to: body.to.map((entry) => entry.address),
+      date: body.date,
+      text: body.text.slice(0, 8000),
+      links: extractLinks(body.text)
+    }
+  }
 
   get accounts(): MailAccountPublic[] {
     return this.store.get().accounts
@@ -71,7 +172,10 @@ export class MailService {
       messages: this.messages,
       selected: this.selected,
       busy: this.busy,
-      error: this.error
+      error: this.error,
+      fraud: this.fraud,
+      fraudBusy: this.fraudBusy,
+      fraudError: this.fraudError
     }
   }
 
@@ -85,6 +189,7 @@ export class MailService {
     this.activeFolder = 'INBOX'
     this.messages = []
     this.selected = null
+    this.resetFraud()
     this.store.update((current) => ({ ...current, activeAccountId: id, activeFolder: 'INBOX' }))
     this.onChange()
     await this.refreshFolders()
@@ -93,6 +198,7 @@ export class MailService {
   async selectFolder(path: string): Promise<void> {
     this.activeFolder = path
     this.selected = null
+    this.resetFraud()
     this.store.update((current) => ({ ...current, activeFolder: path }))
     this.onChange()
     await this.refreshMessages()
@@ -179,6 +285,7 @@ export class MailService {
       this.activeId = this.store.get().accounts[0]?.id ?? null
       this.messages = []
       this.selected = null
+      this.resetFraud()
     }
     this.onChange()
   }
@@ -348,6 +455,13 @@ export class MailService {
       }
 
       this.selected = body
+      // A verdict belongs to the message it was made about: show the cached one
+      // for this uid, and otherwise let Genie read it without blocking the open.
+      this.fraud = this.fraudCache.get(uid) ?? null
+      this.fraudError = null
+      if (!this.fraud && this.autoFraud() && this.canCheckFraud()) {
+        void this.runFraud(body)
+      }
       this.messages = this.messages.map((message) =>
         message.uid === uid ? { ...message, seen: true } : message
       )

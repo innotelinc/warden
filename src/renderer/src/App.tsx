@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { MediaItem, WorkspaceId } from '@shared/types'
 import {
   BastionPanel,
+  ChallengeBar,
   CommandPalette,
   FindBar,
   Rail,
@@ -24,6 +25,8 @@ import {
 } from './layout'
 import { applyTheme } from '@shared/themes'
 import { WardenProvider, useAnimatedNumber, useElementRect, useWarden } from './state'
+import { Walkthrough } from './walkthrough'
+import { walkthroughDue as tourIsDue } from '@shared/walkthrough'
 import { TerminalPane } from './workspaces/TerminalPane'
 import { MailWorkspace } from './workspaces/MailWorkspace'
 import { MessagingWorkspace } from './workspaces/MessagingWorkspace'
@@ -35,6 +38,8 @@ function Shell() {
   const { state, notify } = useWarden()
   const [workspace, setWorkspace] = useState<WorkspaceId>('browse')
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [tourOpen, setTourOpen] = useState(false)
+  const [tourDismissed, setTourDismissed] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [shieldOpen, setShieldOpen] = useState(false)
   const [dockOpen, setDockOpen] = useState(false)
@@ -50,6 +55,9 @@ function Shell() {
     () => state?.tabs.find((tab) => tab.id === state.activeTabId) ?? null,
     [state?.tabs, state?.activeTabId]
   )
+
+  // A loop the operator can end: shown instead of leaving the page as a dead end.
+  const challenge = workspace === 'browse' ? (state?.challenge ?? null) : null
 
   const dockVisible = workspace === 'browse' && (shieldOpen || dockOpen)
   const dockW = useAnimatedNumber(dockVisible ? dockWidth : 0)
@@ -88,9 +96,22 @@ function Shell() {
     setHover('')
   }, [activeTab?.id])
 
+  // The tour is due until settings say it has been seen; the local flag keeps
+  // it from flashing back between the click and the settings round-trip.
+  const tourDue = Boolean(state) && tourIsDue(state?.settings.walkthroughSeen) && !tourDismissed
+  const showTour = tourOpen || tourDue
+
+  const closeTour = useCallback((): void => {
+    setTourOpen(false)
+    setTourDismissed(true)
+    if (!state?.settings.walkthroughSeen) void window.warden.settings.update({ walkthroughSeen: true })
+  }, [state?.settings.walkthroughSeen])
+
+  // One call site for both overlays: the page views are native and would draw
+  // over anything the renderer paints.
   useEffect(() => {
-    void window.warden.setSuppressed(paletteOpen)
-  }, [paletteOpen])
+    void window.warden.setSuppressed(paletteOpen || showTour)
+  }, [paletteOpen, showTour])
 
   useEffect(() => {
     const off = window.warden.onShortcut((command) => {
@@ -109,6 +130,8 @@ function Shell() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      // The tour owns the keyboard while it is up; the component handles Escape.
+      if (showTour) return
       const target = event.target as HTMLElement | null
       const typing =
         target instanceof HTMLInputElement ||
@@ -140,7 +163,7 @@ function Shell() {
         void window.warden.tab.create('warden://newtab')
       } else if (ctrl && event.shiftKey && event.key.toLowerCase() === 'n') {
         event.preventDefault()
-        void window.warden.tab.create('warden://newtab', true)
+        if (activeTab) void window.warden.tab.cloak(activeTab.id, !activeTab.cloaked)
       } else if (ctrl && event.key.toLowerCase() === 'w') {
         event.preventDefault()
         if (activeTab) void window.warden.tab.close(activeTab.id)
@@ -172,7 +195,7 @@ function Shell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeTab, findOpen, paletteOpen, shieldOpen, state?.drawerOpen])
+  }, [activeTab, findOpen, paletteOpen, shieldOpen, state?.drawerOpen, showTour])
 
   const mediaRects = useMemo(() => {
     if (!rect || !dockVisible || shieldOpen) return []
@@ -225,11 +248,14 @@ function Shell() {
       run: () => void window.warden.tab.create('warden://newtab')
     },
     {
-      id: 'burner',
-      label: 'New burner tab',
-      hint: 'tab',
+      id: 'cloak',
+      label: 'Toggle cloak on this tab',
+      hint: 'privacy',
       keys: 'Ctrl+Shift+N',
-      run: () => void window.warden.tab.create('warden://newtab', true)
+      run: () => {
+        if (!activeTab) return
+        void window.warden.tab.cloak(activeTab.id, !activeTab.cloaked)
+      }
     },
     {
       id: 'close-tab',
@@ -259,6 +285,12 @@ function Shell() {
     { id: 'relay', label: 'Open Relay mail', hint: 'workspace', run: () => setWorkspace('relay') },
     { id: 'concourse', label: 'Open Concourse messaging', hint: 'workspace', run: () => setWorkspace('concourse') },
     { id: 'policy', label: 'Open policy settings', hint: 'workspace', keys: 'Ctrl+,', run: () => setWorkspace('settings') },
+    {
+      id: 'tour',
+      label: 'Show the walkthrough',
+      hint: 'help',
+      run: () => setTourOpen(true)
+    },
     {
       id: 'cookies',
       label: 'Purge every cookie now',
@@ -339,7 +371,7 @@ function Shell() {
           <span className="brand-name">WARDEN</span>
         </div>
         <span className="crumb">{workspace}</span>
-        {activeTab?.isBurner ? <span className="crumb" style={{ color: 'var(--amber)' }}>burner</span> : null}
+        {activeTab?.cloaked ? <span className="crumb" style={{ color: 'var(--amber)' }}>cloak</span> : null}
         <div className="spacer" />
         <div className="status-pill" title="Cookie writes refused this session">
           <span className="dot" />
@@ -380,6 +412,20 @@ function Shell() {
                 }}
               />
               <TabStrip tabs={state.tabs} activeId={state.activeTabId} />
+              {challenge ? (
+                <ChallengeBar
+                  host={challenge.host}
+                  kind={challenge.kind}
+                  attempts={challenge.attempts}
+                  onCompatibility={() => {
+                    void window.warden.privacy.compatibility(challenge.host, true)
+                    notify(`${challenge.host} reloaded as a plain browser`, 'ok')
+                  }}
+                  onDismiss={() => {
+                    if (activeTab) void window.warden.tab.dismissChallenge(activeTab.id, challenge.host)
+                  }}
+                />
+              ) : null}
             </>
           ) : null}
 
@@ -476,6 +522,7 @@ function Shell() {
       </div>
 
       {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
+      {showTour ? <Walkthrough onDone={closeTour} /> : null}
       <ToastStack />
     </div>
   )

@@ -56,7 +56,15 @@ export class MediaDock {
     return this.slots.some((slot) => slot?.item.id === item.id)
   }
 
-  open(item: MediaItem, pageUrl: string): number | null {
+  /**
+   * Play an item.
+   *
+   * `session` is the tab's session when the item came from a page, because a
+   * stream behind a signed URL is authorised by the cookie and Referer the page
+   * already has. Handing the URL to the dock's own empty session is what made a
+   * hand-off from a streaming site open a black player: the CDN answered 403.
+   */
+  open(item: MediaItem, pageUrl: string, session?: Session): number | null {
     const existing = this.slots.find((slot) => slot?.item.id === item.id)
     if (existing) return existing.slot
 
@@ -66,7 +74,7 @@ export class MediaDock {
 
     const view = new WebContentsView({
       webPreferences: {
-        session: this.session,
+        session: session ?? this.session,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,

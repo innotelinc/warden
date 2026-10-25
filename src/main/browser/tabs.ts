@@ -1,9 +1,12 @@
 import { BrowserWindow, Menu, WebContentsView, clipboard } from 'electron'
 import path from 'node:path'
-import type { Rect, TabState } from '@shared/types'
+import type { ChallengeHint, Rect, TabState } from '@shared/types'
 import type { PrivacyService } from '../privacy/privacy-service'
 import { safeHost } from '../privacy/filter-engine'
+import { detectChallengeLoop, type NavigationEvent } from './challenge-loop'
 import { popupDecision } from './popup-policy'
+import { buildPageMenu, isLocalMediaSource, probeMediaScript, type PageMenuCommand } from './page-menu'
+import { signInHostsFor } from '@shared/auth-flow'
 
 export { resolveInput } from '@shared/urls'
 
@@ -44,6 +47,12 @@ interface Tab {
   mediaCount: number
   zoom: number
   attached: boolean
+  /** Main-frame loads, newest last: the stream the loop detector reads. */
+  navigations: NavigationEvent[]
+  /** The preload's answer for the current document, when it found a wall. */
+  wall: { host: string; reason: string } | null
+  /** Host whose challenge hint the operator has dismissed for this tab. */
+  dismissedHint: string | null
 }
 
 export interface TabHooks {
@@ -53,6 +62,15 @@ export interface TabHooks {
   onCookiesCheck: () => void
   /** Send a media element straight to the Splay dock, bypassing the scanner. */
   onMedia: (tabId: string, media: { url: string; title: string; kind: 'video' | 'audio' }) => void
+  /**
+   * Allow cookies for the hosts a sign-in flow spans.
+   *
+   * An OIDC login is the one thing that cannot work under WARDEN's default
+   * cookie policy: the application keeps a state cookie and the provider keeps
+   * a session, on two different hosts. The operator clicking "Sign in" is the
+   * decision; this carries it through to policy.
+   */
+  onSignInHosts: (hosts: string[]) => void
 }
 
 export class TabManager {
@@ -65,6 +83,13 @@ export class TabManager {
   private counter = 0
   private zoomStatus = new Map<string, number>()
   private createdCounter = 0
+  /**
+   * When the last page menu was opened, in ms. A second `context-menu` for the
+   * same click must not stack another menu on top of the first, but a guard
+   * that waits for the popup to close could wedge right-click for good if the
+   * callback never fires, so this is a short window instead of a lock.
+   */
+  private menuOpenedAt = 0
 
   constructor(
     private readonly win: BrowserWindow,
@@ -115,6 +140,96 @@ export class TabManager {
     return this.tabs.get(id)?.url ?? null
   }
 
+  /**
+   * Turn the cloak on or off for one tab.
+   *
+   * A view's session is chosen when it is created, so the flag cannot change
+   * under a live page: the URL is reopened in a new view on the other session,
+   * the new tab takes the old tab's place in the strip, and the old view closes.
+   * History does not carry over — a different session is a different browser —
+   * which is why the strip's toggle reloads the page instead of switching it.
+   */
+  setCloak(id: string, on: boolean): string | null {
+    const tab = this.tabs.get(id)
+    if (!tab) return null
+    if (tab.burner === on) return id
+
+    const index = this.order.indexOf(id)
+    const url = tab.url || 'warden://newtab'
+    const wasActive = this.activeId === id
+    const previousActive = this.activeId
+
+    const nextId = this.create(url, on)
+    this.move(nextId, index)
+    this.close(id)
+    if (wasActive) this.activate(nextId)
+    else if (previousActive) this.activate(previousActive)
+    return nextId
+  }
+
+  /**
+   * The challenge the active tab is stuck on, if any.
+   *
+   * Two shapes qualify: a page it keeps reloading, and a single captcha or
+   * browser-check interstitial. Compatibility mode is the remedy this prompt
+   * offers, so a host that already has it stays silent — there is nothing left
+   * for the operator to grant.
+   */
+  challengeHint(id: string | null = this.activeId): ChallengeHint | null {
+    if (!id) return null
+    const tab = this.tabs.get(id)
+    if (!tab) return null
+
+    const loop = detectChallengeLoop(tab.navigations, Date.now())
+    const hint: ChallengeHint | null = loop
+      ? { host: loop.host, kind: 'loop', attempts: loop.attempts }
+      : tab.wall
+        ? { host: tab.wall.host, kind: 'wall' }
+        : null
+    if (!hint) return null
+
+    if (this.privacy.isCompatible(hint.host)) return null
+    if (tab.dismissedHint === hint.host) return null
+    return hint
+  }
+
+  /**
+   * The content preload's answer for the document it is showing.
+   *
+   * Returns whether anything changed, so a page that keeps re-probing itself
+   * does not push an identical state at the renderer.
+   */
+  setChallengeWall(id: string, reason: string | null): boolean {
+    const tab = this.tabs.get(id)
+    if (!tab) return false
+    const host = safeHost(tab.url)
+    const next = reason && host ? { host, reason } : null
+    if (tab.wall?.host === next?.host && tab.wall?.reason === next?.reason) return false
+    tab.wall = next
+    return true
+  }
+
+  /** A dismissed hint stays quiet until the tab leaves the host and comes back. */
+  dismissChallenge(id: string, host: string): void {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    tab.dismissedHint = host.trim().toLowerCase() || null
+  }
+
+  private noteNavigation(tab: Tab, url: string): void {
+    tab.navigations.push({ url, at: Date.now() })
+    if (tab.navigations.length > 24) tab.navigations.splice(0, tab.navigations.length - 24)
+    // A hint covers the page it was shown for, not every later page on the same
+    // host: leaving the site clears the dismissal.
+    const host = safeHost(url)
+    if (tab.dismissedHint && tab.dismissedHint !== host) tab.dismissedHint = null
+    // The wall described the document that just went away. The probe answers for
+    // the new one, and a compatible page answers nothing at all, so clearing
+    // here also keeps a stale wall from coming back when the exemption is
+    // revoked.
+    tab.wall = null
+  }
+
   create(url = 'warden://newtab', burner = this.privacy.getSettings().privateByDefault): string {
     this.counter += 1
     const id = `tab${this.counter}`
@@ -156,7 +271,10 @@ export class TabManager {
       crashed: false,
       mediaCount: 0,
       zoom: 1,
-      attached: false
+      attached: false,
+      navigations: [],
+      wall: null,
+      dismissedHint: null
     }
 
     this.tabs.set(id, tab)
@@ -383,7 +501,7 @@ export class TabManager {
       loading: tab.loading,
       canGoBack: wc.navigationHistory.canGoBack(),
       canGoForward: wc.navigationHistory.canGoForward(),
-      isBurner: tab.burner,
+      cloaked: tab.burner,
       muted: wc.isAudioMuted(),
       crashed: tab.crashed,
       secure,
@@ -431,6 +549,7 @@ export class TabManager {
       tab.crashed = false
       tab.title = tab.title || safeHost(url)
       this.privacy.setHostForWebContents(wc.id, safeHost(url))
+      this.noteNavigation(tab, url)
       if (/^https?:/i.test(url)) this.hooks.onVisited(url, tab.title)
       this.hooks.onCookiesCheck()
       update()
@@ -475,7 +594,37 @@ export class TabManager {
       // explicit gesture and is always honoured; anything else that jumps to a
       // third party is a popup. Nothing becomes unreachable — the link context
       // menu opens any link in a new tab directly.
-      if (popupDecision({ url, disposition, pageUrl: tab.url }) === 'tab') {
+      const decision = popupDecision({ url, disposition, pageUrl: tab.url })
+      if (decision === 'window') {
+        // A sized window on the page's own site (OIDC sign-in, a bank portal)
+        // gets a real window on the opener's session: `window.open` returns a
+        // handle, the opener is live, and a cloaked tab's popup stays inside
+        // that throwaway session instead of landing in the shared one.
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            width: 520,
+            height: 700,
+            parent: this.win,
+            autoHideMenuBar: true,
+            backgroundColor: '#080a0d',
+            webPreferences: {
+              session: wc.session,
+              preload: PRELOAD(),
+              contextIsolation: true,
+              nodeIntegration: false,
+              sandbox: true,
+              webviewTag: false,
+              spellcheck: false,
+              backgroundThrottling: false,
+              navigateOnDragDrop: false,
+              safeDialogs: true,
+              disableDialogs: true
+            }
+          }
+        }
+      }
+      if (decision === 'tab') {
         this.create(url, tab.burner)
       } else {
         this.privacy.noteBlockedPopup(wc.id)
@@ -485,6 +634,13 @@ export class TabManager {
     })
 
     wc.on('will-navigate', (event, url) => {
+      // `warden://doc` reads a file from this machine, so only WARDEN itself may
+      // open it: a page that navigated there would be choosing which local
+      // document to display.
+      if (/^warden:\/\/(doc|lock)/i.test(url)) {
+        event.preventDefault()
+        return
+      }
       if (!/^(https?|warden|about):/i.test(url)) {
         event.preventDefault()
       }
@@ -538,90 +694,60 @@ export class TabManager {
       this.hooks.onShortcut(command, tab.id)
     })
 
-    wc.on('context-menu', (_event, params) => {
-      const template: Electron.MenuItemConstructorOptions[] = [
-        {
-          label: 'Back',
-          enabled: wc.navigationHistory.canGoBack(),
-          click: () => wc.navigationHistory.goBack()
-        },
-        {
-          label: 'Forward',
-          enabled: wc.navigationHistory.canGoForward(),
-          click: () => wc.navigationHistory.goForward()
-        },
-        { label: 'Reload', click: () => wc.reload() },
-        { type: 'separator' }
-      ]
-
-      // Editing roles act on whatever field has focus in the page. Without them
-      // a right click could only copy a selection, so nothing could be pasted
-      // into a form.
-      if (params.isEditable) {
-        template.push(
-          { role: 'undo' },
-          { role: 'redo' },
-          { type: 'separator' },
-          { role: 'cut' },
-          { role: 'copy' },
-          { role: 'paste' },
-          { role: 'pasteAndMatchStyle' },
-          { role: 'delete' },
-          { role: 'selectAll' },
-          { type: 'separator' }
+    // A sign-in popup spans two hosts and WARDEN refuses cookies on both by
+    // default, so the flow dies at the callback with no useful error. The click
+    // on "Sign in" is the decision: allow exactly the hosts the flow names, as
+    // the redirect reveals them.
+    wc.on('did-create-window', (child, { url }) => {
+      const childWc = child.webContents
+      const openerHost = safeHost(tab.url)
+      const note = (target: string) => {
+        this.privacy.setHostForWebContents(childWc.id, safeHost(target))
+        const signIn = signInHostsFor(target)
+        if (!signIn) return
+        const hosts = [signIn.provider, signIn.application, openerHost].filter(
+          (host): host is string => Boolean(host)
         )
-      } else if (params.selectionText) {
-        template.push({ role: 'copy' }, { role: 'selectAll' }, { type: 'separator' })
+        if (hosts.length) this.hooks.onSignInHosts(hosts)
       }
+      // `will-redirect` fires before the provider's response arrives, so its
+      // session cookie is kept rather than stripped as third-party.
+      childWc.on('will-redirect', (_event, target) => note(target))
+      childWc.on('will-navigate', (_event, target) => note(target))
+      childWc.on('did-navigate', (_event, target) => note(target))
+      note(url)
+    })
 
-      if (params.linkURL) {
-        template.push({
-          label: 'Open link in new tab',
-          click: () => this.create(params.linkURL, tab.burner)
-        })
-        template.push({
-          label: 'Copy link address',
-          click: () => clipboard.writeText(params.linkURL)
-        })
-        template.push({ type: 'separator' })
-      }
+    wc.on('context-menu', (_event, params) => {
+      // One menu per click. A second template from a stacked handler would put
+      // two menus on screen and let the operator click a label that belongs to
+      // the one underneath.
+      const now = Date.now()
+      if (now - this.menuOpenedAt < 150) return
+      this.menuOpenedAt = now
 
-      if ((params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
-        // Splay kept needing a trip through the picker for a video the operator
-        // was already looking at. This sends exactly that element, and the dock
-        // fills one of its three slots (replacing the oldest when all are busy).
-        template.push({
-          label: params.mediaType === 'audio' ? 'Send audio to Splay' : 'Send video to Splay',
-          click: () =>
-            this.hooks.onMedia(tab.id, {
-              url: params.srcURL,
-              title: tab.title || params.pageURL || 'Media',
-              kind: params.mediaType === 'audio' ? 'audio' : 'video'
-            })
-        })
-        template.push({ type: 'separator' })
-      }
-
-      if (params.mediaType === 'image' && params.srcURL) {
-        template.push({
-          label: 'Copy image',
-          click: () => wc.copyImageAt(params.x, params.y)
-        })
-        template.push({
-          label: 'Copy image address',
-          click: () => clipboard.writeText(params.srcURL)
-        })
-        template.push({ type: 'separator' })
-      }
-
-      template.push({
-        label: 'Scry this page',
-        click: () => this.hooks.onShortcut('scry', tab.id)
+      const commands = buildPageMenu({
+        canGoBack: wc.navigationHistory.canGoBack(),
+        canGoForward: wc.navigationHistory.canGoForward(),
+        isEditable: params.isEditable,
+        selectionText: params.selectionText ?? '',
+        linkURL: params.linkURL ?? '',
+        mediaType: params.mediaType,
+        srcURL: params.srcURL ?? '',
+        hasMedia: tab.mediaCount > 0,
+        mediaKind: params.mediaType === 'video' || params.mediaType === 'audio' ? params.mediaType : null
       })
-      template.push({
-        label: 'Inspect element',
-        click: () => wc.inspectElement(params.x, params.y)
+
+      const template: Electron.MenuItemConstructorOptions[] = commands.map((command) => {
+        if (command.kind === 'separator') return { type: 'separator' }
+        if (command.kind === 'role') return { role: command.role }
+        return {
+          label: command.label,
+          enabled: command.enabled,
+          click: () => this.runPageMenu(tab, command, params)
+        }
       })
+      if (!template.length) return
 
       Menu.buildFromTemplate(template).popup({ window: this.win })
     })
@@ -631,5 +757,74 @@ export class TabManager {
       this.order = this.order.filter((entry) => entry !== tab.id)
       this.hooks.onState()
     })
+  }
+
+  private runPageMenu(
+    tab: Tab,
+    command: Extract<PageMenuCommand, { kind: 'command' }>,
+    params: Electron.ContextMenuParams
+  ): void {
+    const wc = tab.view.webContents
+    switch (command.id) {
+      case 'back':
+        if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
+        return
+      case 'forward':
+        if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward()
+        return
+      case 'reload':
+        wc.reload()
+        return
+      case 'open-link':
+        if (command.arg) this.create(command.arg, tab.burner)
+        return
+      case 'copy-link':
+      case 'copy-image-url':
+        if (command.arg) clipboard.writeText(command.arg)
+        return
+      case 'copy-image':
+        wc.copyImageAt(params.x, params.y)
+        return
+      case 'scry':
+        this.hooks.onShortcut('scry', tab.id)
+        return
+      case 'inspect':
+        wc.inspectElement(params.x, params.y)
+        return
+      case 'send-media':
+        this.sendMediaToSplay(tab, params, command.arg)
+        return
+    }
+  }
+
+  /**
+   * Hand the media under the cursor to Splay.
+   *
+   * When the page did not name the element — a custom player draws its own
+   * controls over a hidden <video> — the page is asked for whatever sits at the
+   * click point. A `blob:` or MediaSource answer is dropped here: it only
+   * resolves inside the document that made it, so a separate viewer would show
+   * a black rectangle.
+   */
+  private sendMediaToSplay(tab: Tab, params: Electron.ContextMenuParams, given?: string): void {
+    const hand = (src: string, kind: 'video' | 'audio'): void => {
+      if (!src || isLocalMediaSource(src)) return
+      this.hooks.onMedia(tab.id, { url: src, title: tab.title || params.pageURL || 'Media', kind })
+    }
+
+    if (given) {
+      hand(given, params.mediaType === 'audio' ? 'audio' : 'video')
+      return
+    }
+
+    tab.view.webContents
+      .executeJavaScript(probeMediaScript(params.x, params.y))
+      .then((found: unknown) => {
+        if (!found || typeof found !== 'object') return
+        const { src, kind } = found as { src?: unknown; kind?: unknown }
+        if (typeof src !== 'string') return
+        hand(src, kind === 'audio' ? 'audio' : 'video')
+      })
+      .catch(() => undefined)
   }
 }

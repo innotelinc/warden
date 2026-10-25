@@ -1,5 +1,46 @@
 import { describe, expect, it } from 'vitest'
-import { accumulateToolCalls, parseSseLine, type GenieToolCall } from '../src/main/genie/genie-service'
+import { accumulateToolCalls, parseFraudAssessment, parseSseLine, type GenieToolCall } from '../src/main/genie/genie-service'
+
+describe('parseFraudAssessment', () => {
+  it('reads a clean verdict', () => {
+    const result = parseFraudAssessment(
+      '{"verdict":"dangerous","score":92,"summary":"Invoice bait","reasons":["lookalike domain","payment request"]}',
+      7
+    )
+    expect(result?.uid).toBe(7)
+    expect(result?.verdict).toBe('dangerous')
+    expect(result?.score).toBe(92)
+    expect(result?.reasons).toHaveLength(2)
+  })
+
+  it('tolerates a code fence and prose around the JSON', () => {
+    const result = parseFraudAssessment(
+      'Here is my read:\n```json\n{"verdict":"clear","score":4,"summary":"Routine notice","reasons":[]}\n```\nDone.',
+      1
+    )
+    expect(result?.verdict).toBe('clear')
+    expect(result?.score).toBe(4)
+  })
+
+  it('rejects an unknown verdict instead of guessing', () => {
+    expect(parseFraudAssessment('{"verdict":"fine","score":3}', 1)).toBeNull()
+    expect(parseFraudAssessment('not json at all', 1)).toBeNull()
+  })
+
+  it('clamps the score and caps the reasons', () => {
+    const result = parseFraudAssessment(
+      JSON.stringify({ verdict: 'suspicious', score: 150, summary: 'x', reasons: ['a', 'b', 'c', 'd', 'e', 'f'] }),
+      2
+    )
+    expect(result?.score).toBe(100)
+    expect(result?.reasons).toHaveLength(5)
+  })
+
+  it('drops empty strings from the reasons', () => {
+    const result = parseFraudAssessment('{"verdict":"clear","score":2,"reasons":["","  ","ok"]}', 3)
+    expect(result?.reasons).toEqual(['ok'])
+  })
+})
 
 describe('parseSseLine', () => {
   it('parses a data frame', () => {

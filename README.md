@@ -52,7 +52,7 @@ or an "innovate" rebuild that replaces the original behaviour rather than copyin
 The privacy guarantee is structural, not a preference: five independent layers in the main process
 (request interception, header rewriting, response header stripping, a guarded cookie store, and a
 page-level cookie lock), on a browsing session created without the `persist:` partition. Quit the app
-and there is no cookie database, no page cache and no session file to recover. Burner tabs get their
+and there is no cookie database, no page cache and no session file to recover. Cloaked tabs get their
 own throwaway session, and every messaging service runs in its own isolated one.
 
 Currently at **v0.2.2**: all seven workspaces are functional, the filter engine parses Adblock-Plus
@@ -60,7 +60,7 @@ syntax, Scry captures and rebuilds sites, the terminal runs a real PTY, mail spe
 the Windows installer plus portable build are produced by `npm run dist`. Verified by unit tests over
 the decision surfaces and a smoke suite that drives the real UI and the packaged binary.
 
-**Deliberate limits, stated up front:** no VPN and no IP hiding, no TLS or DNS fingerprint defence, and
+**Deliberate limits, stated up front:** no bundled VPN and no IP hiding of its own (it routes through an endpoint you supply, and refuses traffic when that endpoint is down), no TLS or DNS fingerprint defence, and
 no promise that a hostile challenge page can be bypassed — [compatibility mode](#compatibility-mode-per-site)
 removes WARDEN's obstacles and says plainly where Cloudflare's begin.
 
@@ -71,7 +71,7 @@ removes WARDEN's obstacles and says plainly where Cloudflare's begin.
 | Module | What it is |
 | --- | --- |
 | **Bastion** | The privacy engine: cookies blocked unless a site is explicitly allowed, tracker/ad filtering, HTTPS-only, referrer trimming, GPC/DNT, fingerprint noise, permission lockdown. |
-| **Splay** | Video dock. Playing media branches into up to three independent panes on the right so you can keep reading while it plays. |
+| **Splay** | Video dock. Playing media branches into up to three independent panes on the right so you can keep reading while it plays. Right-click a video (or a player that hides its `<video>`) → **Send video to Splay**, which plays it in the tab's own session so a signed stream still authorises. |
 | **Trench** | Terminal and ssh client. Real PTY (ConPTY on Windows, PTY on Unix) via `node-pty`, with a line-buffered fallback if the native module cannot load. A **SHELL / SSH** toggle switches a session between a local shell and the system `ssh` binary running in the same PTY, so key passphrases, host-key prompts and agent forwarding behave exactly as in a normal terminal. Destinations are validated as a single argv element — `-oProxyCommand=…` cannot be typed in. Custom mint-on-black theme, session tabs. |
 | **Relay** | Mail. Native IMAP + SMTP, OS-keychain credentials, HTML sanitized with remote content withheld. |
 | **Concourse** | Unified messaging. Slack, Discord, Teams, WhatsApp, Telegram, Element, Google Chat and Mattermost in isolated memory-only panes with unread aggregation. |
@@ -79,6 +79,12 @@ removes WARDEN's obstacles and says plainly where Cloudflare's begin.
 | **Policy** | Every switch, with the enforcement point stated. |
 
 ---
+
+## First launch
+
+The first run opens a short walkthrough over the window: what the browser refuses and why, the three switches beside the address bar, the cloak on every tab, the six workspaces, Genie's read-only reach and its fraud read of mail, Scry, and the handful of shortcuts worth knowing. It is eight steps, dismissible with Esc, a click on the backdrop, or **Skip**, and it records `walkthroughSeen` in `settings.json` — so it appears once and never ambushes an operator again. `Ctrl+K` → **Show the walkthrough** replays it on demand.
+
+The step text lives in [`src/shared/walkthrough.ts`](src/shared/walkthrough.ts), the same list the tests read, so a step that stops matching the product fails a test instead of shipping stale.
 
 ## Privacy model (what is actually enforced)
 
@@ -90,19 +96,23 @@ WARDEN does not ask about cookies. It refuses them. Electron has no Chrome-style
 4. **Cookie store guard** — `session.cookies.set` is wrapped to reject disallowed writes, and a sweep runs on navigation and on demand.
 5. **Page-level lock** — the content preload redefines `Document.prototype.cookie` and removes `cookieStore` for any site that is not allowed, so JavaScript cannot create cookies either.
 
-The browsing session is created from a partition **without** the `persist:` prefix, so Chromium keeps it in memory. Quit WARDEN and there is no cookie database, no cache of visited pages, and no session file. Burner tabs get their own throwaway session. Concourse service panes get one isolated session each, with first-party cookies allowed and third parties cut — otherwise chat logins could not work at all. That is stated in the UI.
+The browsing session is created from a partition **without** the `persist:` prefix, so Chromium keeps it in memory. Quit WARDEN and there is no cookie database, no cache of visited pages, and no session file. Cloaked tabs get their own throwaway session. Concourse service panes get one isolated session each, with first-party cookies allowed and third parties cut — otherwise chat logins could not work at all. That is stated in the UI.
 
 Also enforced: every permission request is denied (geolocation, notifications, media, HID, serial, USB, MIDI, clipboard beyond sanitized-write/read), `webview` attachment is blocked, popups become WARDEN tabs, WebRTC non-proxied UDP is disabled, and the app's own network calls (filter sync only, on demand) are the only non-page traffic.
 
-**Honest limits:** WARDEN is not a VPN; it does not hide your IP. It does not defeat TLS or DNS fingerprinting. It cannot stop a site from refusing service when cookies are blocked — that is what the allowlist is for. Storage APIs other than cookies (localStorage, IndexedDB, Cache) are likewise memory-only per session but are not individually blocked.
+**Honest limits:** WARDEN is not a VPN; it does not hide your IP unless you point it at an endpoint you control (and while that endpoint is down it blocks rather than leaks). It does not defeat TLS or DNS fingerprinting. It cannot stop a site from refusing service when cookies are blocked — that is what the allowlist is for. Storage APIs other than cookies (localStorage, IndexedDB, Cache) are likewise memory-only per session but are not individually blocked.
 
 ### Allowing a site
+
+Three switches sit beside the address bar, one click each: **privacy** suspends the stack for the current host (compatibility mode, amber while suspended), **cookies** allows or revokes the current host, and **genie** turns the automatic fraud read of opened mail on or off. All three reflect live state, and all three are also available in the shield panel and Policy.
 
 Toolbar shield → **Allow cookies for this site** (or Policy → allowlist). The allowance is in-memory for the session and never written to a cookie database. Revoking it purges that site's cookies immediately.
 
 ### Compatibility mode (per site)
 
 Some sites will not load through a privacy stack at all: Cloudflare challenge pages, bank portals, SSO. For those, the shield panel has **Reload in compatibility mode**, and Policy carries the same list for hosts an admin wants to seed before anyone visits them.
+
+A tab that keeps handing back the same page — three loads of one URL, or two alternating, inside twenty seconds — is recognised as a challenge loop, and a bar above the page names the host and offers the same switch, so the dead end comes with a way out. A single captcha or browser-check interstitial is recognised the same way, from its title, its wording or the challenge form it ships, so a wall that never loops still gets the prompt. Dismissing it keeps the full stack for that tab until it leaves the host.
 
 A compatible host is loaded as if WARDEN were a plain browser:
 
@@ -117,6 +127,45 @@ A compatible host is loaded as if WARDEN were a plain browser:
 Matching is on the host and its subdomains (`neowin.net` covers `www.neowin.net`), stored in `settings.json` alongside the allowlist, and capped at 100 entries. Toggling reloads every tab already on that host, because the preload asks the main process at document start rather than reading a value fixed when the tab was created. Revoking the exemption returns the site to the full stack on the next load; it does not retroactively undo cookies the site already set, so purge them if that matters.
 
 **Honest limit:** compatibility mode removes *WARDEN's* obstacles, not Cloudflare's. A managed challenge that refuses Electron itself still refuses it with every layer off — verified against `neowin.net`, which reaches "Verification successful" and is then handed another 403 with no `cf_clearance` cookie. Blaming the privacy stack for that would be wrong; the browser engine is the variable, and stock Chrome is the only workaround for those specific sites.
+
+### Sign-in popups and SSO
+
+A login is the one flow that cannot work under the default cookie policy: an OIDC
+provider keeps a session and the application keeps a state cookie, on two
+different hosts, and both are stripped on arrival. So a **sized window on the
+page's own site** is allowed to be a real window — it keeps the opener, the
+session and the `window.open` handle a sign-in script waits on — while every
+third-party popup is still refused and an ordinary `target="_blank"` link still
+opens as a tab.
+
+When that window turns out to be a sign-in flow, WARDEN reads the provider and
+the application out of the URL ([`src/shared/auth-flow.ts`](src/shared/auth-flow.ts))
+and allows cookies for exactly those two hosts, as the redirect reveals them.
+The click on *Sign in* is the decision; nothing else is granted, and the
+allowance shows up in the shield panel and Policy like any other. A page whose
+flow is not recognised can still be fixed by hand: shield panel → **Allow
+sign-in for this flow**, or allow both hosts.
+
+The known shape this covers: `/api/auth/oidc/start` → provider `/if/flow/…` or
+`/application/o/authorize/` → `/api/auth/oidc/callback`, which returns a page
+that hands the token back to the opener over `postMessage`.
+
+**Honest limit:** a provider that refuses to set cookies in an embedded browser
+(auth in a cross-site iframe, `Content-Security-Policy: frame-ancestors`) is
+refusing WARDEN, not the cookie policy.
+
+### Documents on this machine
+
+A path typed or pasted into the address bar — `C:\work\LOCAL_MODELS.md`,
+`~/notes.txt`, or a `file://` URL copied out of another browser — opens in a
+read-only reader instead of being searched for or refused: escaped monospace
+text, the path and size in the header, and a CSP that allows no script and no
+network at all. Extensions are limited to text shapes (`.md`, `.markdown`,
+`.mdx`, `.txt`, `.log`, `.json`, `.yml`, `.yaml`, `.toml`, `.ini`, `.conf`,
+`.csv`) and the ceiling is 2 MB; anything else, and any directory, is refused.
+Only WARDEN opens `warden://doc` — a page that navigates there is stopped, so a
+site cannot choose which local document is displayed. It is a reader, not a file
+browser: there is no directory listing and no way to walk the disk from a page.
 
 ---
 
@@ -143,8 +192,20 @@ does not carry across tabs; open the site in the tab where you signed in.
 endpoint. Policy → Network accepts a SOCKS5 or HTTPS endpoint (typically the
 local proxy of a WireGuard/OpenVPN client) plus a bypass list, and applies it to
 every session with `session.setProxy`. With no endpoint configured the toggle
-stays on but the status reads *direct egress* — it never claims a tunnel it does
-not have. WebRTC stays pinned to non-proxied UDP off.
+stays on but the status reads *no endpoint configured* — it never claims a
+tunnel it does not have. WebRTC stays pinned to non-proxied UDP off.
+
+**Kill switch (on by default).** A tunnel you believe in is worse than none: if
+the endpoint stops answering, Chromium would quietly fall back to direct egress.
+So WARDEN TCP-connects the configured endpoint's host and port every twenty
+seconds — no request goes through it — and while the answer is *down* every page
+request is refused instead of sent direct, with a `warden://error` page that says
+why. `unknown` (before the first probe answers, or right after the endpoint
+changes) is not treated as a failure, so opening WARDEN does not block itself.
+Nothing is blocked when no tunnel is configured, internal `warden://` pages are
+always allowed, and Policy → Network has a **test endpoint** button plus the
+live label so the state is never guessed. Turning the switch off restores
+Chromium's direct fallback.
 
 **Camera and microphone.** Policy → Camera & microphone applies a per-page
 treatment through a main-world shim around `getUserMedia`: soft focus, portrait
@@ -153,6 +214,14 @@ mask, mosaic or silhouette for video, and lower/brighter/synthetic for audio
 closure and nothing is uploaded. Camera or microphone can also be blocked
 outright. Pages may only request media at all when their host is allowlisted;
 every other permission stays denied.
+
+**What these are not.** The video treatments are whole-frame effects: *portrait
+blur* keeps a fixed oval sharp and blurs around it, which reads as a blurred
+background but is not person segmentation — lean out of the oval and you blur
+too. There is no face replacement or avatar. The voice treatments are tone
+changes (low-pass, high-pass, ring modulation), not a pitch or formant shift, so
+they make a voice harder to match without pretending to be someone else. Each
+one says that in its own description rather than overselling.
 
 ---
 
@@ -163,10 +232,36 @@ page that was on screen, then disables the window underneath. Nothing is readabl
 clickable, and the tabs keep their scroll position. The lock window cannot be dismissed with
 Escape, Alt+F4 or a second press of the shortcut.
 
-Unlocking needs the **Windows account password**, not a WARDEN passphrase. The check runs in a
-short-lived PowerShell child that P/Invokes `LogonUserW`; the password goes in on stdin and is
-never written to argv, the settings file, or a log. Microsoft accounts sign in with the account
-email, which the verifier tries alongside `DOMAIN\user`. Anything that is not a successful logon —
+Unlocking is Windows Hello first: the button asks the OS to verify the signed-in user, so the
+**PIN you sign in with** — or a fingerprint, or your face — works exactly as it does at the
+Windows lock screen. The PIN is verified by the Hello stack against the local NGC container; it
+is never typed into a WARDEN field, never sent to the main process, and never compared by this
+app. While the OS prompt is up the overlay drops its always-on-top level so the dialog cannot
+end up behind it.
+
+**Before you are locked out.** Policy → Session lock shows what the verifier can actually do here
+and carries a *check Windows Hello* button; WARDEN also asks once at startup, and the lock screen
+asks again as it opens. The check is `CheckAvailabilityAsync`, which never shows a prompt, so it is
+safe to run any time. When the answer is anything but *available* — no Hello enrolment, no sensor,
+disabled by policy, another prompt holding the verifier — the lock screen disables the Hello button
+and states the reason, with the password field already waiting, instead of letting an operator tap
+something that cannot work.
+
+One exception, because the API is not the machine: if the verifier says nothing at all — it throws,
+the WinRT projection fails, the child process dies — WARDEN looks for the user's Hello container
+(`%LOCALAPPDATA%\Microsoft\Ngc`, one per enrolled credential, each carrying `.dat` files). A
+container means Hello *is* enrolled on a machine whose verifier would not answer, which is exactly
+the machine where the PIN prompt works and the API does not. That reads as **enrolled**: the button
+stays live with a note that the password is there if no prompt appears. Only silence is overruled —
+`NotConfiguredForUser`, `DisabledByPolicy`, `Busy` and `Available` are answers the verifier gave,
+and a file on disk does not get to contradict them.
+
+The field underneath is the fallback for machines with no Hello enrolment, and it takes the
+**account password**, not a WARDEN passphrase — a PIN is not an account password and `LogonUserW`,
+the only supported local check, cannot verify one. That path runs in a short-lived PowerShell child
+that P/Invokes `LogonUserW`; the password goes in on stdin and is never written to argv, the
+settings file, or a log. Microsoft accounts sign in with the account email, which the verifier
+tries alongside `DOMAIN\user`. Anything that is not a successful verification — from either path,
 including the verifier itself failing — leaves the screen covered.
 
 Policy → **Session lock** sets the idle timeout (`Never`, 1, 5, 15, 30 or 60 minutes). The timer uses
@@ -176,8 +271,10 @@ process, not by a page script.
 
 **Honest limits:** the overlay depends on the Windows desktop, so a user who can switch to another
 application can still see whatever that application shows; this protects WARDEN's content, not the
-whole desktop. A blank or disabled Windows password is rejected by `LogonUserW`, which means a
-passwordless account cannot unlock — set a password, or leave the timeout at *Never*.
+whole desktop. Hello is asked through `UserConsentVerifier`, so an account with no Hello enrolment
+(and no sensor) falls back to the password field, and an account with neither cannot unlock — leave
+the timeout at *Never* on those. Hello also counts its own retries: enough wrong PINs and Windows
+stops accepting it until the password is used, which is Windows' rule rather than WARDEN's.
 
 ---
 
@@ -381,7 +478,7 @@ tool is available.
 | `Ctrl+L` | Address bar |
 | `Ctrl+T` / `Ctrl+W` | New tab / close tab |
 | Drag a tab | Reorder the strip; the active page and its state are untouched |
-| `Ctrl+Shift+N` | Burner tab |
+| `Ctrl+Shift+N` | Toggle the cloak on the active tab |
 | `Ctrl+\` | Lock the screen; the Windows password clears it |
 | `Ctrl+1…6` | Browse / Trench / Relay / Concourse / Scry / Policy |
 | `Ctrl+J` | Toggle Splay dock |
@@ -435,6 +532,8 @@ Because Bastion is running, Scry sees only requests that actually left the brows
 Add an account with IMAP + SMTP hosts, port, TLS and an app password. WARDEN verifies both protocols before saving. The password is encrypted with the OS keychain (`safeStorage`: DPAPI / Keychain / libsecret) into `secrets.json`; if the platform has no encryption backend WARDEN refuses to persist it rather than writing plaintext.
 
 Message HTML is sanitized in the main process: scripts, iframes, forms, `<link>`, `<style>` and event handlers are removed, remote images are replaced with placeholders and counted, and the result renders inside a sandboxed iframe with a deny-all CSP. **No account or message content is fetched until you open Relay.**
+
+**Genie fraud read.** With the genie switch on (the default), opening a message sends its headers, body text and links to the gateway and shows a verdict beside the headers — clear, suspicious or dangerous, with a score and the reasons in the tooltip. Verdicts are cached per message and never shared between them; the manual **Check with Genie** button overrides the cache, and a missing key, a timeout or an unreadable answer is shown as an error instead of a guess. Turning the switch off means no message is read automatically. Each check is one gateway call and is billed as such.
 
 ## Messaging (Concourse)
 
@@ -494,6 +593,7 @@ Native surfaces are `WebContentsView`s owned by the main process. The renderer m
 - **Windows only, x64.** The builder config targets `nsis` + `portable` for win32-x64. macOS/Linux packages would need their own targets and icons.
 - **Unsigned binaries.** SmartScreen warns until a certificate is configured. No auto-updater is wired in; distribute new builds deliberately.
 - **HLS** (`.m3u8`) is detected and listed but cannot play in Chromium without a media engine; Splay says so rather than showing a black box.
+- **`blob:` / MediaSource video** cannot be handed to Splay: the URL only resolves inside the document that made it. The context menu says so instead of opening a black pane.
 - **Mail** was verified against the protocol layer and a local harness, not against a live provider. IMAP/SMTP verification happens when you add an account, so failures surface there.
 - **Messaging** depends on each vendor's web client; a service can break its own pane at any time.
 - **REA MCP registration** was applied with your approval to `~/.codex/config.toml`, `~/.copilot/mcp-config.json` and VS Code's `mcp.json` (each with a backup); `rea doctor` reports healthy. REA has no Freebuff client entry, so it is invoked from the shell and WARDEN does not depend on it. Codex's `tool_timeout_sec` is still 450s where REA suggests 720s.
