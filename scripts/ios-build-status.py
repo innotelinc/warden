@@ -439,6 +439,18 @@ def submission_report(bearer: str, app: str) -> int:
     version = newest_version(bearer, app)
     info = app_info(bearer, app)
 
+    # "What's New" only exists once something has shipped; App Store Connect
+    # hides it for a first version, so counting it as missing is a phantom gap.
+    released = get(
+        f"/v1/apps/{app}/appStoreVersions",
+        bearer,
+        {"filter[platform]": "IOS", "limit": "50"},
+    )
+    first_release = not any(
+        item["attributes"].get("appStoreState") in ("READY_FOR_SALE", "REPLACED_WITH_NEW_VERSION")
+        for item in released.get("data") or []
+    )
+
     rows: list[tuple[str, bool, str]] = []
 
     # --- text, per language -------------------------------------------------
@@ -454,6 +466,9 @@ def submission_report(bearer: str, app: str) -> int:
             ("whatsNew", "what's new"),
         ):
             value = attributes.get(field) or ""
+            if field == "whatsNew" and not value and first_release:
+                rows.append((f"{language} {label}", True, "optional for a first version"))
+                continue
             rows.append((f"{language} {label}", bool(value), value[:40] or "empty"))
 
         # --- screenshots ----------------------------------------------------

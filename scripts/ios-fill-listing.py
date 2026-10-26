@@ -180,6 +180,11 @@ def web_access_key(rating: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true", help="print the changes, write nothing")
+    parser.add_argument(
+        "--attach-build",
+        default="",
+        help="attach this TestFlight build number to the version page",
+    )
     args = parser.parse_args()
 
     dry_run = args.dry_run or os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
@@ -254,6 +259,21 @@ def main() -> int:
         "Unrestricted Web Access = yes (16+)"
     )
 
+    attached: dict | None = None
+    if args.attach_build:
+        candidates = asc.builds(bearer, app, 50)
+        attached = next(
+            (row for row in candidates if str(row["number"]) == str(args.attach_build)), None
+        )
+        if attached is None:
+            raise SystemExit(f"no build {args.attach_build} on {asc.BUNDLE_ID}")
+        if attached["state"] != "VALID":
+            raise SystemExit(
+                f"build {args.attach_build} is {attached['state']}; only a VALID build "
+                "can be attached to a version."
+            )
+        print(f"\nattach {attached['marketing']} ({attached['number']}) to version {version['version']}")
+
     if dry_run:
         print("\nage rating questionnaire:")
         for attribute, value in sorted(rating_answers(rating).items()):
@@ -307,6 +327,14 @@ def main() -> int:
         f"answered the age rating questionnaire ({len(answers)} answers, "
         "unrestricted web access yes)"
     )
+
+    if attached is not None:
+        patch(
+            f"/v1/appStoreVersions/{version['id']}/relationships/build",
+            bearer,
+            {"data": {"type": "builds", "id": attached["id"]}},
+        )
+        print(f"attached build {attached['number']} to version {version['version']}")
 
     print("\nreported state is not proof; run the submission check to confirm.")
     return 0

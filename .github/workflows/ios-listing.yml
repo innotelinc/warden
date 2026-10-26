@@ -21,6 +21,10 @@ on:
         description: Print the changes without writing them
         type: boolean
         default: true
+      attach_build:
+        description: Attach this TestFlight build number to the version page
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -52,4 +56,10 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
           DRY_RUN: ${{ inputs.dry_run }}
-        run: python3 scripts/ios-fill-listing.py
+          ATTACH_BUILD: ${{ inputs.attach_build }}
+        run: |
+          if [ -n "${ATTACH_BUILD:-}" ]; then
+            python3 scripts/ios-fill-listing.py --attach-build "$ATTACH_BUILD"
+          else
+            python3 scripts/ios-fill-listing.py
+          fi
