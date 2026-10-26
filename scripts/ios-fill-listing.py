@@ -102,6 +102,72 @@ def category_id(bearer: str, wanted: str) -> str:
     raise SystemExit(f"no app category {wanted!r} on iOS. Known: {', '.join(known)}")
 
 
+# The questionnaire mixes two kinds of answer, and sending the wrong type for
+# either is a 409. Content questions are severity enums; capability questions
+# are booleans. WARDEN ships no content of its own, so every severity is NONE
+# and every capability is false — except unrestricted web access, which is the
+# whole point of an address field and is what sets the 16+ rating.
+CONTENT_QUESTIONS = {
+    "alcoholTobaccoOrDrugUseOrReferences",
+    "contests",
+    "gamblingSimulated",
+    "gunsOrOtherWeapons",
+    "horrorOrFearThemes",
+    "matureOrSuggestiveThemes",
+    "medicalOrTreatmentInformation",
+    "profanityOrCrudeHumor",
+    "sexualContentGraphicAndNudity",
+    "sexualContentOrNudity",
+    "violenceCartoonOrFantasy",
+    "violenceRealistic",
+    "violenceRealisticProlongedGraphicOrSadistic",
+}
+
+CAPABILITY_QUESTIONS = {
+    "advertising",
+    "ageAssurance",
+    "gambling",
+    "healthOrWellnessTopics",
+    "lootBox",
+    "messagingAndChat",
+    "parentalControls",
+    "socialMedia",
+    "socialMediaAgeRestricted",
+    "unrestrictedWebAccess",
+    "userGeneratedContent",
+}
+
+# Answers that are not yes/no questions about content at all.
+IGNORED = {
+    "ageRatingOverride",
+    "ageRatingOverrideV2",
+    "developerAgeRatingInfoUrl",
+    "gracRatingClassificationNumber",
+    "kidsAgeBand",
+    "koreaAgeRatingOverride",
+}
+
+
+def rating_answers(rating: dict) -> dict:
+    """A complete questionnaire: every attribute Apple reports, answered."""
+    present = set(rating.get("attributes") or {})
+    unknown = present - CONTENT_QUESTIONS - CAPABILITY_QUESTIONS - IGNORED
+    if unknown:
+        # A new question must be answered deliberately, not defaulted away.
+        raise SystemExit(
+            "the age rating questionnaire has questions this script does not know: "
+            + ", ".join(sorted(unknown))
+        )
+
+    answers: dict[str, object] = {}
+    for question in sorted(CONTENT_QUESTIONS & present):
+        answers[question] = "NONE"
+    for question in sorted(CAPABILITY_QUESTIONS & present):
+        answers[question] = False
+    answers["unrestrictedWebAccess"] = True
+    return answers
+
+
 def web_access_key(rating: dict) -> str:
     """Apple's age rating attributes are named inconsistently across schema
     revisions, so find the one that means unrestricted web access."""
@@ -183,13 +249,15 @@ def main() -> int:
     rating = info["rating"]
     if rating is None:
         raise SystemExit("the app has no age rating declaration to answer.")
-    key = web_access_key(rating)
-    print(f"  age rating       {key} = true (Unrestricted Web Access)")
+    print(
+        f"  age rating       {len(rating_answers(rating))} answers, "
+        "Unrestricted Web Access = yes (16+)"
+    )
 
     if dry_run:
-        print("\nage rating declaration as Apple reports it:")
-        for attribute, value in sorted((rating.get("attributes") or {}).items()):
-            print(f"  {attribute:38} {value!r}")
+        print("\nage rating questionnaire:")
+        for attribute, value in sorted(rating_answers(rating).items()):
+            print(f"  {attribute:45} {value!r}")
         print("\ndry run: nothing was written.")
         return 0
 
@@ -229,12 +297,16 @@ def main() -> int:
     )
     print("set the primary category")
 
+    answers = rating_answers(rating)
     patch(
         f"/v1/ageRatingDeclarations/{rating['id']}",
         bearer,
-        {"data": {"type": "ageRatingDeclarations", "id": rating["id"], "attributes": {key: True}}},
+        {"data": {"type": "ageRatingDeclarations", "id": rating["id"], "attributes": answers}},
     )
-    print("answered unrestricted web access")
+    print(
+        f"answered the age rating questionnaire ({len(answers)} answers, "
+        "unrestricted web access yes)"
+    )
 
     print("\nreported state is not proof; run the submission check to confirm.")
     return 0
