@@ -120,6 +120,26 @@ describe('theme presets', () => {
     }
   })
 
+  /**
+   * A background painted from a literal instead of a token is invisible in one
+   * palette and wrong in the other: the close chip shipped as an opaque
+   * `rgba(11, 16, 22, 0.9)` pill, which rendered as a filled black square the
+   * moment the palette went light. Token defaults in :root are exempt — they
+   * are the dark palette's own values, overwritten by every preset.
+   */
+  it('paints no background from a hardcoded dark literal', () => {
+    const css = readFileSync(new URL('../src/renderer/src/theme.css', import.meta.url), 'utf8')
+    const body = css.replace(/:root\s*\{[^}]*\}/g, '')
+    const dark = [...body.matchAll(/background(?:-color)?\s*:\s*([^;}]+)/gi)]
+      .map((match) => match[1]!.trim())
+      .filter((value) => {
+        const literal = value.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+        if (!literal) return false
+        return Math.max(Number(literal[1]), Number(literal[2]), Number(literal[3])) <= 40
+      })
+    expect(dark, `backgrounds that stay dark in every theme:\n${dark.join('\n')}`).toEqual([])
+  })
+
   it('writes every token onto the target element', () => {
     const applied = new Map<string, string>()
     const target = {

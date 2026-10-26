@@ -58,6 +58,11 @@ const base = {
   '--on-danger': '#180505',
   '--cloak-ink': '#0b0e12',
   '--cloak-fill': 'linear-gradient(150deg, #f5b95b, #c98f34)',
+  // A fade behind a card's footer, and the scrim behind a modal. Both are
+  // painted over content rather than behind it, so a dark literal shows up as a
+  // grey smear across a light palette: they travel with the preset instead.
+  '--scrim-rgb': '4, 6, 9',
+  '--overlay': 'rgba(3, 5, 8, 0.62)',
   // Accent channels, for the rgba() washes and glows in the stylesheet.
   '--mint-rgb': '79, 227, 193',
   '--amber-rgb': '245, 185, 91',
@@ -215,6 +220,8 @@ export const THEMES: ThemePreset[] = [
       '--panel-from': 'rgba(255, 255, 255, 0.94)',
       '--panel-to': 'rgba(248, 250, 251, 0.94)',
       '--panel-2': '#edf1f6',
+      '--scrim-rgb': '255, 255, 255',
+      '--overlay': 'rgba(23, 34, 51, 0.28)',
       '--mint-rgb': '12, 112, 89',
       '--amber-rgb': '138, 79, 12',
       '--violet-rgb': '98, 66, 216',

@@ -770,7 +770,7 @@ a {
   align-items: center;
   gap: 4px;
   padding: 5px 6px;
-  background: linear-gradient(180deg, transparent, rgba(4, 6, 9, 0.94) 55%);
+  background: linear-gradient(180deg, transparent, rgba(var(--scrim-rgb), 0.94) 55%);
   z-index: 2;
 }
 .slot-foot .name {
@@ -790,7 +790,7 @@ a {
   padding: 0 6px;
   border-radius: 5px;
   border: 1px solid var(--line-bright);
-  background: rgba(11, 16, 22, 0.9);
+  background: var(--well);
   color: var(--text-dim);
   font: 9.5px/1 var(--mono);
   letter-spacing: 0.04em;
@@ -1782,7 +1782,7 @@ code.swatchline i {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(3, 5, 8, 0.62);
+  background: var(--overlay);
   backdrop-filter: blur(3px);
   z-index: 200;
   display: flex;
