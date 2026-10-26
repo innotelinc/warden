@@ -11,9 +11,40 @@ import { DEFAULT_THEME, themeFor } from '@shared/themes'
  * were styled against them, and naming them here keeps every rule below
  * unchanged apart from the literal it used to carry.
  */
+const hexOf = (value: string): [number, number, number] | null => {
+  const match = /^#([0-9a-f]{6})$/i.exec(value.trim())
+  if (!match) return null
+  const hex = match[1]!
+  return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16)) as [number, number, number]
+}
+
+/** `amount` of `fg` over `bg`, which is all the mark's highlight needs. */
+const mix = (fg: string, bg: string, amount: number): string => {
+  const a = hexOf(fg)
+  const b = hexOf(bg)
+  if (!a || !b) return fg
+  return `#${a
+    .map((channel, index) => Math.round(channel * amount + b[index]! * (1 - amount)).toString(16).padStart(2, '0'))
+    .join('')}`
+}
+
+/** Perceived brightness, to tell a paper palette from a near-black one. */
+const brightness = (value: string): number => {
+  const rgb = hexOf(value)
+  if (!rgb) return 0
+  return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255
+}
+
 export function pagePalette(theme?: string): string {
   const vars = themeFor(theme ?? DEFAULT_THEME).vars
   const pick = (name: string, fallback: string): string => vars[name] ?? fallback
+  const mint = pick('--mint', '#4fe3c1')
+  const paper = brightness(pick('--bg', '#080a0d')) > 0.5
+  // The W is a gradient inside cut-out text, so every stop has to be computed
+  // here rather than asked of the browser: a stop the engine cannot resolve
+  // leaves the letter transparent and the splash without its mark.
+  const markHi = mix(mint, '#ffffff', 0.4)
+  const markLine = `rgba(${pick('--mint-rgb', '79, 227, 193')}, ${paper ? 0.8 : 0.55})`
   return `:root {
     color-scheme: ${pick('color-scheme', 'dark')};
     --bg: ${pick('--bg', '#080a0d')};
@@ -34,6 +65,8 @@ export function pagePalette(theme?: string): string {
     --danger: ${pick('--red', '#ff6b6b')};
     --mint-rgb: ${pick('--mint-rgb', '79, 227, 193')};
     --violet-rgb: ${pick('--violet-rgb', '167, 139, 250')};
+    --mark-hi: ${markHi};
+    --mark-line: ${markLine};
   }`
 }
 
@@ -130,29 +163,34 @@ ${baseCss(data.theme)}
     mask-image: radial-gradient(circle at 50% 20%, #000 5%, transparent 68%);
     pointer-events: none;
   }
-  .mark { position: relative; width: 132px; height: 150px; display: grid; place-items: center; }
-  .mark svg.shield {
+  /* Scoped to the splash: the mark class is also used by a bookmark card
+     below, and the two rules used to fight over the same element — the logo
+     ended up inside a bordered card and every bookmark inherited its
+     132x150 box. */
+  .splash .mark { position: relative; width: 132px; height: 150px; display: grid; place-items: center; }
+  .splash .mark svg.shield {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    color: rgba(var(--mint-rgb), .55);
+    color: var(--mark-line);
     filter: drop-shadow(0 18px 44px rgba(var(--mint-rgb), .18));
   }
-  .mark .w {
+  .splash .mark .w {
     position: relative;
     font: 700 74px/1 "Segoe UI", system-ui, sans-serif;
     letter-spacing: -.04em;
-    background: linear-gradient(
-      170deg,
-      color-mix(in srgb, var(--mint) 42%, #ffffff) 4%,
-      var(--mint) 46%,
-      var(--mint-dim) 100%
-    );
+    background: linear-gradient(170deg, var(--mark-hi) 4%, var(--mint) 46%, var(--mint-dim) 100%);
     -webkit-background-clip: text;
     background-clip: text;
+    -webkit-text-fill-color: transparent;
     color: transparent;
     transform: translateY(-4px);
+  }
+  /* Without the clip the letter would paint transparent and vanish, which is
+     exactly how a splash loses its mark. Fall back to a solid mint W. */
+  @supports not (-webkit-background-clip: text) {
+    .splash .mark .w { background: none; -webkit-text-fill-color: var(--mint); color: var(--mint); }
   }
   .splash h1 {
     position: relative;
@@ -192,10 +230,10 @@ ${baseCss(data.theme)}
   ul.hosts li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-dim); border-bottom: 1px dashed var(--line); padding-bottom: 6px; }
   ul.hosts .count { color: var(--violet); font-variant-numeric: tabular-nums; }
   .marks { margin-top: 22px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-  .mark { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--text); }
-  .mark:hover { border-color: rgba(79,227,193,.45); text-decoration: none; }
-  .mark-host { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--mint); }
-  .mark-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .marks .mark { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--text); }
+  .marks .mark:hover { border-color: rgba(var(--mint-rgb), .45); text-decoration: none; }
+  .marks .mark-host { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--mint); }
+  .marks .mark-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
   .keys { margin-top: 30px; color: var(--muted); font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 16px; }
   kbd { font: 11px/1 ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 4px 6px; color: var(--text-dim); background: var(--well); margin-right: 5px; }
   .empty { color: var(--muted); font-size: 12px; }

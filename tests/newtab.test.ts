@@ -103,6 +103,37 @@ describe('internal pages carry the palette', () => {
     expect(html).not.toContain('#0f1319')
   })
 
+  /**
+   * The splash mark is the one thing on the page that can vanish without the
+   * page looking broken: the W is cut out of a gradient, so a stop the engine
+   * cannot resolve leaves the letter transparent and the splash anonymous.
+   */
+  it('keeps the splash mark sized, painted and visible', () => {
+    const light = withTheme('light')
+    // Every gradient stop is computed in the palette, never left to color-mix.
+    expect(light).toContain('--mark-hi:')
+    expect(light).not.toContain('color-mix')
+    expect(light).toContain('--mark-line: rgba(12, 112, 89, 0.8)')
+    expect(light).toContain('linear-gradient(170deg, var(--mark-hi) 4%, var(--mint) 46%, var(--mint-dim) 100%)')
+    // An engine without background-clip: text gets a solid letter instead of
+    // an invisible one.
+    expect(light).toContain('@supports not (-webkit-background-clip: text)')
+    expect(light).toContain('position: relative; width: 132px; height: 150px')
+  })
+
+  /**
+   * Both the splash mark and a bookmark card use the class name `mark`, and an
+   * unscoped rule for one lands on the other: the logo ended up inside a
+   * bordered 132x150 card and every bookmark was stretched into the same box.
+   */
+  it('scopes the mark rules so the logo and the bookmark cards do not collide', () => {
+    const html = withTheme('ops')
+    expect(html).toContain('.splash .mark {')
+    expect(html).toContain('.marks .mark {')
+    // No unscoped `.mark` rule is left to fight over both elements.
+    expect(html).not.toMatch(/^ {2}\.mark \{/m)
+  })
+
   it('paints the error page in the chosen palette', () => {
     const light = errorHtml('EGRESS_BLOCKED', 'Tunnel down', 'https://example.com', 'light')
     expect(light).toContain('color-scheme: light')
