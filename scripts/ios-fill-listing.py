@@ -27,8 +27,8 @@ hyphen in its name is why it is loaded by path.
     DRY_RUN=false APP_STORE_CONNECT_KEY_ID=... APP_STORE_CONNECT_ISSUER_ID=... \\
       ASC_KEY_PATH=/path/AuthKey.p8 python3 scripts/ios-fill-listing.py
 
-Exit status: 0 the listing now matches the file, 1 the API refused something,
-2 a dry run finished (nothing was written).
+Exit status: 0 the listing now matches the file (or a dry run finished),
+1 the API refused something.
 """
 
 from __future__ import annotations
@@ -188,7 +188,7 @@ def main() -> int:
 
     if dry_run:
         print("\ndry run: nothing was written.")
-        return 2
+        return 0
 
     patch(
         f"/v1/appStoreVersionLocalizations/{localization['id']}",
