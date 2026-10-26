@@ -192,6 +192,22 @@ wants before the version can be sent to review:
 gh workflow run ios-build-status.yml -f submission=true
 ```
 
+**iOS listing** writes that copy into App Store Connect so the record cannot
+drift from the reviewed file — `dry_run` defaults to true:
+
+```
+gh workflow run ios-listing.yml                      # show what it would change
+gh workflow run ios-listing.yml -f dry_run=false
+gh workflow run ios-listing.yml -f dry_run=false -f attach_build=10
+```
+
+It sets the version's description, keywords, promotional text and URLs, the
+subtitle and privacy policy URL, the primary category, the whole age rating
+questionnaire (unrestricted web access answered yes, which produces 16+) and,
+with `attach_build`, the build on the version page. It leaves the app name,
+the screenshots and the review contact alone: those are a person's details or
+have to come from the running app.
+
 It reports every field of the newest iOS version page (description, keywords,
 URLs, promotional text, what's new), the screenshots per display size, the app
 information (name, subtitle, privacy policy URL, primary category), the age

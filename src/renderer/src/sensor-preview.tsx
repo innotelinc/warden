@@ -103,6 +103,11 @@ export function SensorPreview({ cameraMode, cameraStrength, voiceMode, cameraBlo
   const monitorRef = useRef(true)
 
   const [running, setRunning] = useState(false)
+  // `start` awaits getUserMedia, which on a first run waits for a permission
+  // prompt. The button still says "start" during that wait, so a second click
+  // captured a second stream — and stop only ever knew about the newest one,
+  // leaving the first microphone live.
+  const startingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [level, setLevel] = useState(0)
   const [monitor, setMonitor] = useState(true)
@@ -137,6 +142,7 @@ export function SensorPreview({ cameraMode, cameraStrength, voiceMode, cameraBlo
   }, [voiceMode, monitor, rebuildAudio])
 
   const stop = useCallback(() => {
+    startingRef.current = false
     cancelAnimationFrame(frameRef.current)
     frameRef.current = 0
     const chain = audioRef.current
@@ -167,8 +173,11 @@ export function SensorPreview({ cameraMode, cameraStrength, voiceMode, cameraBlo
   }, [])
 
   const start = useCallback(async () => {
+    if (startingRef.current || streamRef.current) return
+    startingRef.current = true
     setError(null)
     if (cameraBlocked && microphoneBlocked) {
+      startingRef.current = false
       setError('Camera and microphone are both blocked in Policy above. Unblock one to run a test.')
       return
     }
@@ -179,10 +188,17 @@ export function SensorPreview({ cameraMode, cameraStrength, voiceMode, cameraBlo
         audio: !microphoneBlocked
       })
     } catch (failure) {
+      startingRef.current = false
       setError(describeError(failure))
       return
     }
 
+    // Stop may have been pressed while the prompt was open.
+    if (!startingRef.current) {
+      stream.getTracks().forEach((track) => track.stop())
+      return
+    }
+    startingRef.current = false
     streamRef.current = stream
     const video = videoRef.current
     if (video) {
@@ -209,6 +225,9 @@ export function SensorPreview({ cameraMode, cameraStrength, voiceMode, cameraBlo
     const buffer = new Float32Array(1024)
     let tick = 0
     const render = (): void => {
+      // A frame that was already queued when the test stopped must not reschedule
+      // itself, or the loop outlives the stream it was drawing.
+      if (!streamRef.current) return
       tick += 1
       const canvas = canvasRef.current
       const element = videoRef.current
