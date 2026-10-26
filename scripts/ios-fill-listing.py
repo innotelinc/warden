@@ -187,6 +187,9 @@ def main() -> int:
     print(f"  age rating       {key} = true (Unrestricted Web Access)")
 
     if dry_run:
+        print("\nage rating declaration as Apple reports it:")
+        for attribute, value in sorted((rating.get("attributes") or {}).items()):
+            print(f"  {attribute:38} {value!r}")
         print("\ndry run: nothing was written.")
         return 0
 
