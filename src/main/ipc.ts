@@ -224,11 +224,33 @@ export function registerIpc(warden: WardenContext): void {
       return { ...settings, compatibility: [...set].slice(0, 100) }
     })
     context().privacy.applySettings(next)
+    // A stored exemption supersedes the throwaway one, so state reports one
+    // answer for the host instead of two that disagree about the same thing.
+    if (on) context().privacy.setSessionExemption(normalized, false)
     for (const tab of context().tabs.list()) {
       if (hostMatches(hostOfUrl(tab.url), [normalized])) context().tabs.reload(tab.id)
     }
     context().sendState()
     return next
+  })
+
+  /**
+   * "Let this site work here, for now."
+   *
+   * The remedy the site bar offers before the exclusion list: the page loads
+   * unfiltered so the operator can see whether the privacy stack was the cause,
+   * and the settings file is not touched. Either way the tabs on that host
+   * reload, so the next document runs under the answer the operator just chose.
+   */
+  handle('warden:privacy:unfiltered', (host: string, on: boolean) => {
+    const normalized = host.trim().toLowerCase()
+    if (!normalized) return context().privacy.sessionExemptions()
+    const list = context().privacy.setSessionExemption(normalized, Boolean(on))
+    for (const tab of context().tabs.list()) {
+      if (hostMatches(hostOfUrl(tab.url), [normalized])) context().tabs.reload(tab.id)
+    }
+    context().sendState()
+    return list
   })
 
   /**
@@ -571,6 +593,21 @@ export function registerIpc(warden: WardenContext): void {
     if (context().tabs.getWebContents(tabId)?.id !== event.sender.id) return
     const changed = context().tabs.setChallengeWall(tabId, typeof reason === 'string' ? reason : null)
     if (changed) context().sendState()
+  })
+
+  // How much the document drew. Paired in TabManager with the tab's blocked
+  // count, this is what says a page came back empty because WARDEN removed part
+  // of it. Only a tab's own view may measure itself, and the numbers are
+  // checked here so a page cannot claim to be broken with a hostile payload.
+  ipcMain.on('warden:page:health', (event, tabId: unknown, health: unknown) => {
+    if (typeof tabId !== 'string' || !tabId) return
+    if (context().tabs.getWebContents(tabId)?.id !== event.sender.id) return
+    const report = health as { textChars?: unknown; elements?: unknown } | null
+    const textChars = Number(report?.textChars)
+    const elements = Number(report?.elements)
+    if (!Number.isFinite(textChars) || !Number.isFinite(elements)) return
+    if (textChars < 0 || elements < 0) return
+    if (context().tabs.setPageHealth(tabId, { textChars, elements })) context().sendState()
   })
 
   ipcMain.on('warden:window:minimize', () => context().win.minimize())

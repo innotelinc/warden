@@ -107,7 +107,7 @@ Also enforced: every permission request is denied (geolocation, notifications, m
 
 ### Allowing a site
 
-Three switches sit beside the address bar, one click each: **privacy** suspends the stack for the current host (compatibility mode, amber while suspended), **cookies** allows or revokes the current host, and **genie** turns the automatic fraud read of opened mail on or off. All three reflect live state, and all three are also available in the shield panel and Policy.
+Three switches sit beside the address bar, one click each: **privacy** suspends the stack for the current host (compatibility mode, amber while suspended; it reads `unfiltered` when the bypass is the session-only kind the site bar grants), **cookies** allows or revokes the current host, and **genie** turns the automatic fraud read of opened mail on or off. All three reflect live state, and all three are also available in the shield panel and Policy.
 
 Toolbar shield → **Allow cookies for this site** (or Policy → allowlist). The allowance is in-memory for the session and never written to a cookie database. Revoking it purges that site's cookies immediately.
 
@@ -115,7 +115,13 @@ Toolbar shield → **Allow cookies for this site** (or Policy → allowlist). Th
 
 Some sites will not load through a privacy stack at all: Cloudflare challenge pages, bank portals, SSO. For those, the shield panel has **Reload in compatibility mode**, and Policy carries the same list for hosts an admin wants to seed before anyone visits them.
 
-A tab that keeps handing back the same page — three loads of one URL, or two alternating, inside twenty seconds — is recognised as a challenge loop, and a bar above the page names the host and offers the same switch, so the dead end comes with a way out. A single captcha or browser-check interstitial is recognised the same way, from its title, its wording or the challenge form it ships, so a wall that never loops still gets the prompt. Dismissing it keeps the full stack for that tab until it leaves the host.
+A bar above the page names the host and offers a way out, for three shapes of failure:
+
+- **A challenge loop** — three loads of one URL, or two alternating, inside twenty seconds.
+- **A wall** — one captcha or browser-check interstitial, recognised from its title, its wording or the challenge form it ships, so a wall that never loops still gets the prompt.
+- **A page that drew nothing** — the document settled, the tab stopped loading, and almost nothing was rendered: under 200 characters of visible text and under 40 elements, on a tab where WARDEN blocked at least three requests. Emptiness alone proves nothing (an offline error page looks the same), which is why the blocked count is part of it. Loops and walls are checked first, since they render very little too.
+
+The bar asks in the order that costs least. **Try unfiltered** loads the host with the same enforcement bypass but only for this run: nothing is written to `settings.json`, and the switch by the address bar reads `unfiltered` until it is turned off or WARDEN quits. **Always allow…** is a separate click that opens a confirmation stating what stops and for how long, and only that writes the host into the exclusion list. **Dismiss** keeps the full stack for that tab until it leaves the host.
 
 A compatible host is loaded as if WARDEN were a plain browser:
 

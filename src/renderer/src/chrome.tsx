@@ -125,6 +125,10 @@ export function Toolbar({
   const matches = (list: string[] | undefined): boolean =>
     Boolean(quickHost && list?.some((entry) => quickHost === entry || quickHost.endsWith(`.${entry}`)))
   const privacyOff = matches(settingsNow?.compatibility)
+  // A session exemption and a stored one are the same answer to "is this host
+  // filtered?", so the toggle reads both and reports which one is in force.
+  const sessionOff = matches(state?.sessionExemptions)
+  const stackOff = privacyOff || sessionOff
   const cookiesAllowed = matches(settingsNow?.allowlist)
   const genieOn = settingsNow?.autoFraudCheck ?? false
   const inputRef = useRef<HTMLInputElement>(null)
@@ -262,19 +266,27 @@ export function Toolbar({
       {quickHost ? (
         <>
           <button
-            className={`quick-toggle ${privacyOff ? 'off' : 'on'}`}
+            className={`quick-toggle ${stackOff ? 'off' : 'on'}`}
             onClick={() => {
-              void window.warden.privacy.compatibility(quickHost, !privacyOff)
-              notify(privacyOff ? `Privacy stack restored for ${quickHost}` : `${quickHost} reloaded as a plain browser`, privacyOff ? 'info' : 'ok')
+              if (stackOff) {
+                // Restoring means clearing both: leaving a stored exemption
+                // behind would keep the toggle off after the reload.
+                if (privacyOff) void window.warden.privacy.compatibility(quickHost, false)
+                if (sessionOff) void window.warden.privacy.unfiltered(quickHost, false)
+                notify(`Privacy stack restored for ${quickHost}`, 'info')
+                return
+              }
+              void window.warden.privacy.compatibility(quickHost, true)
+              notify(`${quickHost} reloaded as a plain browser`, 'ok')
             }}
             title={
-              privacyOff
-                ? `Privacy stack is off for ${quickHost} — click to restore filtering and cookie stripping`
+              stackOff
+                ? `Privacy stack is off for ${quickHost}${sessionOff && !privacyOff ? ' (this run only)' : ''} — click to restore filtering and cookie stripping`
                 : `Turn the privacy stack off for ${quickHost}: compatibility mode, no filtering, cookies kept`
             }
           >
             <IconShield size={12} />
-            {privacyOff ? 'privacy off' : 'privacy'}
+            {sessionOff && !privacyOff ? 'unfiltered' : stackOff ? 'privacy off' : 'privacy'}
           </button>
           <button
             className={`quick-toggle ${cookiesAllowed ? 'on' : ''}`}
@@ -719,37 +731,94 @@ export function BastionPanel({
  * WARDEN's own cookie policy is the obstacle. The bar names the host, offers the
  * exemption the shield panel would, and stays quiet for that tab once dismissed.
  */
+/**
+ * The site bar: one prompt for a tab WARDEN seems to have broken.
+ *
+ * It never decides for the operator, and it asks in the order that costs least:
+ * load the page unfiltered for this run (nothing stored, and reloading gets the
+ * full stack back), and only then, behind a confirmation that says what stops
+ * and for how long, write the host into the exclusion list.
+ */
 export function ChallengeBar({
   host,
   kind,
   attempts,
+  blocked,
+  onTryUnfiltered,
   onCompatibility,
   onDismiss
 }: {
   host: string
-  kind: 'loop' | 'wall'
+  kind: 'loop' | 'wall' | 'broken'
   attempts?: number
+  blocked?: number
+  onTryUnfiltered: () => void
   onCompatibility: () => void
   onDismiss: () => void
 }) {
+  const [confirming, setConfirming] = useState(false)
+
+  // A different site is a different question: an answer half-given for the last
+  // host must not be waiting under the next one's question.
+  useEffect(() => {
+    setConfirming(false)
+  }, [host])
+
+  if (confirming) {
+    return (
+      <div className="challenge-bar fade-in" role="status">
+        <IconAlert size={13} />
+        <span className="challenge-text">
+          Add <b>{host}</b> to the exclusion list? WARDEN stops filtering it, keeps its cookies and
+          adds no fingerprint noise there — in every tab, saved to Policy until you remove it.
+        </span>
+        <button
+          className="btn primary"
+          onClick={onCompatibility}
+          title={`Save ${host} as a compatibility site`}
+        >
+          Add to exclusion list
+        </button>
+        <button className="btn" onClick={() => setConfirming(false)}>
+          Cancel
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="challenge-bar fade-in" role="status">
       <IconAlert size={13} />
       <span className="challenge-text">
         {kind === 'wall' ? (
           <>
-            <b>{host}</b> is showing a security check — let WARDEN act as a plain browser here and try
-            again.
+            <b>{host}</b> is showing a security check — WARDEN's cookie and fingerprint defences
+            usually trigger one.
+          </>
+        ) : kind === 'broken' ? (
+          <>
+            <b>{host}</b> loaded but drew nothing, after {blocked ?? 0} requests were blocked.
           </>
         ) : (
           <>
-            <b>{host}</b> keeps reloading this page ({attempts ?? 0} loads) — if it is a challenge you
-            cannot get past, let WARDEN act as a plain browser here.
+            <b>{host}</b> has loaded the same page {attempts ?? 0} times without getting anywhere.
           </>
-        )}
+        )}{' '}
+        Try it unfiltered first — nothing is saved.
       </span>
-      <button className="btn primary" onClick={onCompatibility} title="Exempt this host from filtering and cookie stripping, then reload">
-        Reload in compatibility mode
+      <button
+        className="btn primary"
+        onClick={onTryUnfiltered}
+        title="Load this site without filtering until WARDEN quits — nothing is saved, and reloading restores the stack"
+      >
+        Try unfiltered
+      </button>
+      <button
+        className="btn"
+        onClick={() => setConfirming(true)}
+        title={`Ask to add ${host} to the exclusion list`}
+      >
+        Always allow…
       </button>
       <button className="btn" onClick={onDismiss} title="Keep the full privacy stack for this tab">
         Dismiss

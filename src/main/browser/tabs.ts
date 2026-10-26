@@ -7,6 +7,7 @@ import { detectChallengeLoop, type NavigationEvent } from './challenge-loop'
 import { popupDecision } from './popup-policy'
 import { buildPageMenu, isLocalMediaSource, probeMediaScript, type PageMenuCommand } from './page-menu'
 import { signInHostsFor } from '@shared/auth-flow'
+import { looksBrokenPage, type PageHealth } from '@shared/site-breakage'
 
 export { resolveInput } from '@shared/urls'
 
@@ -51,6 +52,8 @@ interface Tab {
   navigations: NavigationEvent[]
   /** The preload's answer for the current document, when it found a wall. */
   wall: { host: string; reason: string } | null
+  /** How much the current document drew, as the preload measured it. */
+  health: PageHealth | null
   /** Host whose challenge hint the operator has dismissed for this tab. */
   dismissedHint: string | null
 }
@@ -170,8 +173,9 @@ export class TabManager {
   /**
    * The challenge the active tab is stuck on, if any.
    *
-   * Two shapes qualify: a page it keeps reloading, and a single captcha or
-   * browser-check interstitial. Compatibility mode is the remedy this prompt
+   * Three shapes qualify: a page it keeps reloading, a single captcha or
+   * browser-check interstitial, and a page that arrived empty after WARDEN
+   * blocked part of it. Stepping aside for the host is the remedy this prompt
    * offers, so a host that already has it stays silent — there is nothing left
    * for the operator to grant.
    */
@@ -185,12 +189,44 @@ export class TabManager {
       ? { host: loop.host, kind: 'loop', attempts: loop.attempts }
       : tab.wall
         ? { host: tab.wall.host, kind: 'wall' }
-        : null
+        : this.brokenHint(tab)
     if (!hint) return null
 
     if (this.privacy.isCompatible(hint.host)) return null
     if (tab.dismissedHint === hint.host) return null
     return hint
+  }
+
+  /** A settled document that drew nothing, on a tab that had requests blocked. */
+  private brokenHint(tab: Tab): ChallengeHint | null {
+    const host = safeHost(tab.url)
+    if (!host) return null
+    const broken = looksBrokenPage({
+      health: tab.health,
+      blocked: this.privacy.blockedForWebContents(tab.view.webContents.id),
+      compatible: this.privacy.isCompatible(host),
+      loading: tab.loading
+    })
+    if (!broken) return null
+    return { host, kind: 'broken', blocked: broken.blocked }
+  }
+
+  /**
+   * The preload's measurement of the document it is showing.
+   *
+   * Returns whether anything changed: a single-page app re-measures on every
+   * substantial mutation, and an identical reading must not push state.
+   */
+  setPageHealth(id: string, health: PageHealth): boolean {
+    const tab = this.tabs.get(id)
+    if (!tab) return false
+    const previous = tab.health
+    const next = { textChars: health.textChars, elements: health.elements }
+    if (previous && previous.textChars === next.textChars && previous.elements === next.elements) {
+      return false
+    }
+    tab.health = next
+    return true
   }
 
   /**
@@ -226,8 +262,9 @@ export class TabManager {
     // The wall described the document that just went away. The probe answers for
     // the new one, and a compatible page answers nothing at all, so clearing
     // here also keeps a stale wall from coming back when the exemption is
-    // revoked.
+    // revoked. The measurement described that document too.
     tab.wall = null
+    tab.health = null
   }
 
   create(url = 'warden://newtab', burner = this.privacy.getSettings().privateByDefault): string {
@@ -274,6 +311,7 @@ export class TabManager {
       attached: false,
       navigations: [],
       wall: null,
+      health: null,
       dismissedHint: null
     }
 

@@ -417,9 +417,14 @@ function Shell() {
                   host={challenge.host}
                   kind={challenge.kind}
                   attempts={challenge.attempts}
+                  blocked={challenge.blocked}
+                  onTryUnfiltered={() => {
+                    void window.warden.privacy.unfiltered(challenge.host, true)
+                    notify(`${challenge.host} reloaded unfiltered — this run only, nothing saved`, 'ok')
+                  }}
                   onCompatibility={() => {
                     void window.warden.privacy.compatibility(challenge.host, true)
-                    notify(`${challenge.host} reloaded as a plain browser`, 'ok')
+                    notify(`${challenge.host} added to the exclusion list`, 'ok')
                   }}
                   onDismiss={() => {
                     if (activeTab) void window.warden.tab.dismissChallenge(activeTab.id, challenge.host)

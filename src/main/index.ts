@@ -543,6 +543,7 @@ async function createWindow(stores: Stores): Promise<void> {
     tabs: tabs.list(),
     activeTabId: tabs.activeTabId,
     challenge: tabs.challengeHint(),
+    sessionExemptions: privacy.sessionExemptions(),
     workspace,
     settings: stores.settings.get(),
     stats: privacy.snapshot(),

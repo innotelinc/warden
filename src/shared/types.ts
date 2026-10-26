@@ -48,10 +48,15 @@ export interface TabState {
  */
 export interface ChallengeHint {
   host: string
-  /** `loop` = the tab keeps reloading; `wall` = the page is a captcha gate. */
-  kind: 'loop' | 'wall'
+  /**
+   * `loop` = the tab keeps reloading; `wall` = the page is a captcha gate;
+   * `broken` = the document arrived and drew nothing, with requests blocked.
+   */
+  kind: 'loop' | 'wall' | 'broken'
   /** Loop only: main-frame loads of that host inside the observation window. */
   attempts?: number
+  /** Broken only: requests WARDEN blocked in that tab. */
+  blocked?: number
 }
 
 export type CookieMode = 'block' | 'first-party'
@@ -477,8 +482,14 @@ export interface DownloadItem {
 export interface AppState {
   tabs: TabState[]
   activeTabId: string | null
-  /** Set when the active tab is stuck reloading a challenge page. */
+  /** Set when the active tab is stuck, blank, or stuck behind a challenge page. */
   challenge: ChallengeHint | null
+  /**
+   * Hosts the operator let through for this run only. The same enforcement
+   * bypass as the compatibility list, but never written to settings and gone
+   * when WARDEN quits.
+   */
+  sessionExemptions: string[]
   workspace: WorkspaceId
   settings: Settings
   stats: PrivacyStats
@@ -609,6 +620,11 @@ export interface WardenApi {
     allow(host: string, allowed: boolean): Promise<void>
     /** Steps WARDEN aside for one host; resolves with the stored settings. */
     compatibility(host: string, on: boolean): Promise<Settings>
+    /**
+     * Steps WARDEN aside for one host until WARDEN quits, without storing it.
+     * Resolves with the hosts currently exempt for this run.
+     */
+    unfiltered(host: string, on: boolean): Promise<string[]>
     /**
      * Allows cookies for an SSO login identified from the page URL: the identity
      * provider and the application it returns to, and nothing else.

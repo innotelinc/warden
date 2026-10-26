@@ -202,6 +202,39 @@ function reportChallengeWall(): void {
 }
 
 /**
+ * Report how much document there is.
+ *
+ * The main process pairs this with its blocked-request count for the tab: a
+ * settled document with almost no text, a handful of elements and several
+ * blocked requests is a site the filtering broke, and the operator is offered
+ * the choice instead of being left with a blank page. Reported on every probe
+ * because a single-page app that recovers must be able to retract it.
+ */
+function reportHealth(): void {
+  if (compatibilitySite || !tabId) return
+  if (location.protocol !== 'https:' && location.protocol !== 'http:') return
+
+  let textChars = 0
+  let elements = 0
+  try {
+    const body = document.body
+    if (!body) return
+    // innerText, not textContent: an inline script bundle is text no visitor
+    // ever sees, and counting it would make an empty page look full.
+    textChars = (body.innerText || '').length
+    elements = body.querySelectorAll('*').length
+  } catch {
+    return
+  }
+
+  try {
+    ipcRenderer.send('warden:page:health', tabId, { textChars, elements })
+  } catch {
+    /* the window may be gone already */
+  }
+}
+
+/**
  * A wall can arrive without a navigation: a single-page app swaps its own view,
  * or swaps the sheet in once the page has settled. Watch the body for a
  * substantial replacement and ask again, throttled, so a busy page costs one
@@ -217,6 +250,7 @@ function scheduleSpaProbe(): void {
   spaProbeTimer = window.setTimeout(() => {
     spaProbeTimer = 0
     reportChallengeWall()
+    reportHealth()
   }, SPA_PROBE_DELAY_MS)
 }
 
@@ -244,9 +278,13 @@ function watchForSpaChanges(): void {
 function scheduleWallProbe(): void {
   if (location.protocol !== 'https:' && location.protocol !== 'http:') return
   reportChallengeWall()
+  reportHealth()
   watchForSpaChanges()
   // Some walls are injected after load, so ask again once the page has settled.
-  window.setTimeout(reportChallengeWall, 2500)
+  window.setTimeout(() => {
+    reportChallengeWall()
+    reportHealth()
+  }, 2500)
 }
 
 if (document.readyState === 'loading') {

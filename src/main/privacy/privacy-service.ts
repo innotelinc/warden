@@ -51,6 +51,18 @@ export class PrivacyService {
   private listMeta: PrivacyStats['filterLists'] = []
   private stats: MutableStats
   private warnedHosts = new Set<string>()
+  /**
+   * Hosts let through for this run only.
+   *
+   * "Let it work here" is a diagnosis, not a preference: the operator wants to
+   * know whether the privacy stack is what broke the page, and wants that page
+   * to load without deciding to trust the site from now on. So the same
+   * enforcement bypass as compatibility mode is granted in memory, never
+   * written to settings, and dropped when WARDEN quits.
+   */
+  private sessionExempt = new Set<string>()
+  /** Compatibility list plus the session exemptions, rebuilt only on change. */
+  private compatEntries: string[] | null = null
   private blockedByWc = new Map<number, number>()
   private egress: ProxyState = { kind: 'direct', reason: 'unconfigured' }
   private health: EgressHealth = 'unknown'
@@ -232,6 +244,7 @@ export class PrivacyService {
   }
 
   applySettings(settings: Settings): void {
+    this.compatEntries = null
     const engineAffecting =
       settings.blockAds !== this.settings.blockAds ||
       settings.blockTrackers !== this.settings.blockTrackers ||
@@ -337,7 +350,41 @@ export class PrivacyService {
    * same question synchronously before it injects anything.
    */
   isCompatible(host: string | null): boolean {
-    return host !== null && hostMatches(host, this.settings.compatibility)
+    return host !== null && hostMatches(host, this.compatibilityEntries())
+  }
+
+  /**
+   * Every host WARDEN currently steps aside for, stored or not.
+   *
+   * Cached because this is asked once per request, per header and per document;
+   * a fresh array per call would be allocated thousands of times a second.
+   */
+  private compatibilityEntries(): string[] {
+    if (!this.compatEntries) {
+      this.compatEntries = [...this.settings.compatibility, ...this.sessionExempt]
+    }
+    return this.compatEntries
+  }
+
+  /** Hosts exempt for this run only, as the UI reports them. */
+  sessionExemptions(): string[] {
+    return [...this.sessionExempt]
+  }
+
+  /**
+   * Grant or revoke a session exemption.
+   *
+   * Nothing is stored and no engine is rebuilt: every enforcement layer asks
+   * `isCompatible` at request time, and the page preload asks again on each
+   * document, so the next load already sees the new answer.
+   */
+  setSessionExemption(host: string, on: boolean): string[] {
+    const normalized = host.trim().toLowerCase()
+    if (!normalized) return this.sessionExemptions()
+    if (on) this.sessionExempt.add(normalized)
+    else this.sessionExempt.delete(normalized)
+    this.compatEntries = null
+    return this.sessionExemptions()
   }
 
   /**
@@ -348,7 +395,10 @@ export class PrivacyService {
    * instead of judging the cookie by its own domain alone.
    */
   private keepsCookieForCompatibility(cookieHost: string): boolean {
-    return this.isCompatible(cookieHost) || isCookieKeptByCompatibility(cookieHost, this.settings.compatibility)
+    // The effective list, so a session exemption keeps a parent-domain cookie
+    // exactly like a stored one does — `www.example.com` exempted, cookie on
+    // `.example.com`, which is where a site's session usually lands.
+    return this.isCompatible(cookieHost) || isCookieKeptByCompatibility(cookieHost, this.compatibilityEntries())
   }
 
   /**
