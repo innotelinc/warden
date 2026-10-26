@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS, APP_NAME } from '@shared/defaults'
 import { DOH_PROVIDERS, dohSwitches } from '@shared/dns'
 import type { ProxyState } from '@shared/network'
 import { sanitizeSettings } from '@shared/settings'
+import { themeFor } from '@shared/themes'
 import type {
   AppState,
   HistoryEntry,
@@ -203,7 +204,9 @@ async function createWindow(stores: Stores): Promise<void> {
     minWidth: 1040,
     minHeight: 660,
     show: false,
-    backgroundColor: '#080a0d',
+    // Start on the palette's own background, so a light theme does not show a
+    // dark frame for the frame or two before the renderer paints.
+    backgroundColor: themeFor(stores.settings.get().theme).vars['--bg'] ?? '#080a0d',
     title: 'WARDEN',
     // No native caption overlay: its glyphs are drawn by Windows and on some
     // builds they vanish against a dark frame with no hover feedback at all.
@@ -714,7 +717,8 @@ async function createWindow(stores: Stores): Promise<void> {
           facts: splashFacts(settingsNow, privacy.egressState(), privacy.egressReport().health),
           bookmarks: stores.bookmarks.get().slice(0, 12),
           version: app.getVersion(),
-          homepage: settingsNow.homepage
+          homepage: settingsNow.homepage,
+          theme: settingsNow.theme
         }),
         { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
@@ -731,21 +735,22 @@ async function createWindow(stores: Stores): Promise<void> {
         errorHtml(
           url.searchParams.get('code') ?? 'ERR',
           url.searchParams.get('desc') ?? 'Navigation failed',
-          url.searchParams.get('url') ?? ''
+          url.searchParams.get('url') ?? '',
+          settingsNow.theme
         ),
         { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
     }
 
     if (url.hostname === 'doc') {
-      const doc = readDoc(url.searchParams.get('path') ?? '')
+      const doc = readDoc(url.searchParams.get('path') ?? '', settingsNow.theme)
       if (doc) {
         return new Response(doc.html, {
           headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
         })
       }
       return new Response(
-        errorHtml('DOC', 'That file cannot be shown here', url.searchParams.get('path') ?? ''),
+        errorHtml('DOC', 'That file cannot be shown here', url.searchParams.get('path') ?? '', settingsNow.theme),
         { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
     }

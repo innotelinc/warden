@@ -34,7 +34,39 @@ const base = {
   '--violet': '#a78bfa',
   '--amber': '#f5b95b',
   '--red': '#ff6b6b',
-  '--sky': '#7dd3fc'
+  '--sky': '#7dd3fc',
+  // Surfaces the accent tokens cannot express. A light palette has to repaint
+  // these separately from a page's own background, so they travel with every
+  // preset instead of being left as literals in the stylesheet.
+  '--chrome': '#0a0e13',
+  '--chrome-dim': '#080b0f',
+  '--well': '#0c1117',
+  '--sunken': '#070a0d',
+  '--row-active': '#0e141b',
+  '--raised': '#131b24',
+  '--line-strong': '#33424f',
+  '--scroll': '#232e3b',
+  '--text-bright': '#cfe0ee',
+  '--mint-soft': '#b9f5e6',
+  '--red-soft': '#ffb3b3',
+  '--danger-wash': '#1a1216',
+  '--panel-from': 'rgba(17, 23, 31, 0.86)',
+  '--panel-to': 'rgba(12, 16, 22, 0.86)',
+  '--panel-2': '#141a22',
+  // Ink printed on an accent fill, and the cloak pill's own gradient: a light
+  // palette needs both lighter than the amber it uses for text.
+  '--on-danger': '#180505',
+  '--cloak-ink': '#0b0e12',
+  '--cloak-fill': 'linear-gradient(150deg, #f5b95b, #c98f34)',
+  // Accent channels, for the rgba() washes and glows in the stylesheet.
+  '--mint-rgb': '79, 227, 193',
+  '--amber-rgb': '245, 185, 91',
+  '--violet-rgb': '167, 139, 250',
+  '--red-rgb': '255, 107, 107',
+  // Not a custom property: the browser's own controls (scrollbars, form
+  // widgets) follow it, and a light palette needs `light` to stop them
+  // painting dark chrome inside white surfaces.
+  'color-scheme': 'dark'
 }
 
 export const THEMES: ThemePreset[] = [
@@ -136,6 +168,57 @@ export const THEMES: ThemePreset[] = [
       '--violet': '#c9c9d1',
       '--amber': '#d6d6dc',
       '--sky': '#a9a9b2'
+    }
+  },
+  {
+    id: 'light',
+    name: 'Daylight',
+    blurb: 'The same mint signal on paper white. For bright rooms and shared screens.',
+    vars: {
+      ...base,
+      'color-scheme': 'light',
+      '--bg': '#f3f5f8',
+      '--bg-deep': '#e7ebf0',
+      '--surface': '#ffffff',
+      '--surface-2': '#f8fafb',
+      '--surface-3': '#ebeff4',
+      '--line': '#c6cfda',
+      '--line-soft': '#e0e5eb',
+      '--line-bright': '#b0bcc9',
+      '--line-strong': '#93a2b3',
+      '--text': '#15202b',
+      '--text-dim': '#41505f',
+      '--text-bright': '#0a1219',
+      '--muted': '#57677a',
+      '--faint': '#67768a',
+      // The accents keep their hue but darken to hold contrast on white: the
+      // dark palette's mint is a glow, and a glow is not readable as a link.
+      '--mint': '#0c7059',
+      '--mint-dim': '#187a63',
+      '--mint-soft': '#07544a',
+      '--violet': '#6242d8',
+      '--amber': '#8a4f0c',
+      '--red': '#c02b2b',
+      '--red-soft': '#9e2323',
+      '--danger-wash': '#fbe9e9',
+      '--sky': '#1c6c96',
+      '--chrome': '#ffffff',
+      '--chrome-dim': '#eef1f5',
+      '--well': '#ffffff',
+      '--sunken': '#eef1f5',
+      '--row-active': '#e6ecf3',
+      '--raised': '#e1e7ee',
+      '--scroll': '#b7c3d0',
+      '--on-danger': '#ffffff',
+      '--cloak-ink': '#2a1602',
+      '--cloak-fill': 'linear-gradient(150deg, #d9a352, #b5813a)',
+      '--panel-from': 'rgba(255, 255, 255, 0.94)',
+      '--panel-to': 'rgba(248, 250, 251, 0.94)',
+      '--panel-2': '#edf1f6',
+      '--mint-rgb': '12, 112, 89',
+      '--amber-rgb': '138, 79, 12',
+      '--violet-rgb': '98, 66, 216',
+      '--red-rgb': '192, 43, 43'
     }
   }
 ]

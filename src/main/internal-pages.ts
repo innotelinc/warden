@@ -1,25 +1,49 @@
 import type { PrivacyStats } from '@shared/types'
+import { DEFAULT_THEME, themeFor } from '@shared/themes'
 
-const BASE_CSS = `
-  :root {
-    color-scheme: dark;
-    --bg: #080a0d;
-    --panel: #0f1319;
-    --panel-2: #141a22;
-    --line: #1e2631;
-    --text: #dce6f2;
-    --muted: #7b8a9d;
-    --mint: #4fe3c1;
-    --violet: #a78bfa;
-    --amber: #f5b95b;
-    --danger: #ff6b6b;
-  }
+/**
+ * The palette, written into the document.
+ *
+ * These pages are their own documents: they never inherit the renderer's inline
+ * custom properties, so the only way for the new tab, the error page and the
+ * reader to follow the operator's theme is to emit it with the HTML. The names
+ * are this module's own — `--panel` rather than `--surface` — because the pages
+ * were styled against them, and naming them here keeps every rule below
+ * unchanged apart from the literal it used to carry.
+ */
+export function pagePalette(theme?: string): string {
+  const vars = themeFor(theme ?? DEFAULT_THEME).vars
+  const pick = (name: string, fallback: string): string => vars[name] ?? fallback
+  return `:root {
+    color-scheme: ${pick('color-scheme', 'dark')};
+    --bg: ${pick('--bg', '#080a0d')};
+    --panel: ${pick('--surface', '#0f1319')};
+    --panel-2: ${pick('--surface-2', '#141a22')};
+    --line: ${pick('--line', '#1e2631')};
+    --line-strong: ${pick('--line-strong', '#33424f')};
+    --text: ${pick('--text', '#dce6f2')};
+    --text-dim: ${pick('--text-dim', '#9caec2')};
+    --text-bright: ${pick('--text-bright', '#cfe0ee')};
+    --muted: ${pick('--muted', '#7b8a9d')};
+    --faint: ${pick('--faint', '#4e5d6e')};
+    --well: ${pick('--well', '#0c1117')};
+    --mint: ${pick('--mint', '#4fe3c1')};
+    --mint-dim: ${pick('--mint-dim', '#2c9d88')};
+    --violet: ${pick('--violet', '#a78bfa')};
+    --amber: ${pick('--amber', '#f5b95b')};
+    --danger: ${pick('--red', '#ff6b6b')};
+    --mint-rgb: ${pick('--mint-rgb', '79, 227, 193')};
+    --violet-rgb: ${pick('--violet-rgb', '167, 139, 250')};
+  }`
+}
+
+const baseCss = (theme?: string): string => `${pagePalette(theme)}
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
     background:
-      radial-gradient(900px 460px at 12% -8%, rgba(79, 227, 193, 0.10), transparent 60%),
-      radial-gradient(720px 420px at 88% 4%, rgba(167, 139, 250, 0.10), transparent 62%),
+      radial-gradient(900px 460px at 12% -8%, rgba(var(--mint-rgb), 0.10), transparent 60%),
+      radial-gradient(720px 420px at 88% 4%, rgba(var(--violet-rgb), 0.10), transparent 62%),
       var(--bg);
     color: var(--text);
     font: 14px/1.55 ui-sans-serif, "Segoe UI", system-ui, sans-serif;
@@ -43,6 +67,8 @@ export interface NewTabData {
   bookmarks: { url: string; title: string }[]
   version: string
   homepage: string
+  /** Palette id from the shared theme list, so the splash matches the chrome. */
+  theme: string
 }
 
 export function newTabHtml(data: NewTabData): string {
@@ -78,7 +104,7 @@ export function newTabHtml(data: NewTabData): string {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;" />
 <title>WARDEN</title>
 <style>
-${BASE_CSS}
+${baseCss(data.theme)}
   .wrap { max-width: 1000px; margin: 0 auto; padding: 0 32px 48px; }
   .splash {
     position: relative;
@@ -88,18 +114,18 @@ ${BASE_CSS}
     text-align: center;
     padding: 74px 0 44px;
     margin: 0 -32px 8px;
-    border-bottom: 1px solid rgba(30, 38, 49, .65);
+    border-bottom: 1px solid var(--line);
     background:
-      radial-gradient(760px 340px at 50% -10%, rgba(79, 227, 193, .12), transparent 68%),
-      radial-gradient(520px 260px at 82% 10%, rgba(167, 139, 250, .09), transparent 70%);
+      radial-gradient(760px 340px at 50% -10%, rgba(var(--mint-rgb), .12), transparent 68%),
+      radial-gradient(520px 260px at 82% 10%, rgba(var(--violet-rgb), .09), transparent 70%);
   }
   .splash::after {
     content: "";
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(rgba(79, 227, 193, .05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(79, 227, 193, .05) 1px, transparent 1px);
+      linear-gradient(rgba(var(--mint-rgb), .05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(var(--mint-rgb), .05) 1px, transparent 1px);
     background-size: 46px 46px;
     mask-image: radial-gradient(circle at 50% 20%, #000 5%, transparent 68%);
     pointer-events: none;
@@ -110,14 +136,19 @@ ${BASE_CSS}
     inset: 0;
     width: 100%;
     height: 100%;
-    color: rgba(79, 227, 193, .55);
-    filter: drop-shadow(0 18px 44px rgba(79, 227, 193, .18));
+    color: rgba(var(--mint-rgb), .55);
+    filter: drop-shadow(0 18px 44px rgba(var(--mint-rgb), .18));
   }
   .mark .w {
     position: relative;
     font: 700 74px/1 "Segoe UI", system-ui, sans-serif;
     letter-spacing: -.04em;
-    background: linear-gradient(170deg, #b9fff0 4%, #4fe3c1 46%, #1f8f7c 100%);
+    background: linear-gradient(
+      170deg,
+      color-mix(in srgb, var(--mint) 42%, #ffffff) 4%,
+      var(--mint) 46%,
+      var(--mint-dim) 100%
+    );
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -129,7 +160,7 @@ ${BASE_CSS}
     font-size: 30px;
     font-weight: 620;
     letter-spacing: -.01em;
-    color: #eaf4ff;
+    color: var(--text-bright);
   }
   .splash .lede {
     position: relative;
@@ -143,32 +174,32 @@ ${BASE_CSS}
   .chip {
     display: inline-flex; align-items: center; gap: 7px;
     padding: 6px 11px;
-    border: 1px solid rgba(79, 227, 193, .2);
+    border: 1px solid rgba(var(--mint-rgb), .2);
     border-radius: 999px;
-    background: rgba(11, 26, 23, .55);
-    color: #a9c9c1;
+    background: rgba(var(--mint-rgb), .08);
+    color: var(--text-dim);
     font: 10.5px/1 "Cascadia Mono", Consolas, monospace;
     letter-spacing: .06em;
   }
   .chip i { width: 5px; height: 5px; border-radius: 999px; background: var(--mint); box-shadow: 0 0 8px rgba(79,227,193,.9); }
   .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 28px; }
-  .card { background: linear-gradient(180deg, rgba(20,26,34,.85), rgba(15,19,25,.85)); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
   .card h2 { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
   .hero { font-size: 44px; line-height: 1; font-weight: 620; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
   .hero small { font-size: 12px; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; margin-left: 8px; }
   .sub { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
   ul.hosts { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
-  ul.hosts li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: #a9b7c8; border-bottom: 1px dashed rgba(30,38,49,.9); padding-bottom: 6px; }
+  ul.hosts li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-dim); border-bottom: 1px dashed var(--line); padding-bottom: 6px; }
   ul.hosts .count { color: var(--violet); font-variant-numeric: tabular-nums; }
   .marks { margin-top: 22px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-  .mark { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: rgba(15,19,25,.7); color: var(--text); }
+  .mark { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--text); }
   .mark:hover { border-color: rgba(79,227,193,.45); text-decoration: none; }
   .mark-host { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--mint); }
-  .mark-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c3cfdd; }
+  .mark-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
   .keys { margin-top: 30px; color: var(--muted); font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 16px; }
-  kbd { font: 11px/1 ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 4px 6px; color: #b9c6d6; background: #0d1116; margin-right: 5px; }
+  kbd { font: 11px/1 ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 4px 6px; color: var(--text-dim); background: var(--well); margin-right: 5px; }
   .empty { color: var(--muted); font-size: 12px; }
-  .foot { margin-top: 28px; color: #566475; font-size: 11px; letter-spacing: .08em; }
+  .foot { margin-top: 28px; color: var(--faint); font-size: 11px; letter-spacing: .08em; }
 </style>
 </head>
 <body>
@@ -213,17 +244,17 @@ ${BASE_CSS}
 </body></html>`
 }
 
-export function errorHtml(code: string, description: string, url: string): string {
+export function errorHtml(code: string, description: string, url: string, theme?: string): string {
   return `<!doctype html>
 <html><head><meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';" />
 <title>Blocked</title>
-<style>${BASE_CSS}
+<style>${baseCss(theme)}
   .wrap { max-width: 640px; margin: 0 auto; padding: 96px 32px; }
   .code { color: var(--danger); font-size: 12px; letter-spacing: .22em; text-transform: uppercase; }
   h1 { font-size: 30px; letter-spacing: -.02em; margin: 14px 0 10px; }
   p { color: var(--muted); font-size: 13.5px; }
-  .url { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; font-size: 12px; color: #b9c6d6; word-break: break-all; }
+  .url { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; font-size: 12px; color: var(--text-dim); word-break: break-all; }
 </style></head>
 <body><div class="wrap">
   <div class="code">Navigation stopped · ${escapeHtml(code)}</div>
@@ -239,7 +270,7 @@ export function viewerHtml(src: string, title: string, kind: string, startAt = 0
 <html><head><meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; media-src http: https: blob:; img-src data:;" />
 <title>${escapeHtml(title || 'Splay')}</title>
-<style>${BASE_CSS}
+<style>${baseCss(DEFAULT_THEME)}
   html, body { background: #05070a; overflow: hidden; }
   .stage { position: fixed; inset: 0; display: grid; place-items: center; }
   video { width: 100%; height: 100%; object-fit: contain; background: #05070a; outline: none; }
@@ -254,7 +285,7 @@ export function viewerHtml(src: string, title: string, kind: string, startAt = 0
   button {
     all: unset; cursor: pointer; color: #cfe0ee; font-size: 11px; letter-spacing: .1em;
     text-transform: uppercase; padding: 4px 8px; border-radius: 6px; border: 1px solid #1e2631;
-    background: rgba(15,19,25,.85);
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
   }
   button:hover { border-color: rgba(79,227,193,.5); color: var(--mint); }
   .title { font-size: 11.5px; color: #93a4b7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
@@ -350,7 +381,7 @@ export function lockPageHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8" />
 <title>WARDEN locked</title>
 <style>
-  ${BASE_CSS}
+  ${baseCss(DEFAULT_THEME)}
   html, body { height: 100%; overflow: hidden; }
   body {
     display: grid;
@@ -369,8 +400,8 @@ export function lockPageHtml(): string {
     position: fixed;
     inset: 0;
     background-image:
-      linear-gradient(rgba(79, 227, 193, 0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(79, 227, 193, 0.055) 1px, transparent 1px);
+      linear-gradient(rgba(var(--mint-rgb), 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(var(--mint-rgb), 0.055) 1px, transparent 1px);
     background-size: 34px 34px;
     mask-image: radial-gradient(circle at 50% 45%, transparent 10%, #000 78%);
   }
@@ -384,7 +415,7 @@ export function lockPageHtml(): string {
     width: min(440px, 84vw);
     padding: 34px 34px 28px;
     border-radius: 18px;
-    border: 1px solid rgba(79, 227, 193, 0.18);
+    border: 1px solid rgba(var(--mint-rgb), 0.18);
     background: linear-gradient(165deg, rgba(17, 23, 31, 0.94), rgba(9, 12, 17, 0.97));
     box-shadow: 0 30px 90px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     text-align: center;
@@ -394,8 +425,8 @@ export function lockPageHtml(): string {
   .crest {
     width: 52px; height: 52px; margin: 0 auto 16px;
     border-radius: 15px;
-    border: 1px solid rgba(79, 227, 193, 0.36);
-    background: radial-gradient(circle at 30% 20%, rgba(79, 227, 193, 0.28), rgba(79, 227, 193, 0.04));
+    border: 1px solid rgba(var(--mint-rgb), 0.36);
+    background: radial-gradient(circle at 30% 20%, rgba(var(--mint-rgb), 0.28), rgba(var(--mint-rgb), 0.04));
     display: grid; place-items: center;
     color: var(--mint);
   }
@@ -419,8 +450,8 @@ export function lockPageHtml(): string {
     transition: border-color 160ms ease, box-shadow 160ms ease;
   }
   .field:focus-within {
-    border-color: rgba(79, 227, 193, 0.55);
-    box-shadow: 0 0 0 3px rgba(79, 227, 193, 0.1);
+    border-color: rgba(var(--mint-rgb), 0.55);
+    box-shadow: 0 0 0 3px rgba(var(--mint-rgb), 0.1);
   }
   input {
     flex: 1;

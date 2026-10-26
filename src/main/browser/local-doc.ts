@@ -16,6 +16,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { pagePalette } from '../internal-pages'
 
 function filePathOf(value: string): string | null {
   try {
@@ -98,7 +99,7 @@ const escapeHtml = (value: string): string =>
  * so the operator knows they are looking at a file and not a page pretending to
  * be one.
  */
-export function docHtml(filePath: string, text: string): string {
+export function docHtml(filePath: string, text: string, theme?: string): string {
   const name = path.basename(filePath)
   const bytes = Buffer.byteLength(text, 'utf8')
   const lines = text.length ? text.split(/\r\n|\r|\n/).length : 0
@@ -107,15 +108,15 @@ export function docHtml(filePath: string, text: string): string {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';" />
 <title>${escapeHtml(name)}</title>
 <style>
-  :root { color-scheme: dark; --bg: #080a0d; --panel: #0f1319; --line: #1e2631; --text: #dce6f2; --muted: #7b8a9d; --mint: #4fe3c1; }
+  ${pagePalette(theme)}
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { background: var(--bg); color: var(--text); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; }
-  header { position: sticky; top: 0; padding: 14px 26px; background: rgba(8,10,13,.94); border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  header { position: sticky; top: 0; padding: 14px 26px; background: color-mix(in srgb, var(--bg) 94%, transparent); border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   h1 { margin: 0; font-size: 15px; font-weight: 620; letter-spacing: -.01em; }
   .meta { color: var(--muted); font: 11px/1.5 "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
-  .badge { margin-left: auto; color: var(--mint); font: 10px/1 "Cascadia Mono", Consolas, monospace; letter-spacing: .16em; text-transform: uppercase; border: 1px solid rgba(79,227,193,.3); border-radius: 999px; padding: 4px 9px; }
-  pre { margin: 0; padding: 22px 26px 60px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.65 "Cascadia Mono", Consolas, ui-monospace, monospace; color: #cfdae8; }
+  .badge { margin-left: auto; color: var(--mint); font: 10px/1 "Cascadia Mono", Consolas, monospace; letter-spacing: .16em; text-transform: uppercase; border: 1px solid rgba(var(--mint-rgb), .3); border-radius: 999px; padding: 4px 9px; }
+  pre { margin: 0; padding: 22px 26px 60px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.65 "Cascadia Mono", Consolas, ui-monospace, monospace; color: var(--text); }
 </style></head>
 <body>
   <header>
@@ -129,11 +130,11 @@ export function docHtml(filePath: string, text: string): string {
 }
 
 /** Read a document, or null when the path is not one WARDEN will render. */
-export function readDoc(filePath: string): { path: string; html: string } | null {
+export function readDoc(filePath: string, theme?: string): { path: string; html: string } | null {
   const resolved = resolveDocPath(filePath)
   if (!resolved) return null
   try {
-    return { path: resolved, html: docHtml(resolved, readFileSync(resolved, 'utf8')) }
+    return { path: resolved, html: docHtml(resolved, readFileSync(resolved, 'utf8'), theme) }
   } catch {
     return null
   }

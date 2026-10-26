@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { lockPageHtml, newTabHtml } from '../src/main/internal-pages'
+import { docHtml } from '../src/main/browser/local-doc'
+import { errorHtml, lockPageHtml, newTabHtml, viewerHtml } from '../src/main/internal-pages'
 
 const html = newTabHtml({
   stats: {
@@ -16,7 +17,8 @@ const html = newTabHtml({
   facts: ['DNS over HTTPS · Quad9', 'Private tab by default'],
   bookmarks: [{ url: 'https://example.com', title: 'Example' }],
   version: '0.2.1',
-  homepage: 'warden://newtab'
+  homepage: 'warden://newtab',
+  theme: 'ops'
 })
 
 describe('new tab splash', () => {
@@ -50,9 +52,79 @@ describe('new tab splash', () => {
       facts: ['<script>alert(1)</script>'],
       bookmarks: [],
       version: '0.2.1',
-      homepage: 'warden://newtab'
+      homepage: 'warden://newtab',
+      theme: 'ops'
     })
     expect(escaped).not.toContain('<script>alert(1)</script>')
+  })
+})
+
+/**
+ * These pages are their own documents: they never inherit the renderer's custom
+ * properties, so the palette has to be written into the HTML. A palette that is
+ * not passed leaves a light app opening a dark new tab.
+ */
+describe('internal pages carry the palette', () => {
+  const withTheme = (theme: string): ReturnType<typeof newTabHtml> =>
+    newTabHtml({
+      stats: {
+        requestsSeen: 0,
+        blockedTotal: 0,
+        cookiesStripped: 0,
+        trackersBlocked: 0,
+        httpsUpgrades: 0,
+        sessionStartedAt: 0,
+        topHosts: [],
+        rulesLoaded: 0,
+        filterLists: []
+      },
+      facts: [],
+      bookmarks: [],
+      version: '0.2.4',
+      homepage: 'warden://newtab',
+      theme
+    })
+
+  it('keeps the default palette on the default theme', () => {
+    const html = withTheme('ops')
+    expect(html).toContain('--bg: #07090c')
+    expect(html).toContain('color-scheme: dark')
+    expect(html).toContain('--mint: #4fe3c1')
+  })
+
+  it('paints the new tab in the chosen palette', () => {
+    const html = withTheme('light')
+    expect(html).toContain('color-scheme: light')
+    expect(html).toContain('--bg: #f3f5f8')
+    expect(html).toContain('--mint: #0c7059')
+    expect(html).toContain('--mint-rgb: 12, 112, 89')
+    // Nothing of the dark palette may survive into a light page.
+    expect(html).not.toContain('#080a0d')
+    expect(html).not.toContain('#0f1319')
+  })
+
+  it('paints the error page in the chosen palette', () => {
+    const light = errorHtml('EGRESS_BLOCKED', 'Tunnel down', 'https://example.com', 'light')
+    expect(light).toContain('color-scheme: light')
+    expect(light).toContain('--danger: #c02b2b')
+    const dark = errorHtml('EGRESS_BLOCKED', 'Tunnel down', 'https://example.com')
+    expect(dark).toContain('color-scheme: dark')
+  })
+
+  it('paints the document reader in the chosen palette', () => {
+    const light = docHtml('/tmp/notes.md', '# Notes\n', 'light')
+    expect(light).toContain('color-scheme: light')
+    expect(light).toContain('--bg: #f3f5f8')
+    const dark = docHtml('/tmp/notes.md', '# Notes\n', 'ops')
+    expect(dark).toContain('--bg: #07090c')
+    expect(dark).not.toContain('color-scheme: light')
+  })
+
+  it('leaves the lock screen and the media viewer dark on purpose', () => {
+    // The lock screen is the only thing on screen while WARDEN is locked and the
+    // viewer holds video; neither should turn white because the chrome did.
+    expect(lockPageHtml()).toContain('color-scheme: dark')
+    expect(viewerHtml('https://example.com/a.mp4', 'Clip', 'video')).toContain('color-scheme: dark')
   })
 })
 

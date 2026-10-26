@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, shell } from 'electron'
 import { SEARCH_ENGINES } from '@shared/defaults'
 import { sanitizeSettings } from '@shared/settings'
+import { themeFor } from '@shared/themes'
 import type {
   AppState,
   Bookmark,
@@ -86,6 +87,31 @@ function searchUrl(): string {
 
 const handle = (channel: string, listener: (...args: never[]) => unknown): void => {
   ipcMain.handle(channel, async (_event, ...args) => listener(...(args as never[])))
+}
+
+/**
+ * Match the native window behind the renderer to the palette.
+ *
+ * Only visible at launch and while the window is being resized, but a dark
+ * frame around a light theme reads as a rendering fault rather than a palette.
+ */
+const paintWindow = (theme: unknown): void => {
+  context().win.setBackgroundColor(themeFor(theme).vars['--bg'] ?? '#080a0d')
+}
+
+/**
+ * Redraw WARDEN's own pages when the palette changes.
+ *
+ * The new tab, the error page and the reader are separate documents with the
+ * palette written into their HTML, so nothing about them updates by itself: a
+ * theme switch reaches them only by rendering them again. A `warden://` tab is
+ * regenerated from the same settings, so a reload is enough.
+ */
+const repaintInternalPages = (previous: string, next: string): void => {
+  if (previous === next) return
+  for (const tab of context().tabs.list()) {
+    if (/^warden:\/\//i.test(tab.url)) context().tabs.reload(tab.id)
+  }
 }
 
 export function registerIpc(warden: WardenContext): void {
@@ -491,9 +517,12 @@ export function registerIpc(warden: WardenContext): void {
 
   // ------------------------------------------------------------ settings
   handle('warden:settings:update', (patch: Partial<Settings>) => {
-    const merged = sanitizeSettings({ ...context().stores.settings.get(), ...patch })
+    const previous = context().stores.settings.get()
+    const merged = sanitizeSettings({ ...previous, ...patch })
     context().stores.settings.set(merged)
     context().privacy.applySettings(merged)
+    paintWindow(merged.theme)
+    repaintInternalPages(previous.theme, merged.theme)
     context().tabs.setVisible(context().getWorkspace() === 'browse')
     context().update.applyEnabled(merged.autoUpdate)
     context().sendState()
@@ -501,9 +530,12 @@ export function registerIpc(warden: WardenContext): void {
   })
 
   handle('warden:settings:reset', () => {
+    const previous = context().stores.settings.get()
     const defaults = sanitizeSettings({})
     context().stores.settings.set(defaults)
     context().privacy.applySettings(defaults)
+    paintWindow(defaults.theme)
+    repaintInternalPages(previous.theme, defaults.theme)
     context().sendState()
     return defaults
   })

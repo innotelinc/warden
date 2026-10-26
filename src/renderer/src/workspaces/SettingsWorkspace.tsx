@@ -161,8 +161,8 @@ export function SettingsWorkspace() {
               })}
             </div>
             <div className="faint tiny" style={{ marginTop: 10 }}>
-              Palettes are applied live to the chrome only — page content is never restyled, so nothing a site renders can
-              be mistaken for WARDEN's own interface.
+              Palettes are applied live to the chrome and to WARDEN's own pages — the new tab, the error page and the
+              reader — but never to page content, so nothing a site renders can be mistaken for WARDEN's interface.
             </div>
           </section>
 

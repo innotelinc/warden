@@ -8,6 +8,7 @@ import { popupDecision } from './popup-policy'
 import { buildPageMenu, isLocalMediaSource, probeMediaScript, type PageMenuCommand } from './page-menu'
 import { signInHostsFor } from '@shared/auth-flow'
 import { looksBrokenPage, type PageHealth } from '@shared/site-breakage'
+import { themeFor } from '@shared/themes'
 
 export { resolveInput } from '@shared/urls'
 
@@ -102,6 +103,17 @@ export class TabManager {
 
   get activeTabId(): string | null {
     return this.activeId
+  }
+
+  /**
+   * The colour behind a page.
+   *
+   * A view paints this before its document does, so a literal dark value would
+   * flash under a light palette on every new tab. Read from the active preset
+   * instead, which is the same surface the renderer paints its chrome with.
+   */
+  private pageBackground(): string {
+    return themeFor(this.privacy.getSettings().theme).vars['--bg'] ?? '#0b0e12'
   }
 
   get count(): number {
@@ -295,7 +307,7 @@ export class TabManager {
         ]
       }
     })
-    view.setBackgroundColor('#0b0e12')
+    view.setBackgroundColor(this.pageBackground())
 
     const tab: Tab = {
       id,
@@ -645,7 +657,7 @@ export class TabManager {
             height: 700,
             parent: this.win,
             autoHideMenuBar: true,
-            backgroundColor: '#080a0d',
+            backgroundColor: this.pageBackground(),
             webPreferences: {
               session: wc.session,
               preload: PRELOAD(),
