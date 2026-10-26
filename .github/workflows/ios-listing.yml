@@ -1,0 +1,55 @@
+name: iOS listing
+
+# Writes the App Store listing copy from mobile/store/ios/listing.json into
+# App Store Connect: the version's description, keywords, promotional text and
+# URLs, the subtitle and privacy policy URL, the primary category, and the
+# age rating's unrestricted-web-access answer.
+#
+# It does not touch the app name, the screenshots (which must be captured from
+# the running app), the review contact (personal details, not in this repo) or
+# What's New (optional for a first version).
+#
+# Reads the same four repository secrets as the other iOS workflows.
+#
+#   gh workflow run ios-listing.yml                     # dry run, writes nothing
+#   gh workflow run ios-listing.yml -f dry_run=false    # apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the changes without writing them
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  listing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Write App Store Connect key
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+        run: |
+          if [ -z "${KEY_P8:-}" ]; then
+            echo "::error::APP_STORE_CONNECT_KEY_P8 is not set — add the App Store Connect secrets first."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+
+      - name: Write the listing
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/ios-fill-listing.py
