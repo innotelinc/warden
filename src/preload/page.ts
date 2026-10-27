@@ -11,6 +11,7 @@ import { ipcRenderer, webFrame } from 'electron'
 import { HARDENING_SCRIPT } from '../main/privacy/hardening'
 import { sensorScript, type SensorConfig } from '../main/privacy/sensor-script'
 import { containsWallPhrase, looksLikeChallengeWall, WALL_SELECTORS } from '../shared/challenge-wall'
+import { cosmeticCss, cosmeticSelectorsFor } from '../shared/cosmetic'
 import type { MediaItem, MediaKind } from '../shared/types'
 
 function argValue(name: string): string {
@@ -144,6 +145,125 @@ installHardening()
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', installHardening, { once: true })
 }
+
+/**
+ * Cosmetic filtering: hide the slot a blocked ad left behind.
+ *
+ * Blocking a request stops the ad loading but leaves its container holding the
+ * space open, which reads as a broken page rather than a clean one. The
+ * stylesheet below matches containers rather than requests, so it applies to
+ * what is already in the document and to whatever the page adds later; the
+ * sweep then collapses a wrapper whose only child was the ad.
+ *
+ * Asked of the main process on every document, like the sensor treatment, so a
+ * Policy change applies to the next reload.
+ */
+const cosmeticOn = (() => {
+  try {
+    return ipcRenderer.sendSync('warden:cosmetic:sync') === true
+  } catch {
+    return false
+  }
+})()
+
+/** Structure, never an ad slot: collapsing one of these breaks a layout. */
+const COSMETIC_KEEP = new Set([
+  'BODY',
+  'HTML',
+  'MAIN',
+  'ARTICLE',
+  'SECTION',
+  'NAV',
+  'HEADER',
+  'FOOTER',
+  'UL',
+  'OL',
+  'FORM',
+  'TABLE'
+])
+const COSMETIC_SWEEP_MS = 400
+/** Bounded so a page that matches everything cannot cost a layout pass per node. */
+const COSMETIC_NODE_LIMIT = 600
+
+let cosmeticTimer = 0
+let cosmeticSweeping = false
+
+function cosmeticMatches(): Element[] {
+  if (!document.body) return []
+  try {
+    const found = document.body.querySelectorAll(cosmeticSelectorsFor(host).join(','))
+    return Array.from(found).slice(0, COSMETIC_NODE_LIMIT)
+  } catch {
+    return []
+  }
+}
+
+function cosmeticVisible(element: Element): boolean {
+  const box = element as HTMLElement
+  if (box.offsetHeight > 12) return true
+  return false
+}
+
+function collapseAround(node: Element): void {
+  let current = node.parentElement
+  for (let depth = 0; depth < 3 && current && current !== document.body; depth += 1) {
+    if (COSMETIC_KEEP.has(current.tagName)) break
+    if ((current.textContent || '').trim()) break
+    if (Array.from(current.children).some((child) => cosmeticVisible(child))) break
+    current.style.setProperty('display', 'none', 'important')
+    current = current.parentElement
+  }
+}
+
+function sweepCosmetic(): void {
+  if (cosmeticSweeping) return
+  cosmeticSweeping = true
+  try {
+    for (const node of cosmeticMatches()) collapseAround(node)
+  } finally {
+    cosmeticSweeping = false
+  }
+}
+
+function scheduleCosmeticSweep(): void {
+  if (cosmeticTimer) return
+  cosmeticTimer = window.setTimeout(() => {
+    cosmeticTimer = 0
+    sweepCosmetic()
+  }, COSMETIC_SWEEP_MS)
+}
+
+function installCosmetic(): void {
+  // A compatibility site is granted everything the prompt offers, and this pass
+  // is one of the things it was granted exemption from.
+  if (!cosmeticOn || compatibilitySite || !host) return
+  try {
+    if (!document.getElementById('warden-cosmetic')) {
+      const style = document.createElement('style')
+      style.id = 'warden-cosmetic'
+      style.textContent = cosmeticCss(host)
+      ;(document.head || document.documentElement)?.appendChild(style)
+    }
+  } catch {
+    return
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scheduleCosmeticSweep, { once: true })
+  }
+  scheduleCosmeticSweep()
+
+  if (typeof MutationObserver !== 'function') return
+  const observer = new MutationObserver(scheduleCosmeticSweep)
+  const watch = (): void => {
+    const root = document.documentElement
+    if (root) observer.observe(root, { childList: true, subtree: true })
+  }
+  if (document.documentElement) watch()
+  else document.addEventListener('DOMContentLoaded', watch, { once: true })
+}
+
+installCosmetic()
 
 /**
  * Answer whether this document is a human-verification wall.
@@ -467,6 +587,57 @@ ipcRenderer.on('warden:media:claim', (_event, url: string) => {
   } catch {
     /* element detached */
   }
+})
+
+/**
+ * Take the player off the page.
+ *
+ * Only ever sent because the operator asked for it: a dock opened automatically
+ * mirrors the playing video and must leave the page alone, so this is a separate
+ * signal from `claim` rather than the same one with a flag.
+ *
+ * Splay plays the source in its own view, so leaving the original in place would
+ * mean the same audio twice and a page still holding a poster-sized gap for a
+ * player nobody is watching. The element goes, and any wrapper that held only
+ * the player collapses, so the page reflows around the hole: pick the second of
+ * three videos and the other two close up.
+ */
+function takeFromPage(element: HTMLMediaElement): void {
+  const parent = element.parentElement
+  try {
+    element.muted = true
+    element.pause()
+    // Dropping the source stops the download; a detached element with a live
+    // `src` keeps fetching the stream nobody is rendering.
+    element.removeAttribute('src')
+    element.load()
+  } catch {
+    /* already detached, or the element refuses to unload */
+  }
+  try {
+    element.remove()
+  } catch {
+    /* ignored: removal is best effort */
+  }
+
+  let current = parent
+  for (let depth = 0; depth < 3 && current && current !== document.body; depth += 1) {
+    if (COSMETIC_KEEP.has(current.tagName)) break
+    if ((current.textContent || '').trim()) break
+    const stillHolds = Array.from(current.children).some((child) => cosmeticVisible(child))
+    if (stillHolds) break
+    current.style.setProperty('display', 'none', 'important')
+    current = current.parentElement
+  }
+}
+
+ipcRenderer.on('warden:media:detach', (_event, url: string) => {
+  const element = elementsByUrl.get(url)
+  if (!element) return
+  elementsByUrl.delete(url)
+  takeFromPage(element)
+  // The page's own layout changed, so the media list is stale until re-read.
+  scheduleReport()
 })
 
 let hovered = ''

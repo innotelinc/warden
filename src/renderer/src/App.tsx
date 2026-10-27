@@ -77,8 +77,18 @@ function Shell() {
 
   // The palette lives in one shared list; applying it is a handful of custom
   // properties on <html>, so switching theme never reloads the app.
+  //
+  // `system` re-resolves from `prefers-color-scheme`, which Chromium answers
+  // from Windows — so the flip needs no IPC, only the media query's own change
+  // event. That is what makes a Follow-system theme follow the OS live.
   useEffect(() => {
-    applyTheme(state?.settings.theme, document.documentElement)
+    const light = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = (): void => {
+      applyTheme(state?.settings.theme, document.documentElement, light.matches)
+    }
+    apply()
+    light.addEventListener('change', apply)
+    return () => light.removeEventListener('change', apply)
   }, [state?.settings.theme])
 
   useEffect(() => {

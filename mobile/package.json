@@ -1,7 +1,7 @@
 {
   "name": "warden-mobile",
   "private": true,
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "WARDEN for Android and iOS — store-ready Capacitor shell",
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,8 @@
     "@capacitor/ios": "^7.4.3",
     "@capacitor/status-bar": "^7.0.2",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "warden-browser": "file:./plugins/warden-browser"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.3",

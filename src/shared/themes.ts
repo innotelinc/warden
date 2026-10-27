@@ -232,17 +232,71 @@ export const THEMES: ThemePreset[] = [
 
 export const DEFAULT_THEME = 'ops'
 
+/**
+ * Follow the operating system.
+ *
+ * Not a preset of its own — it resolves to one of the two below — because a
+ * palette has to be a fixed set of colours to render, while "follow Windows"
+ * is a rule about which one to pick. Keeping it a rule means every surface
+ * (the chrome, WARDEN's own pages, the window frame) resolves the same answer
+ * from the same input, and the choice re-resolves when the OS flips.
+ */
+export const SYSTEM_THEME = 'system'
+export const SYSTEM_DARK_THEME = 'ops'
+export const SYSTEM_LIGHT_THEME = 'light'
+
 export function isThemeId(value: unknown): value is string {
+  if (value === SYSTEM_THEME) return true
   return typeof value === 'string' && THEMES.some((theme) => theme.id === value)
+}
+
+/**
+ * Which preset a setting means right now.
+ *
+ * `prefersDark` is the only input that can change without the setting itself
+ * changing, which is why it is a parameter rather than read from a global: the
+ * renderer answers it from `prefers-color-scheme`, the main process from
+ * `nativeTheme`, and both get the same answer on the same machine.
+ */
+export function resolveThemeId(value: unknown, prefersDark: boolean): string {
+  if (value === SYSTEM_THEME) return prefersDark ? SYSTEM_DARK_THEME : SYSTEM_LIGHT_THEME
+  return isThemeId(value) ? value : DEFAULT_THEME
 }
 
 export function themeFor(value: unknown): ThemePreset {
   return THEMES.find((theme) => theme.id === value) ?? THEMES[0]!
 }
 
+/** A chooser entry: the setting it writes, and the preset it draws with. */
+export interface ThemeChoice {
+  id: string
+  name: string
+  blurb: string
+  preset: ThemePreset
+}
+
+/**
+ * What the chooser lists: follow the system first, then the fixed palettes.
+ * The preview swatch reads `preset`, so the Follow-system card shows colours
+ * rather than an empty box.
+ */
+export const THEME_CHOICES: ThemeChoice[] = [
+  {
+    id: SYSTEM_THEME,
+    name: 'Follow system',
+    blurb: 'Tracks Windows: the dark watch-floor palette at night, Daylight by day.',
+    preset: THEMES[0]!
+  },
+  ...THEMES.map((theme) => ({ id: theme.id, name: theme.name, blurb: theme.blurb, preset: theme }))
+]
+
 /** Write a preset onto an element; returns the preset that was actually used. */
-export function applyTheme(value: unknown, target: { style: CSSStyleDeclaration }): ThemePreset {
-  const preset = themeFor(value)
+export function applyTheme(
+  value: unknown,
+  target: { style: CSSStyleDeclaration },
+  prefersDark = true
+): ThemePreset {
+  const preset = themeFor(resolveThemeId(value, prefersDark))
   for (const [token, color] of Object.entries(preset.vars)) {
     target.style.setProperty(token, color)
   }

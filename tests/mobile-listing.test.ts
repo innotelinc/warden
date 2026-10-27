@@ -117,7 +117,11 @@ describe('claims the mobile build cannot back up', () => {
   /** What the posture screen says has to match what the code does. */
   it('keeps the posture screen to things the shell does', () => {
     const posture = read('mobile/src/App.tsx')
-    expect(posture).toContain('System browser')
+    // The shell is its own browser surface now, and it says so; the two claims
+    // that were false in an earlier build must not come back in any form.
+    expect(posture).toContain('A real address bar')
+    expect(posture).toContain('Nothing on disk')
+    expect(posture).not.toMatch(/DoH is enforced|Encrypted DNS/i)
     expect(posture).toContain('No telemetry')
     expect(posture).toContain('Sensors')
   })

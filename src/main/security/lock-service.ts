@@ -11,7 +11,7 @@
  * underneath cannot be clicked, scrolled or typed into even if the overlay is
  * somehow dismissed.
  */
-import { BrowserWindow, powerMonitor } from 'electron'
+import { BrowserWindow, powerMonitor, screen } from 'electron'
 import os from 'node:os'
 import { normalizePin, pinProblem } from '@shared/lock-pin'
 import { shouldAutoLock } from '@shared/lock-policy'
@@ -53,9 +53,27 @@ interface Options {
 
 const IDLE_POLL_MS = 15_000
 
+/** One covering window, with the display it belongs to. */
+interface OverlayRef {
+  window: BrowserWindow
+  displayId: number
+}
+
 export class LockService {
   private readonly options: Options
-  private overlay: BrowserWindow | null = null
+  /**
+   * One overlay per display.
+   *
+   * A single window pinned to the app's own display left every other monitor
+   * showing what the lock exists to hide, which is the one thing the feature is
+   * for. Each display gets its own opaque cover, and every cover carries the
+   * same form: whichever one the operator is looking at can unlock.
+   */
+  private overlays: OverlayRef[] = []
+  /** The overlay on the app window's display; it owns the focused form. */
+  private primary: BrowserWindow | null = null
+  /** Removes the listeners this lock session put on the parent window. */
+  private detachParent: (() => void) | null = null
   private background: string | null = null
   private attempts = 0
   private busy = false
@@ -74,6 +92,12 @@ export class LockService {
     if (process.env.WARDEN_SMOKE === '1' && process.env.WARDEN_LOCK_TEST_PASSWORD) {
       this.testPassword = process.env.WARDEN_LOCK_TEST_PASSWORD
     }
+  }
+
+  /** The overlay the form belongs to, and the answer for "is anything up". */
+  private get overlay(): BrowserWindow | null {
+    if (this.primary && !this.primary.isDestroyed()) return this.primary
+    return this.overlays.find((entry) => !entry.window.isDestroyed())?.window ?? null
   }
 
   snapshot(): LockState {
@@ -103,7 +127,7 @@ export class LockService {
    * behind a lock is not a lock.
    */
   async setPin(pin: string): Promise<{ ok: boolean; error?: string }> {
-    if (this.overlay) return { ok: false, error: 'Unlock WARDEN before changing the PIN.' }
+    if (this.overlays.length) return { ok: false, error: 'Unlock WARDEN before changing the PIN.' }
     const problem = pinProblem(pin)
     if (problem) return { ok: false, error: problem }
     await this.options.pins.set(await hashPin(normalizePin(pin)))
@@ -113,7 +137,7 @@ export class LockService {
 
   /** Forget the WARDEN PIN; the Windows account and Hello are then the ways in. */
   async clearPin(): Promise<{ ok: boolean; error?: string }> {
-    if (this.overlay) return { ok: false, error: 'Unlock WARDEN before changing the PIN.' }
+    if (this.overlays.length) return { ok: false, error: 'Unlock WARDEN before changing the PIN.' }
     if (!this.hasPin()) return { ok: false, error: 'No WARDEN PIN is set.' }
     await this.options.pins.set(null)
     this.emit()
@@ -142,7 +166,7 @@ export class LockService {
   }
 
   isLocked(): boolean {
-    return Boolean(this.overlay)
+    return this.overlays.length > 0
   }
 
   /** The overlay itself; the smoke harness reads its DOM. */
@@ -153,8 +177,10 @@ export class LockService {
 
   private emit(): void {
     const state = this.snapshot()
-    if (this.overlay && !this.overlay.isDestroyed()) {
-      this.overlay.webContents.send('warden:lock:state', state)
+    // Every display carries the same form and asks the same question, so all of
+    // them are told the same answer.
+    for (const entry of this.overlays) {
+      if (!entry.window.isDestroyed()) entry.window.webContents.send('warden:lock:state', state)
     }
     this.options.onState()
   }
@@ -179,7 +205,7 @@ export class LockService {
 
   /** Called on the poll; exported shape keeps the decision testable. */
   tick(): void {
-    if (this.overlay) return
+    if (this.overlays.length) return
     const idle = this.safeIdle()
     if (
       shouldAutoLock({
@@ -211,7 +237,7 @@ export class LockService {
   }
 
   async lock(byTimeout = false): Promise<void> {
-    if (this.overlay || this.closing) return
+    if (this.overlays.length || this.closing) return
     const parent = this.options.parent()
     if (!parent || parent.isDestroyed()) return
 
@@ -233,80 +259,120 @@ export class LockService {
       this.background = null
     }
     // A slow capture can outlive the decision (a quick unlock request, say).
-    if (this.overlay || this.closing) return
+    if (this.overlays.length || this.closing) return
 
-    const overlay = new BrowserWindow({
-      parent,
-      modal: false,
-      frame: false,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      show: false,
-      backgroundColor: '#05070a',
-      webPreferences: {
-        preload: this.options.preload,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        spellcheck: false,
-        backgroundThrottling: false
-      }
-    })
-    this.overlay = overlay
-    overlay.setBounds(parent.getBounds())
-    overlay.setAlwaysOnTop(true, 'screen-saver')
-    overlay.setMenu(null)
-    overlay.on('close', (event) => {
-      if (!this.closing) event.preventDefault()
-    })
-    overlay.on('closed', () => {
-      if (this.overlay === overlay) this.overlay = null
-    })
-
-    const align = (): void => {
-      if (!this.overlay || this.overlay.isDestroyed()) return
-      const bounds = parent.getBounds()
-      this.overlay.setBounds(bounds)
-    }
-    const onMove = (): void => align()
-    const onResize = (): void => align()
-    const onMinimize = (): void => this.overlay?.hide()
-    const onRestore = (): void => {
-      align()
-      this.overlay?.show()
-      this.overlay?.moveTop()
-    }
-    parent.on('move', onMove)
-    parent.on('resize', onResize)
-    parent.on('minimize', onMinimize)
-    parent.on('restore', onRestore)
-    overlay.on('closed', () => {
-      parent.removeListener('move', onMove)
-      parent.removeListener('resize', onResize)
-      parent.removeListener('minimize', onMinimize)
-      parent.removeListener('restore', onRestore)
+    const displays = screen.getAllDisplays()
+    const appBounds = parent.getBounds()
+    const hosted = displays.find((display) => {
+      const area = display.bounds
+      return (
+        appBounds.x >= area.x - 1 &&
+        appBounds.y >= area.y - 1 &&
+        appBounds.x + appBounds.width <= area.x + area.width + 1 &&
+        appBounds.y + appBounds.height <= area.y + area.height + 1
+      )
     })
 
     this.options.setSuppressed(true)
     parent.setEnabled(false)
 
-    try {
-      await overlay.loadURL('warden://lock')
-    } catch {
-      /* the overlay still covers the app; unlock remains available */
+    for (const display of displays) {
+      const overlay = new BrowserWindow({
+        parent,
+        modal: false,
+        frame: false,
+        resizable: false,
+        movable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        show: false,
+        backgroundColor: '#05070a',
+        webPreferences: {
+          preload: this.options.preload,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          spellcheck: false,
+          backgroundThrottling: false
+        }
+      })
+      const entry: OverlayRef = { window: overlay, displayId: display.id }
+      overlay.setBounds(display.bounds)
+      overlay.setAlwaysOnTop(true, 'screen-saver')
+      overlay.setMenu(null)
+      overlay.on('close', (event) => {
+        if (!this.closing) event.preventDefault()
+      })
+      overlay.on('closed', () => {
+        this.overlays = this.overlays.filter((candidate) => candidate !== entry)
+        if (this.primary === overlay) this.primary = null
+      })
+      this.overlays.push(entry)
+      if (hosted ? display.id === hosted.id : !this.primary) this.primary = overlay
+
+      try {
+        await overlay.loadURL('warden://lock')
+      } catch {
+        /* the cover is up regardless; unlock remains available on the others */
+      }
+      if (overlay.isDestroyed()) continue
+      overlay.show()
     }
-    if (overlay.isDestroyed()) return
-    overlay.show()
-    overlay.focus()
-    overlay.webContents.focus()
+
+    if (!this.overlays.length) {
+      // No window came up at all: give the app back rather than leaving it
+      // disabled with nothing covering it.
+      this.options.setSuppressed(false)
+      if (!parent.isDestroyed()) parent.setEnabled(true)
+      return
+    }
+    if (!this.primary) this.primary = this.overlays[0]!.window
+
+    const align = (): void => {
+      const current = screen.getAllDisplays()
+      for (const entry of this.overlays) {
+        if (entry.window.isDestroyed()) continue
+        const display = current.find((candidate) => candidate.id === entry.displayId)
+        if (display) entry.window.setBounds(display.bounds)
+      }
+    }
+    const onMove = (): void => align()
+    const onResize = (): void => align()
+    const onMinimize = (): void => this.hideAll()
+    const onRestore = (): void => {
+      align()
+      for (const entry of this.overlays) {
+        if (entry.window.isDestroyed()) continue
+        entry.window.show()
+        entry.window.moveTop()
+      }
+    }
+    parent.on('move', onMove)
+    parent.on('resize', onResize)
+    parent.on('minimize', onMinimize)
+    parent.on('restore', onRestore)
+    this.detachParent = () => {
+      parent.removeListener('move', onMove)
+      parent.removeListener('resize', onResize)
+      parent.removeListener('minimize', onMinimize)
+      parent.removeListener('restore', onRestore)
+    }
+
+    this.primary.focus()
+    this.primary.webContents.focus()
     this.emit()
     if (byTimeout) this.options.onState()
     void this.startedAt
+  }
+
+  /** Take every cover off screen without giving the app back. */
+  private hideAll(): void {
+    for (const entry of this.overlays) {
+      if (!entry.window.isDestroyed()) entry.window.hide()
+    }
   }
 
   /**
@@ -318,22 +384,26 @@ export class LockService {
    * and WARDEN only learns whether it passed.
    */
   async unlockWithHello(): Promise<{ ok: boolean; error?: string }> {
-    if (!this.overlay) return { ok: false, error: 'Nothing is locked.' }
+    if (!this.overlays.length) return { ok: false, error: 'Nothing is locked.' }
     if (this.busy) return { ok: false, error: 'Checking…' }
 
     this.busy = true
     this.error = null
     this.emit()
 
-    // The overlay is pinned at `screen-saver` level; the OS prompt has to be
-    // able to appear above it, or the operator would be looking at a lock screen
-    // that seems to do nothing while an invisible dialog times out.
-    this.overlay.setAlwaysOnTop(false)
-    const outcome: HelloOutcome = this.testPassword !== null ? 'verified' : await promptWindowsHello('Unlock WARDEN')
-    if (this.overlay && !this.overlay.isDestroyed()) {
-      this.overlay.setAlwaysOnTop(true, 'screen-saver')
-      this.overlay.focus()
+    // The covers are pinned at `screen-saver` level; the OS prompt has to be
+    // able to appear above whichever one is in front, or the operator would be
+    // looking at a lock screen that seems to do nothing while an invisible
+    // dialog times out.
+    for (const entry of this.overlays) {
+      if (!entry.window.isDestroyed()) entry.window.setAlwaysOnTop(false)
     }
+    const outcome: HelloOutcome = this.testPassword !== null ? 'verified' : await promptWindowsHello('Unlock WARDEN')
+    for (const entry of this.overlays) {
+      if (entry.window.isDestroyed()) continue
+      entry.window.setAlwaysOnTop(true, 'screen-saver')
+    }
+    this.overlay?.focus()
 
     this.busy = false
     if (outcome === 'verified') {
@@ -395,7 +465,7 @@ export class LockService {
   }
 
   async unlock(password: string): Promise<{ ok: boolean; error?: string }> {
-    if (!this.overlay) return { ok: false, error: 'Nothing is locked.' }
+    if (!this.overlays.length) return { ok: false, error: 'Nothing is locked.' }
     if (this.busy) return { ok: false, error: 'Checking…' }
     if (!password) {
       this.error = this.hasPin()
@@ -430,11 +500,16 @@ export class LockService {
 
   /** Tear the overlay down and give the app back. */
   private release(): void {
-    if (!this.overlay) return
+    if (!this.overlays.length) return
     const parent = this.options.parent()
     this.closing = true
-    this.overlay?.destroy()
-    this.overlay = null
+    for (const entry of this.overlays) {
+      if (!entry.window.isDestroyed()) entry.window.destroy()
+    }
+    this.overlays = []
+    this.primary = null
+    this.detachParent?.()
+    this.detachParent = null
     this.attempts = 0
     this.error = null
     this.byTimeout = false
@@ -450,7 +525,7 @@ export class LockService {
 
   /** Unlock without a password: used only while WARDEN is shutting down. */
   forceRelease(): void {
-    if (!this.overlay) return
+    if (!this.overlays.length) return
     this.release()
   }
 }

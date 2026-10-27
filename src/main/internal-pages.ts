@@ -628,6 +628,7 @@ export function lockPageHtml(): string {
           <button id="pinSubmit" type="submit">Unlock</button>
         </div>
       </form>
+      <div class="hello-note" id="pinNote"></div>
     </div>
     <div id="windows">
     <button class="hello" id="hello" type="button">
@@ -665,6 +666,7 @@ export function lockPageHtml(): string {
     var pinInput = document.getElementById('pin');
     var pinButton = document.getElementById('pinSubmit');
     var pinForm = document.getElementById('pinForm');
+    var pinNote = document.getElementById('pinNote');
     var windowsBlock = document.getElementById('windows');
     var switchMode = document.getElementById('switchMode');
     var reason = document.getElementById('reason');
@@ -682,6 +684,7 @@ export function lockPageHtml(): string {
     // One card, two ways in: the WARDEN PIN the operator set, or the Windows
     // account underneath. Whichever is showing gets the focus and the Enter key.
     function applyMode() {
+      pinNote.textContent = '';
       pinBlock.hidden = mode !== 'pin';
       windowsBlock.hidden = mode !== 'windows';
       switchMode.hidden = !pinSet;
@@ -766,6 +769,12 @@ export function lockPageHtml(): string {
       var result = await api.lock.unlockWithPin(pinInput.value);
       if (!result.ok) {
         error.textContent = result.error || 'Unlock failed.';
+        // The two credentials are both short numbers and the Windows one is the
+        // one people reach for first. Saying where it goes is the difference
+        // between a lock screen that works and one that reads as broken.
+        pinNote.textContent = helloUsable
+          ? 'That is not the WARDEN PIN. A Windows PIN — or a fingerprint or face — is verified by Windows itself: use "Unlock with Windows Hello".'
+          : 'This is the WARDEN PIN you set in WARDEN → Policy, which is not your Windows PIN. Hello is not enrolled here, so the Windows account password is the other way in.';
         pinInput.value = '';
         pinInput.focus();
       }

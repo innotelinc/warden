@@ -3,6 +3,7 @@ import {
   Menu,
   app,
   ipcMain,
+  nativeTheme,
   protocol,
   session,
   shell
@@ -14,7 +15,8 @@ import { DEFAULT_SETTINGS, APP_NAME } from '@shared/defaults'
 import { DOH_PROVIDERS, dohSwitches } from '@shared/dns'
 import type { ProxyState } from '@shared/network'
 import { sanitizeSettings } from '@shared/settings'
-import { themeFor } from '@shared/themes'
+import { resolveThemeId, themeFor } from '@shared/themes'
+import { ensureWardenProtocol, setWardenHandler } from './warden-protocol'
 import type {
   AppState,
   HistoryEntry,
@@ -704,11 +706,22 @@ async function createWindow(stores: Stores): Promise<void> {
   registerIpc(context)
 
   // ------------------------------------------------------------ protocol
-  if (!protocolRegistered) {
-    protocolRegistered = true
-    protocol.handle('warden', async (request) => {
+  /**
+   * WARDEN's own pages, as one handler.
+   *
+   * `protocol.handle` binds a scheme to a single session, and WARDEN does not
+   * run its pages in the default one: a browsing tab has its own partition and
+   * Splay's viewer runs in the session of the tab it came from. So the handler
+   * is defined here once, registered on the app's session below, and handed to
+   * `ensureWardenProtocol` for the sessions that do not inherit it.
+   */
+  const handleWardenUrl = async (request: Request): Promise<Response> => {
     const url = new URL(request.url)
     const settingsNow = stores.settings.get()
+    // `system` resolves here rather than in the page: these documents are built
+    // in the main process, which is the side that can ask Windows which
+    // appearance is current.
+    const theme = resolveThemeId(settingsNow.theme, nativeTheme.shouldUseDarkColors)
 
     if (url.hostname === 'newtab') {
       return new Response(
@@ -718,7 +731,7 @@ async function createWindow(stores: Stores): Promise<void> {
           bookmarks: stores.bookmarks.get().slice(0, 12),
           version: app.getVersion(),
           homepage: settingsNow.homepage,
-          theme: settingsNow.theme
+          theme
         }),
         { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
@@ -736,21 +749,21 @@ async function createWindow(stores: Stores): Promise<void> {
           url.searchParams.get('code') ?? 'ERR',
           url.searchParams.get('desc') ?? 'Navigation failed',
           url.searchParams.get('url') ?? '',
-          settingsNow.theme
+          theme
         ),
         { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
     }
 
     if (url.hostname === 'doc') {
-      const doc = readDoc(url.searchParams.get('path') ?? '', settingsNow.theme)
+      const doc = readDoc(url.searchParams.get('path') ?? '', theme)
       if (doc) {
         return new Response(doc.html, {
           headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
         })
       }
       return new Response(
-        errorHtml('DOC', 'That file cannot be shown here', url.searchParams.get('path') ?? '', settingsNow.theme),
+        errorHtml('DOC', 'That file cannot be shown here', url.searchParams.get('path') ?? '', theme),
         { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }
       )
     }
@@ -767,9 +780,39 @@ async function createWindow(stores: Stores): Promise<void> {
       )
     }
 
-      return new Response('Not found', { status: 404 })
-    })
+    return new Response('Not found', { status: 404 })
   }
+
+  setWardenHandler(handleWardenUrl)
+  if (!protocolRegistered) {
+    protocolRegistered = true
+    protocol.handle('warden', handleWardenUrl)
+  }
+  // The partitions WARDEN opens outside a tab: Splay's own media session, and
+  // the browsing partition the new tab is drawn in.
+  ensureWardenProtocol(session.fromPartition('warden-media'))
+  ensureWardenProtocol(session.fromPartition('warden-browse'))
+
+  /**
+   * Follow Windows.
+   *
+   * A `system` theme has to re-resolve when the OS flips and nothing else
+   * notices: the renderer gets `prefers-color-scheme` for free, but WARDEN's own
+   * documents are built in this process, and the window frame is painted here.
+   */
+  const followSystemAppearance = (): void => {
+    nativeTheme.themeSource = 'system'
+    if (browserWindow.isDestroyed()) return
+    const id = resolveThemeId(stores.settings.get().theme, nativeTheme.shouldUseDarkColors)
+    browserWindow.setBackgroundColor(themeFor(id).vars['--bg'] ?? '#07090c')
+    // Only a `system` setting has anything to redraw; a fixed palette is fixed.
+    if (stores.settings.get().theme !== 'system') return
+    for (const tab of tabs.list()) {
+      if (tab.url.startsWith('warden://')) tabs.reload(tab.id)
+    }
+  }
+  nativeTheme.on('updated', followSystemAppearance)
+  followSystemAppearance()
 
   // ------------------------------------------------------------ page signals
   ipcMain.removeAllListeners('warden:media:found')
@@ -815,6 +858,14 @@ async function createWindow(stores: Stores): Promise<void> {
       cameraBlocked: current.cameraBlocked,
       microphoneBlocked: current.microphoneBlocked
     }
+  })
+
+  // Cosmetic filtering: the same shape of answer, read at preload time so the
+  // hiding stylesheet is in the document before the page paints its first ad
+  // slot — a pass that runs after layout would show the gap and then close it.
+  ipcMain.removeAllListeners('warden:cosmetic:sync')
+  ipcMain.on('warden:cosmetic:sync', (event) => {
+    event.returnValue = privacy.getSettings().cosmeticFiltering !== false
   })
 
   ipcMain.on('warden:hover', (event, tabId: string, url: string) => {

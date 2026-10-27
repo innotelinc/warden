@@ -860,6 +860,12 @@ export class TabManager {
     const hand = (src: string, kind: 'video' | 'audio'): void => {
       if (!src || isLocalMediaSource(src)) return
       this.hooks.onMedia(tab.id, { url: src, title: tab.title || params.pageURL || 'Media', kind })
+      // The player leaves the page as well as joining the dock. Splay plays the
+      // source in its own view, so leaving the original in place means the same
+      // audio twice and a page still holding a poster-sized gap. Only ever sent
+      // from this path — the dock's automatic hand-off mirrors a playing video
+      // and must not touch the document.
+      tab.view.webContents.send('warden:media:detach', src)
     }
 
     if (given) {

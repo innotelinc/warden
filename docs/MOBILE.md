@@ -388,3 +388,30 @@ internal build exists and show the real UI rather than a mockup.
 The mobile shell is not a port of the desktop browser, and it does not claim the
 desktop's blocking numbers. Anything in the store listing that suggests a full
 blocking browser would be inaccurate until Phase 2 lands.
+
+## The iOS browser surface
+
+The shell used to hand every address to `SFSafariViewController`, which is
+another app's UI: pages opened, but WARDEN had no address bar of its own and no
+idea where the operator had gone. iOS now renders pages in a `WKWebView` the app
+presents itself, with an editable address, back, forward, reload and a way out —
+`mobile/plugins/warden-browser`, a local Capacitor plugin.
+
+Three things about it are deliberate:
+
+- **The session is memory only.** `websiteDataStore = .nonPersistent()`, which is
+  what the shell's posture screen claims and what the desktop product does.
+  Cookies and cache go when the surface does.
+- **Unknown schemes leave the app.** `mailto:`, `tel:` and app deep links are
+  handed to the system rather than swallowed by a view that cannot honour them.
+- **The platform piece is optional at runtime.** `mobile/src/warden-browser.ts`
+  falls back to the system browser if the plugin is not registered, so an older
+  build or Android still opens the page and is told which surface it used.
+
+The plugin is a `file:` dependency of `mobile/package.json`, so `npx cap sync ios`
+writes the pod into `Podfile` and the class into `packageClassList` on its own —
+do not hand-write either, or CocoaPods sees the pod twice. `npm ci` must therefore
+run before `pod install`, which `mobile-ios.yml` already does.
+
+Compiling Swift cannot be verified outside macOS; the wiring is pinned by
+`tests/mobile-ios-browser.test.ts`.

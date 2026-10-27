@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Browser } from '@capacitor/browser'
+import { useCallback, useEffect, useState } from 'react'
 import { StatusBar, Style } from '@capacitor/status-bar'
+import { openPage, WardenBrowser, type BrowserSurface } from './warden-browser'
 
 declare const __WARDEN_VERSION__: string
 
@@ -20,7 +20,8 @@ export function resolveTarget(input: string): string | null {
 // what shipped, and the roadmap is named in the note below it.
 const POSTURE = [
   ['No account', 'Nothing to sign in to, and no profile is stored on this device.'],
-  ['System browser', 'Pages open in the platform browser view, which this app cannot read.'],
+  ['A real address bar', 'Pages open in a web view with its own address field, back, forward and reload.'],
+  ['Nothing on disk', 'The browsing session keeps its cookies and cache in memory, so quitting clears it.'],
   ['No telemetry', 'The shell has no analytics, crash or ad SDKs.'],
   ['Sensors', 'Camera and microphone are not requested by this app.']
 ]
@@ -34,65 +35,136 @@ const SHORTCUTS = [
   { label: 'Privacy', url: 'https://innotelinc.github.io/warden/privacy.html' }
 ]
 
+/** The host alone, for a line that has to stay one line. */
+export function prettyHost(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
 export function App(): React.ReactElement {
   const [address, setAddress] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [surface, setSurface] = useState<BrowserSurface | null>(null)
+  const [current, setCurrent] = useState<string | null>(null)
+  const [recents, setRecents] = useState<string[]>([])
 
   useEffect(() => {
     void StatusBar.setStyle({ style: Style.Dark }).catch(() => undefined)
     void StatusBar.setBackgroundColor({ color: '#070a0d' }).catch(() => undefined)
   }, [])
 
-  const go = async (input?: string): Promise<void> => {
-    const target = resolveTarget(input ?? address)
-    if (!target) {
-      setError('Type a host or a search.')
-      return
+  /**
+   * The surface reports where it goes, so this screen can show the last page and
+   * keep a list to come back to. Both live in memory, like the session itself.
+   *
+   * The listeners are best-effort: an older build without the native plugin has
+   * no events to give, and the address field still works there.
+   */
+  useEffect(() => {
+    const handles: { remove: () => Promise<void> }[] = []
+    const keep = (handle: { remove: () => Promise<void> }): void => {
+      handles.push(handle)
     }
-    setError(null)
-    setAddress('')
-    try {
-      await Browser.open({ url: target, presentationStyle: 'fullscreen' })
-    } catch (problem) {
-      setError((problem as Error).message)
+    void WardenBrowser.addListener('navigated', (data) => {
+      setCurrent(data.url)
+      setRecents((list) => [data.url, ...list.filter((entry) => entry !== data.url)].slice(0, 12))
+    })
+      .then(keep)
+      .catch(() => undefined)
+    void WardenBrowser.addListener('closed', () => setCurrent(null))
+      .then(keep)
+      .catch(() => undefined)
+    return () => {
+      for (const handle of handles) void handle.remove().catch(() => undefined)
     }
-  }
+  }, [])
+
+  const go = useCallback(
+    async (input?: string): Promise<void> => {
+      const target = resolveTarget(input ?? address)
+      if (!target) {
+        setError('Type a host or a search.')
+        return
+      }
+      setError(null)
+      setAddress('')
+      try {
+        const where = await openPage(target)
+        setSurface(where)
+        setCurrent(target)
+        setRecents((list) => [target, ...list.filter((entry) => entry !== target)].slice(0, 12))
+      } catch (problem) {
+        setError((problem as Error).message)
+      }
+    },
+    [address]
+  )
 
   return (
     <div className="shell">
-      <header className="splash">
-        <div className="mark" aria-hidden="true">
-          <svg viewBox="0 0 120 136" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round">
+      <header className="topbar">
+        <div className="mark small" aria-hidden="true">
+          <svg viewBox="0 0 120 136" fill="none" stroke="currentColor" strokeWidth="4" strokeLinejoin="round">
             <path d="M60 4l52 20v52c0 30-22 48-52 56C30 124 8 106 8 76V24L60 4z" />
           </svg>
           <span className="w">W</span>
         </div>
-        <h1>Welcome to WARDEN</h1>
-        <p className="lede">Read everything. Give nothing.</p>
-      </header>
 
-      <form
-        className="address"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void go()
-        }}
-      >
-        <input
-          value={address}
-          onChange={(event) => setAddress(event.target.value)}
-          placeholder="Address or search"
-          inputMode="url"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          aria-label="Address or search"
-        />
-        <button type="submit" aria-label="Open">
-          ↵
-        </button>
-      </form>
+        <form
+          className="address"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void go()
+          }}
+        >
+          <input
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            placeholder="Search or enter address"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            aria-label="Search or enter address"
+          />
+          <button type="submit" aria-label="Open">
+            ↵
+          </button>
+        </form>
+      </header>
       {error ? <p className="error">{error}</p> : null}
+
+      {current ? (
+        <section className="surface">
+          <div className="surface-row">
+            <span className="dot" aria-hidden="true" />
+            <div className="surface-text">
+              <b>{prettyHost(current)}</b>
+              <span>{surface === 'in-app' ? 'open in WARDEN' : 'open in the system browser'}</span>
+            </div>
+            <button onClick={() => void go(current)}>Reopen</button>
+          </div>
+        </section>
+      ) : null}
+
+      {recents.length ? (
+        <section className="recents">
+          <h2>This session</h2>
+          <ul>
+            {recents.map((url) => (
+              <li key={url}>
+                <button onClick={() => void go(url)} title={url}>
+                  <span className="u">{prettyHost(url)}</span>
+                  <span className="p">{url.replace(/^https?:\/\//, '').slice(0, 46)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="posture">
         <h2>Session posture</h2>
@@ -121,8 +193,8 @@ export function App(): React.ReactElement {
       </section>
 
       <p className="note">
-        Pages open in the platform's private browser surface, not an in-app frame. An embedded engine with blocking and
-        per-tab sessions is Phase 2 — see the mobile plan in the repository.
+        Pages open in WARDEN's own web view, which keeps its cookies and cache in memory. Request-level ad and tracker
+        blocking is Phase 2 — see the mobile plan in the repository.
       </p>
 
       <footer>

@@ -1,5 +1,6 @@
 import { BrowserWindow, WebContentsView, session as electronSession, type Session } from 'electron'
 import type { MediaItem, MediaSlot, Rect } from '@shared/types'
+import { ensureWardenProtocol } from '../warden-protocol'
 
 const SLOT_COUNT = 3
 
@@ -98,9 +99,30 @@ export class MediaDock {
 
     this.win.contentView.addChildView(view)
     this.applyBounds()
+
+    // The viewer is a `warden://` page and this view runs in another session
+    // (the tab's, so a signed stream still authorises). Without the handler on
+    // *that* session the load fails and the dock shows an empty pane, which is
+    // the blank Splay window: register it before asking for the page.
+    const viewSession = (view.webContents.session as Session | undefined) ?? null
+    ensureWardenProtocol(viewSession)
+
     view.webContents.loadURL(
       `warden://viewer/?src=${encodeURIComponent(item.viewerUrl)}&title=${encodeURIComponent(item.title)}&kind=${item.kind}&t=${Math.floor(item.currentTime || 0)}`
     ).catch(() => undefined)
+
+    // A failed load must say so rather than leaving the pane black: the dock is
+    // the only thing on screen for it, so silence looks like Splay is broken.
+    view.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      if (!isMainFrame || code === -3) return
+      const message = JSON.stringify(`${description || 'load failed'} (${code})`)
+      view.webContents
+        .executeJavaScript(
+          `document.body.innerHTML = '<div style="font:12px/1.6 ui-sans-serif,system-ui,sans-serif;color:#7b8a9d;padding:18px"><b style="color:#dbe5f1;display:block;margin-bottom:6px">Splay could not open this item</b>' + ${message} + '</div>', true`
+        )
+        .catch(() => undefined)
+      void url
+    })
 
     view.webContents.on('will-navigate', (event) => event.preventDefault())
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))

@@ -1,0 +1,147 @@
+/* ============================================================ browser chrome
+ *
+ * The shell is the browser's chrome, so the address field is the first thing on
+ * the screen and stays at the top: a page opens in the native surface above it,
+ * and what the operator returns to has to look like where they were.
+ */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 12px;
+  margin: -20px -20px 18px;
+  background: linear-gradient(180deg, #080b0f 62%, rgba(8, 11, 15, 0.86));
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid #161f2a;
+}
+
+.topbar .mark.small {
+  width: 26px;
+  height: 30px;
+  margin: 0;
+  border: 0;
+  background: none;
+  border-radius: 0;
+  flex: none;
+  position: relative;
+  color: rgba(79, 227, 193, 0.55);
+}
+
+.topbar .mark.small .w {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.topbar .address {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.topbar .address input {
+  font-size: 15px;
+}
+
+/* ------------------------------------------------------------ current page */
+
+.surface {
+  margin-bottom: 18px;
+}
+
+.surface-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #1d2836;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #111820, #0d141c);
+}
+
+.surface-row .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: #4fe3c1;
+  box-shadow: 0 0 0 3px rgba(79, 227, 193, 0.16);
+}
+
+.surface-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.surface-text b {
+  font-size: 14px;
+  color: #dbe5f1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.surface-text span {
+  font-size: 11px;
+  color: #6f8093;
+}
+
+.surface-row button {
+  flex: none;
+  padding: 8px 14px;
+  border: 1px solid rgba(79, 227, 193, 0.42);
+  border-radius: 10px;
+  background: rgba(79, 227, 193, 0.12);
+  color: #4fe3c1;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------- session history */
+
+.recents ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recents button {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid #18222e;
+  border-radius: 12px;
+  background: #0c131a;
+  text-align: left;
+}
+
+.recents .u {
+  font-size: 13px;
+  font-weight: 600;
+  color: #dbe5f1;
+  flex: none;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recents .p {
+  font-size: 11.5px;
+  color: #6f8093;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}

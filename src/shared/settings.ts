@@ -59,6 +59,9 @@ export function sanitizeSettings(value: unknown): Settings {
   merged.lockTimeoutMinutes = [0, 1, 5, 15, 30, 60].includes(lock) ? lock : DEFAULT_SETTINGS.lockTimeoutMinutes
   merged.blockAds = Boolean(merged.blockAds)
   merged.blockTrackers = Boolean(merged.blockTrackers)
+  // Opt out, not in: only an explicit false stops the ad containers being
+  // removed, because a page with a hole where the ad was reads as broken.
+  merged.cosmeticFiltering = input.cosmeticFiltering !== false
   merged.httpsOnly = Boolean(merged.httpsOnly)
   merged.fingerprintHardening = Boolean(merged.fingerprintHardening)
   merged.stripReferrer = Boolean(merged.stripReferrer)

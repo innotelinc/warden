@@ -3,7 +3,7 @@ import { SEARCH_ENGINES } from '@shared/defaults'
 import { DOH_PROVIDERS } from '@shared/dns'
 import { LOCK_TIMEOUTS, timeoutLabel } from '@shared/lock-policy'
 import { CAMERA_MODES, VOICE_MODES } from '@shared/sensors'
-import { THEMES, themeSwatch } from '@shared/themes'
+import { THEME_CHOICES, themeSwatch } from '@shared/themes'
 import type { LockHelloStatus, Settings, UpdateState } from '@shared/types'
 import { IconDownload, IconGear, IconLock, IconShield, IconSpark, IconTrash } from '../icons'
 
@@ -139,7 +139,7 @@ export function SettingsWorkspace() {
               <IconSpark size={11} /> Theme
             </div>
             <div className="theme-grid">
-              {THEMES.map((theme) => {
+              {THEME_CHOICES.map((theme) => {
                 const active = settings.theme === theme.id
                 return (
                   <button
@@ -149,7 +149,7 @@ export function SettingsWorkspace() {
                     title={theme.blurb}
                   >
                     <span className="swatches">
-                      {themeSwatch(theme).map((color, index) => (
+                      {themeSwatch(theme.preset).map((color, index) => (
                         <i key={index} style={{ background: color }} />
                       ))}
                     </span>
@@ -190,6 +190,12 @@ export function SettingsWorkspace() {
               detail="Seed ad network hosts and ad-path patterns"
               on={settings.blockAds}
               onChange={(next) => update({ blockAds: next })}
+            />
+            <Toggle
+              title="Remove ad containers"
+              detail="Hide the slot a blocked ad leaves behind, so the page closes up instead of showing the gap where it was"
+              on={settings.cosmeticFiltering}
+              onChange={(next) => update({ cosmeticFiltering: next })}
             />
             <Toggle
               title="Block trackers"

@@ -29,6 +29,18 @@ export function Walkthrough({ onDone }: { onDone: () => void }) {
         event.preventDefault()
         setIndex((current) => Math.max(0, current - 1))
       }
+      // Enter advances, and on the last step finishes. A tour whose only way
+      // forward is a button at the bottom of a clipped dialog is a dead end.
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        setIndex((current) => {
+          if (current >= WALKTHROUGH_STEPS.length - 1) {
+            onDone()
+            return current
+          }
+          return current + 1
+        })
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -53,13 +65,15 @@ export function Walkthrough({ onDone }: { onDone: () => void }) {
           </span>
         </div>
 
-        <h2>{step.title}</h2>
-        <p>{step.body}</p>
-        {step.where ? (
-          <div className="walkthrough-where">
-            <kbd>{step.where}</kbd>
-          </div>
-        ) : null}
+        <div className="walkthrough-body">
+          <h2>{step.title}</h2>
+          <p>{step.body}</p>
+          {step.where ? (
+            <div className="walkthrough-where">
+              <kbd>{step.where}</kbd>
+            </div>
+          ) : null}
+        </div>
 
         <div className="walkthrough-foot">
           <button className="btn" onClick={onDone}>

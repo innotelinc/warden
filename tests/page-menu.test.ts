@@ -50,7 +50,7 @@ describe('page context menu', () => {
       hasMedia: true
     })
     const send = commands.find((command) => command.kind === 'command' && command.id === 'send-media')
-    expect(send).toMatchObject({ label: 'Send video to Splay', enabled: true, arg: 'https://cdn.example.test/clip.mp4' })
+    expect(send).toMatchObject({ label: 'Move this video to Splay', enabled: true, arg: 'https://cdn.example.test/clip.mp4' })
   })
 
   /**
@@ -59,7 +59,7 @@ describe('page context menu', () => {
    * page is asked at click time.
    */
   it('still offers the hand-off when the player hid the element', () => {
-    expect(labels({ hasMedia: true, mediaType: 'none' })).toContain('Send the video on this page to Splay')
+    expect(labels({ hasMedia: true, mediaType: 'none' })).toContain('Move the video on this page to Splay')
     expect(labels({ hasMedia: false, mediaType: 'none' })).not.toContain('Send the video on this page to Splay')
   })
 

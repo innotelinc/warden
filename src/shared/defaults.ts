@@ -8,6 +8,10 @@ export const DEFAULT_SETTINGS: Settings = {
   cookieMode: 'block',
   blockAds: true,
   blockTrackers: true,
+  // Removes the ad containers a blocked request leaves behind, so a page closes
+  // up instead of showing a hole where the ad would have been. On by default:
+  // "no ads" means the page looks like one that never had them.
+  cosmeticFiltering: true,
   httpsOnly: true,
   fingerprintHardening: true,
   stripReferrer: true,

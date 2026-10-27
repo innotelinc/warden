@@ -399,8 +399,10 @@ a {
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+  /* Continues the wash the active tab hands down, so the tab strip and the
+     address bar read as one surface instead of two stacked bars. */
+  background: linear-gradient(180deg, var(--chrome-dim) 0%, var(--chrome) 44%, var(--chrome) 100%);
   -webkit-app-region: no-drag;
   position: relative;
   z-index: 20;
@@ -513,8 +515,11 @@ a {
   align-items: stretch;
   gap: 1px;
   padding: 4px 8px 0;
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--chrome-dim);
+  border-bottom: 1px solid var(--line);
+  /* The strip starts darker than the toolbar it sits on and washes down into
+     it, so the row of tabs reads as a surface above the address bar rather
+     than the same colour as it. */
+  background: linear-gradient(180deg, var(--sunken) 0%, var(--chrome-dim) 60%, var(--chrome) 100%);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -543,12 +548,20 @@ a {
 }
 .tab:hover {
   background: rgba(255, 255, 255, 0.03);
+  border-color: var(--line-soft);
   color: var(--text-dim);
 }
 .tab.active {
-  background: var(--row-active);
-  border-color: var(--line);
+  /* A tab has to look attached to the address bar below it: a real border, a
+     wash that runs from the raised surface down into the toolbar, and a hairline
+     that paints over the strip's own bottom edge so the two read as joined. */
+  background: linear-gradient(180deg, var(--raised) 0%, var(--row-active) 68%, var(--chrome) 100%);
+  border-color: var(--line-bright);
+  border-bottom-color: transparent;
   color: var(--text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 1px 0 0 var(--chrome);
 }
 .tab.active::after {
   content: "";
@@ -1788,11 +1801,22 @@ code.swatchline i {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 12vh;
+  /* The tour is the tallest thing WARDEN draws. A fixed 12vh of top padding
+     pushed its buttons past the bottom edge of a short window, which left the
+     first-run dialog cut off with no way to reach Next. The overlay scrolls
+     now, and the card caps itself to the viewport further down. */
+  padding: 24px 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 /* ============================================================ walkthrough */
 .walkthrough {
   width: min(620px, calc(100vw - 80px));
+  /* Never taller than the window it opens in: the heading and the buttons stay
+     put and only the step text scrolls, so "Start browsing" is always in reach. */
+  max-height: calc(100vh - 48px);
+  min-height: 0;
   padding: 20px 22px 16px;
   border: 1px solid var(--line-bright);
   border-radius: var(--r-lg);
@@ -1806,6 +1830,17 @@ code.swatchline i {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: none;
+}
+.walkthrough-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+  overscroll-behavior: contain;
 }
 .walkthrough h2 {
   margin: 2px 0 0;
@@ -1831,7 +1866,15 @@ code.swatchline i {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Fixed below the scrolling body rather than flowing after it, and allowed to
+     wrap: on a narrow window the dots and the three buttons do not fit on one
+     line, and a control pushed out of the card is a control nobody can press. */
+  flex: none;
+  flex-wrap: wrap;
+  row-gap: 8px;
   margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
 }
 .walkthrough-dots {
   display: flex;

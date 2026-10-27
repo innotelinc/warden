@@ -139,7 +139,9 @@ export function buildPageMenu(input: PageMenuInput): PageMenuCommand[] {
       commands.push({
         kind: 'command',
         id: 'send-media',
-        label: input.srcURL ? `Send ${noun} to Splay` : `Send the ${noun} on this page to Splay`,
+        // "Move", because it is one: the player is taken off the page and the
+        // page reflows around where it was.
+        label: input.srcURL ? `Move this ${noun} to Splay` : `Move the ${noun} on this page to Splay`,
         enabled: true,
         arg: input.srcURL || undefined
       })
@@ -150,7 +152,7 @@ export function buildPageMenu(input: PageMenuInput): PageMenuCommand[] {
     // named. Ask the page at click time rather than making the operator hunt
     // for the coordinates where WARDEN would have noticed.
     commands.push(
-      { kind: 'command', id: 'send-media', label: 'Send the video on this page to Splay', enabled: true },
+      { kind: 'command', id: 'send-media', label: 'Move the video on this page to Splay', enabled: true },
       { kind: 'separator' }
     )
   }

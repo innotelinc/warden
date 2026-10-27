@@ -66,6 +66,12 @@ export interface Settings {
   cookieMode: CookieMode
   blockAds: boolean
   blockTrackers: boolean
+  /**
+   * Remove the ad containers a blocked request leaves behind. Cosmetic only:
+   * it hides what the network layer already refused and loads nothing new, so a
+   * page closes up instead of showing the slot the ad did not fill.
+   */
+  cosmeticFiltering: boolean
   httpsOnly: boolean
   fingerprintHardening: boolean
   stripReferrer: boolean
@@ -91,7 +97,7 @@ export interface Settings {
   lastMailAccountId: string | null
   scryPort: number
   scryOutputDir: string | null
-  /** Admin palette id from the shared theme list. */
+  /** Palette id from the shared theme list, or 'system' to follow Windows. */
   theme: string
   /**
    * Expose WARDEN's own CDP endpoint on loopback so external tooling can

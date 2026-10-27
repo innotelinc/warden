@@ -14,7 +14,7 @@ if (keystoreFile.exists()) {
 // code it has already seen and there is no way to guess a free one. The
 // committed values are what a local build produces, so they have to stay in
 // step with mobile/package.json.
-def wardenVersionName = project.findProperty('wardenVersionName') ?: "0.2.6"
+def wardenVersionName = project.findProperty('wardenVersionName') ?: "0.2.7"
 def wardenVersionCode = (project.findProperty('wardenVersionCode') ?: "1").toInteger()
 
 android {
