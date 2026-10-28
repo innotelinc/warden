@@ -16,7 +16,7 @@ deconstructor, native mail and a unified messaging hub — in one dense, keyboar
 
 [![Platform: Windows x64](https://img.shields.io/badge/platform-Windows%20x64-18181b)](https://github.com/innotelinc/warden/releases)
 [![Electron 45](https://img.shields.io/badge/electron-45-4fe3c1)](package.json)
-[![Node 20+](https://img.shields.io/badge/node-20%2B-339933)](package.json)
+[![Node 24+](https://img.shields.io/badge/node-24%2B-339933)](package.json)
 [![Landing page](https://img.shields.io/badge/landing-innotelinc.github.io%2Fwarden-2ea043)](https://innotelinc.github.io/warden/)
 [![No cookie jar](https://img.shields.io/badge/cookies-none%20by%20default-f5b95b)](https://github.com/innotelinc/warden#privacy-model-what-is-actually-enforced)
 
@@ -319,7 +319,7 @@ npm run build    # produces out/
 npm start        # run the built app
 ```
 
-Requires Node 20+ (verified on 22.23.3). `node-pty` ships prebuilds for `win32-x64` and `darwin-*`; a PTY backend was verified under Electron on this machine, with the pipe fallback available everywhere else.
+Requires Node 24+ (verified on 24.20.0). `node-pty` ships prebuilds for `win32-x64` and `darwin-*`; a PTY backend was verified under Electron on this machine, with the pipe fallback available everywhere else.
 
 ### Verification
 
