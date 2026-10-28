@@ -17,13 +17,25 @@ name: Mobile (Android)
 #
 # Without the keystore the workflow still builds and uploads an unsigned bundle
 # for inspection, so a fork or a fresh clone can be checked. Without the service
-# account it stops at the artifact, so a dry run never publishes.
+# account it stops at the artifact, so it never publishes.
+#
+# A manual run that ticks `dry_run` builds and signs the bundle and skips the
+# upload, which is how the pipeline (and the CI gate) is exercised without
+# spending a version code on the internal track. A tag push publishes.
 #
 # Play requires targetSdk 36 for submissions from 31 August 2026; see
 # mobile/android/variables.gradle.
 
 on:
   workflow_dispatch:
+    inputs:
+      # Play has no undo, so a run that exercises this workflow — the CI gate,
+      # the signing, the bundle — should be able to stop short of the track.
+      # A tag push ignores this: publishing is what a tag asks for.
+      dry_run:
+        description: Build and sign without uploading to Play
+        type: boolean
+        default: false
   push:
     tags:
       - 'v*'
@@ -41,6 +53,8 @@ jobs:
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      # Empty on a tag push, which is what keeps publishing the tag's job.
+      DRY_RUN: ${{ inputs.dry_run }}
     defaults:
       run:
         working-directory: mobile
@@ -136,7 +150,7 @@ jobs:
       # build onto a phone. The package must already exist in Play Console and
       # have had its first upload done by hand: the API cannot create the app.
       - name: Upload to Play internal testing
-        if: env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON != ''
+        if: env.DRY_RUN != 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON != ''
         uses: r0adkll/upload-google-play@v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
@@ -146,8 +160,12 @@ jobs:
           status: completed
 
       - name: Say what happened
-        if: env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON == ''
+        if: env.DRY_RUN == 'true' || (env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON == '')
         run: |
+          if [ "${DRY_RUN}" = 'true' ]; then
+            echo "::notice::Dry run — the bundle was built and signed but not uploaded to Play."
+            exit 0
+          fi
           echo "::notice::Signed .aab built but PLAY_SERVICE_ACCOUNT_JSON is not set — upload it in the Play Console, or add the service account to publish from here."
 
       - uses: actions/upload-artifact@v4
