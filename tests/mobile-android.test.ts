@@ -95,11 +95,29 @@ describe('Play internal testing wiring', () => {
 
   /**
    * An unsigned bundle is for inspection, and a dry run must never publish, so
-   * the upload is gated on both the keystore and the service account.
+   * the upload is gated on both the keystore and the service account, and on the
+   * run not being a manual dry run.
    */
   it('only uploads a signed bundle with a service account', () => {
-    const gate = "if: env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON != ''"
+    const gate =
+      "if: env.DRY_RUN != 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON != ''"
     expect(workflow).toContain(gate)
+  })
+
+  /**
+   * Play has no undo, so a manual run has to be able to stop short of the track
+   * — that is how the CI gate and the signing get exercised. The input is off
+   * unless ticked, and a tag push carries no inputs at all, which is what keeps
+   * a release a release.
+   */
+  it('lets a manual run stop short of the track', () => {
+    expect(workflow).toMatch(
+      /workflow_dispatch:\s*\n\s*inputs:\s*\n(?:\s*#[^\n]*\n)*\s*dry_run:\s*\n\s*description: Build and sign without uploading to Play\s*\n\s*type: boolean\s*\n\s*default: false/
+    )
+    expect(workflow).toContain('DRY_RUN: ${{ inputs.dry_run }}')
+    expect(workflow).toContain(
+      'Dry run — the bundle was built and signed but not uploaded to Play.'
+    )
   })
 
   /** The artifact name is what a person looks for in the run's output. */
