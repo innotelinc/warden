@@ -17,6 +17,7 @@ import type { ProxyState } from '@shared/network'
 import { sanitizeSettings } from '@shared/settings'
 import { resolveThemeId, themeFor } from '@shared/themes'
 import { ensureWardenProtocol, setWardenHandler } from './warden-protocol'
+import { jumpListTasks, shellAction, type ShellAction } from './desktop/windows-shell'
 import type {
   AppState,
   HistoryEntry,
@@ -938,23 +939,77 @@ function webContentsGuard(): void {
   })
 }
 
-app.whenReady().then(async () => {
-  app.setName(APP_NAME)
-  app.setAppUserModelId('com.warden.browser')
+/**
+ * Do what a taskbar entry asked for, in the window that already exists.
+ *
+ * A jump list relaunches the executable, so without this the operator would get
+ * a second WARDEN — two copies writing the same settings file and two lock
+ * services racing for the same screen.
+ */
+function runShellAction(action: ShellAction): boolean {
+  if (!action) return false
+  const context = (globalThis as { __wardenContext?: WardenContext }).__wardenContext
+  if (!context) return false
+  context.tabs.create('warden://newtab', action === 'new-private-tab')
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win) {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }
+  context.sendState()
+  return true
+}
 
-  const stores = buildStores()
-  await stores.settings.load()
-  await stores.history.load()
-  await stores.bookmarks.load()
+/** Add the taskbar menu. Only Windows has one, and only an installed app can. */
+function installWindowsShell(): void {
+  if (process.platform !== 'win32' || !app.isPackaged) return
+  try {
+    app.setJumpList([{ type: 'tasks', items: jumpListTasks() }])
+  } catch {
+    /* a taskbar that refuses the menu is not a reason to fail the launch */
+  }
+}
 
-  await createWindow(stores)
-
-  app.on('activate', async () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      await createWindow(stores)
+// One WARDEN per desktop. The second launch is the first instance's cue to open
+// the tab the taskbar asked for; `quit()` there leaves the lock and the window
+// with the instance that already owns them.
+const primaryInstance = app.requestSingleInstanceLock()
+if (!primaryInstance) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    if (!runShellAction(shellAction(argv))) {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
     }
   })
-})
+
+  app.whenReady().then(async () => {
+    app.setName(APP_NAME)
+    app.setAppUserModelId('com.warden.browser')
+
+    const stores = buildStores()
+    await stores.settings.load()
+    await stores.history.load()
+    await stores.bookmarks.load()
+
+    await createWindow(stores)
+    installWindowsShell()
+    // A taskbar entry is a command line, so the first launch carries it too.
+    runShellAction(shellAction(process.argv))
+
+    app.on('activate', async () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        await createWindow(stores)
+      }
+    })
+  })
+}
 
 app.on('before-quit', async (event) => {
   if (quitting) return
