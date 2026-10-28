@@ -195,3 +195,28 @@ describe('iOS App Distribution', () => {
     expect(workflow).toContain('appdistribution:distribute')
   })
 })
+
+/**
+ * An ad hoc profile names the devices it may be installed on, and Apple offers no
+ * way to add one except registering it: the export fails while the account has
+ * no devices at all. The key that can register one is a secret, so the call
+ * belongs on a runner — and it has to keep using the same three secrets as every
+ * other App Store Connect call, or it will look configured and still fail.
+ */
+describe('iOS device registration', () => {
+  const workflow = read('.github/workflows/ios-register-device.yml')
+  const script = read('scripts/ios-register-device.py')
+
+  it('runs the registration script with the App Store Connect secrets', () => {
+    expect(workflow).toContain('python3 scripts/ios-register-device.py')
+    for (const secret of ['APP_STORE_CONNECT_KEY_ID', 'APP_STORE_CONNECT_ISSUER_ID', 'APP_STORE_CONNECT_KEY_P8']) {
+      expect(workflow).toContain(`secrets.${secret}`)
+    }
+  })
+
+  it('registers an iOS device and treats a known UDID as done', () => {
+    expect(script).toContain('"platform": "IOS"')
+    expect(script).toContain('"POST",\n        "/v1/devices"')
+    expect(script).toContain('if error.code == 409')
+  })
+})

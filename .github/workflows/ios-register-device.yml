@@ -1,0 +1,65 @@
+name: iOS device registration
+
+# Adds a phone to the Apple developer account, which is the one thing standing
+# between Mobile (iOS) and an App Distribution release: Apple will not sign an ad
+# hoc build whose provisioning profile does not name the device it is installed
+# on, and the export says so — "Your team has no devices from which to generate a
+# provisioning profile".
+#
+# The App Store Connect key is a repository secret, and this is the only place the
+# call can be made with it without the key being copied anywhere. Nothing is
+# built, so it runs on Ubuntu in seconds and costs nothing.
+#
+#   gh workflow run ios-register-device.yml \
+#     -f udid=00008150-00084d5e0190c01c -f name='My iPhone'
+#
+# Registering is once per device; the same UDID reports itself rather than
+# failing, and `--list`-style reporting happens either way. After it succeeds the
+# next Mobile (iOS) run creates an ad hoc profile that includes the device.
+
+on:
+  workflow_dispatch:
+    inputs:
+      udid:
+        description: Device UDID (Settings → General → About; tap the serial number to reveal it)
+        required: true
+        type: string
+      name:
+        description: Name to show in the developer portal
+        required: false
+        default: WARDEN tester
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Write App Store Connect key
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          if [ -z "$KEY_ID" ]; then
+            echo "::error::APP_STORE_CONNECT_KEY_ID is not set — a device cannot be registered without the key."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8"
+
+      - name: Register the device
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+          UDID: ${{ inputs.udid }}
+          NAME: ${{ inputs.name }}
+        run: python3 scripts/ios-register-device.py --udid "$UDID" --name "$NAME"
