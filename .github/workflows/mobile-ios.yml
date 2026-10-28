@@ -41,6 +41,12 @@ jobs:
     # Secrets cannot be tested in a step `if:`; hoist the key id and gate on that.
     env:
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      # App Distribution. The iOS app id does nothing until an ad hoc profile can
+      # name every tester's device, so both steps below stay skipped while it is
+      # unset — see docs/MOBILE.md.
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      FIREBASE_IOS_APP_ID: ${{ vars.FIREBASE_IOS_APP_ID }}
+      FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS }}
     defaults:
       run:
         working-directory: mobile
@@ -219,6 +225,53 @@ jobs:
           fi
           ls -la "$RUNNER_TEMP/export"
 
+      # App Distribution cannot install an App Store build: an ad hoc profile has
+      # to name every tester's UDID, and a tag build above is not even written to
+      # disk because `destination=upload` sends it straight to TestFlight. So this
+      # is a second export of the same archive with a different method, run only
+      # once an iOS app id is configured — before that there is no profile to
+      # make, because no device is registered.
+      - name: Export an ad hoc ipa
+        if: env.FIREBASE_IOS_APP_ID != '' && env.ASC_KEY_ID != ''
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+        working-directory: mobile/ios/App
+        run: |
+          cat > "$RUNNER_TEMP/AdHocOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>ad-hoc</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>destination</key><string>export</string>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/WARDEN.xcarchive" \
+            -exportPath "$RUNNER_TEMP/adhoc" \
+            -exportOptionsPlist "$RUNNER_TEMP/AdHocOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+          mv "$RUNNER_TEMP/adhoc/App.ipa" "$RUNNER_TEMP/adhoc/WARDEN-${VERSION}.ipa"
+
+      - name: Publish to Firebase App Distribution
+        if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.ASC_KEY_ID != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase.json"
+          npx --yes firebase-tools@15 appdistribution:distribute "$RUNNER_TEMP/adhoc/WARDEN-${VERSION}.ipa" \
+            --app "$FIREBASE_IOS_APP_ID" \
+            --groups "${FIREBASE_TESTER_GROUPS:-testers}" \
+            --release-notes "WARDEN ${VERSION} — build ${GITHUB_RUN_NUMBER}"
+
       # An unsigned archive has no .ipa; keep the archive for inspection instead.
       # `always()` so a failed export still leaves the archive behind: the export
       # step is where signing permissions surface, and without this the run that
@@ -229,5 +282,6 @@ jobs:
           name: warden-ios
           path: |
             ${{ runner.temp }}/export/*.ipa
+            ${{ runner.temp }}/adhoc/*.ipa
             ${{ runner.temp }}/WARDEN.xcarchive
           if-no-files-found: error

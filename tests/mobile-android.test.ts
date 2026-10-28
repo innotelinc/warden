@@ -153,3 +153,24 @@ describe('Installing a build without Play', () => {
     expect(workflow).toContain("startsWith(github.ref, 'refs/tags/v')")
   })
 })
+
+/**
+ * Distribution is optional in the repository and configured by the owner, so the
+ * wiring has to be inert until it is: a fork, a dry run and a repository with no
+ * Firebase project must all behave exactly as they did before it existed.
+ */
+describe('Android App Distribution', () => {
+  const workflow = read('.github/workflows/mobile-android.yml')
+
+  it('sends the APK it just built to the configured project', () => {
+    expect(workflow).toContain('appdistribution:distribute "$APK_PATH"')
+    expect(workflow).toContain('--app "$FIREBASE_ANDROID_APP_ID"')
+    expect(workflow).toContain("echo \"APK_PATH=")
+  })
+
+  it('publishes only on a run that means to distribute', () => {
+    expect(workflow).toContain(
+      "if: env.DRY_RUN != 'true' && env.FIREBASE_ANDROID_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''"
+    )
+  })
+})

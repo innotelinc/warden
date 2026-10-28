@@ -171,3 +171,27 @@ describe('iOS build status workflow', () => {
     expect(script).toContain('us.innotel.warden')
   })
 })
+
+/**
+ * App Distribution installs an ad hoc build, not an App Store one, so it cannot
+ * reuse the ipa the TestFlight export produces — and on a tag that export writes
+ * nothing at all. A separate ad hoc export is the only thing that can be
+ * installed by a tester, and it stays behind a configuration gate because the
+ * profile it needs names each tester's device.
+ */
+describe('iOS App Distribution', () => {
+  const workflow = read('.github/workflows/mobile-ios.yml')
+
+  it('exports an ad hoc ipa rather than reusing the store one', () => {
+    expect(workflow).toContain('<key>method</key><string>ad-hoc</string>')
+    expect(workflow).toContain('-exportOptionsPlist "$RUNNER_TEMP/AdHocOptions.plist"')
+  })
+
+  it('stays inert until an iOS app id is configured', () => {
+    expect(workflow).toContain("if: env.FIREBASE_IOS_APP_ID != '' && env.ASC_KEY_ID != ''")
+    expect(workflow).toContain(
+      "if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.ASC_KEY_ID != ''"
+    )
+    expect(workflow).toContain('appdistribution:distribute')
+  })
+})

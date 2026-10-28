@@ -55,6 +55,11 @@ jobs:
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      # App Distribution. The service account is a secret, so it is hoisted for
+      # the same reason as the others: a step's `if:` cannot read one.
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      FIREBASE_ANDROID_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
+      FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS }}
       # Empty on a tag push, which is what keeps publishing the tag's job.
       DRY_RUN: ${{ inputs.dry_run }}
     defaults:
@@ -172,6 +177,7 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/apk"
           cp "$built" "$RUNNER_TEMP/apk/WARDEN-${VERSION}.apk"
+          echo "APK_PATH=$RUNNER_TEMP/apk/WARDEN-${VERSION}.apk" >> "$GITHUB_ENV"
           ls -la "$RUNNER_TEMP/apk"
 
       - uses: actions/upload-artifact@v4
@@ -179,6 +185,22 @@ jobs:
           name: warden-android-apk
           path: ${{ runner.temp }}/apk/*.apk
           if-no-files-found: error
+
+      # The TestFlight-shaped path for Android: testers are emailed an invite and
+      # install the same APK. No cost, and no Play account. Skipped until the
+      # Firebase app id and its service account exist, so a fork, a dry run and
+      # the current setup all behave exactly as they did before.
+      - name: Publish to Firebase App Distribution
+        if: env.DRY_RUN != 'true' && env.FIREBASE_ANDROID_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase.json"
+          npx --yes firebase-tools@15 appdistribution:distribute "$APK_PATH" \
+            --app "$FIREBASE_ANDROID_APP_ID" \
+            --groups "${FIREBASE_TESTER_GROUPS:-testers}" \
+            --release-notes "WARDEN ${VERSION} — build ${GITHUB_RUN_NUMBER}"
 
       # Internal testing needs no review, so this is the fastest way to get a
       # build onto a phone. The package must already exist in Play Console and

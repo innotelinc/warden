@@ -184,10 +184,41 @@ but Android refuses to replace a debug-signed app with a release-signed one, so
 uninstall first when you switch.
 
 This is a download, not a distribution service: no invitations, no update
-prompt, no review. If that becomes worth having, Firebase App Distribution is
-the no-cost service that behaves like TestFlight — email invitations, tester
-groups, and the same APK uploaded from CI
-([product page](https://firebase.google.com/products/app-distribution)).
+prompt, no review. Firebase App Distribution adds those, and is wired up below.
+
+### Firebase App Distribution (optional, free)
+
+TestFlight-shaped, and no cost: testers are emailed an invite, install the build,
+and are told when a new one arrives. Both mobile workflows distribute to it, and
+both stay inert until it is configured — a fork, a dry run and today's setup
+behave exactly as they did.
+
+1. **Create the Firebase project and register both apps** (Project settings →
+   General → Add app). The Android package must be exactly `us.innotel.warden`,
+   and the iOS bundle id `us.innotel.warden`; Firebase refuses to change a
+   package name after registration. Each app gets an **App ID** shaped
+   `1:1234567890:android:0a1b…`.
+2. **Create a tester group** (App Distribution → Testers & Groups) with the alias
+   `testers`, or set `FIREBASE_TESTER_GROUPS` to whatever alias you use.
+3. **Service account**: Google Cloud console → IAM & Admin → Service accounts →
+   create one → Keys → **JSON**. Give it **Firebase App Distribution Admin** on
+   the project, then add the file as the `FIREBASE_SERVICE_ACCOUNT` secret.
+4. **Repository variables** (Settings → Secrets and variables → Actions →
+   Variables): `FIREBASE_ANDROID_APP_ID`, `FIREBASE_IOS_APP_ID`, and optionally
+   `FIREBASE_TESTER_GROUPS`.
+5. Run **Mobile (Android)** without ticking `dry_run`, or push a `v*` tag: the
+   signed APK is distributed to the group. A dry run builds and stops, because
+   `dry_run` means "do not publish".
+
+**iOS needs one more thing, and it is Apple's rule rather than Firebase's.** An
+App Distribution install must be an **ad hoc** build whose provisioning profile
+names the installing device's UDID — an App Store-signed ipa cannot be side-loaded
+at all. So the iOS job exports a second, ad hoc ipa (the TestFlight export is a
+store build, and on a tag it writes no file at all). `-allowProvisioningUpdates`
+creates that profile once each tester's device is registered on the developer
+account. **Until at least one device is registered, leave `FIREBASE_IOS_APP_ID`
+unset**: the two iOS steps skip, and TestFlight — which already works and costs
+nothing extra with the account you have — remains the way to test.
 
 **targetSdk is 36, and that is not cosmetic.** Play requires 36 for new apps and
 updates submitted from 31 August 2026, and the extension to 1 November 2026 is
