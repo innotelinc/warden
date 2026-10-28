@@ -163,7 +163,14 @@ jobs:
         if: env.DRY_RUN == 'true' || (env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON == '')
         run: |
           if [ "${DRY_RUN}" = 'true' ]; then
-            echo "::notice::Dry run — the bundle was built and signed but not uploaded to Play."
+            # Say which bundle this run produced: without the keystore secret the
+            # bundle is unsigned, and claiming otherwise sends someone looking
+            # for a signature that was never made.
+            if [ -n "${ANDROID_KEYSTORE_BASE64}" ]; then
+              echo "::notice::Dry run — the bundle was built and signed but not uploaded to Play."
+            else
+              echo "::notice::Dry run — an unsigned bundle was built and not uploaded to Play."
+            fi
             exit 0
           fi
           echo "::notice::Signed .aab built but PLAY_SERVICE_ACCOUNT_JSON is not set — upload it in the Play Console, or add the service account to publish from here."
