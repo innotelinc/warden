@@ -16,8 +16,15 @@ name: Mobile (Android)
 #                             testing tracks" in Play Console.
 #
 # Without the keystore the workflow still builds and uploads an unsigned bundle
-# for inspection, so a fork or a fresh clone can be checked. Without the service
-# account it stops at the artifact, so it never publishes.
+# for inspection, so a fork or a fresh clone can be checked — and the APK step
+# then fails on purpose, because a debug-signed APK is not something to publish.
+# Without the service account it stops at the artifact, so it never publishes.
+#
+# PLAY_PUBLISH (repository *variable*, not a secret) turns the Play upload on.
+# It is off by default: Play only accepts a bundle for a package that already
+# exists there, and the app record plus the service account's invitation are set
+# up in Play Console by hand. Until that is done, Firebase App Distribution and
+# the release page are the whole release, and a tag stays green.
 #
 # A manual run that ticks `dry_run` builds and signs the bundle and skips the
 # upload, which is how the pipeline (and the CI gate) is exercised without
@@ -60,6 +67,8 @@ jobs:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       FIREBASE_ANDROID_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
       FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS }}
+      # Hoisted so the steps below can test it; empty means "not configured yet".
+      PLAY_PUBLISH: ${{ vars.PLAY_PUBLISH }}
       # Empty on a tag push, which is what keeps publishing the tag's job.
       DRY_RUN: ${{ inputs.dry_run }}
     defaults:
@@ -186,6 +195,16 @@ jobs:
           path: ${{ runner.temp }}/apk/*.apk
           if-no-files-found: error
 
+      # A missing keystore produces a debug-signed APK with the same name and the
+      # same build behind it, and nothing downstream can tell the difference:
+      # Firebase and the release page would publish it, testers would install it,
+      # and Android then refuses every release-signed update until each install is
+      # removed by hand. So the signer certificate is checked before anything is
+      # distributed. It runs after the artifact upload on purpose — a run that
+      # fails here still leaves the APK behind to look at.
+      - name: Check the APK is signed with the upload key
+        run: python3 "$GITHUB_WORKSPACE/scripts/verify-apk-signature.py" "$APK_PATH"
+
       # The TestFlight-shaped path for Android: testers are emailed an invite and
       # install the same APK. No cost, and no Play account. Skipped until the
       # Firebase app id and its service account exist, so a fork, a dry run and
@@ -202,21 +221,8 @@ jobs:
             --groups "${FIREBASE_TESTER_GROUPS:-testers}" \
             --release-notes "WARDEN ${VERSION} — build ${GITHUB_RUN_NUMBER}"
 
-      # Internal testing needs no review, so this is the fastest way to get a
-      # build onto a phone. The package must already exist in Play Console and
-      # have had its first upload done by hand: the API cannot create the app.
-      - name: Upload to Play internal testing
-        if: env.DRY_RUN != 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON != ''
-        uses: r0adkll/upload-google-play@v1.1.5
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: us.innotel.warden
-          releaseFiles: mobile/android/app/build/outputs/bundle/release/WARDEN-${{ steps.version.outputs.version }}.aab
-          tracks: internal
-          status: completed
-
       - name: Say what happened
-        if: env.DRY_RUN == 'true' || (env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON == '')
+        if: env.DRY_RUN == 'true' || (env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON == '') || env.PLAY_PUBLISH != 'true'
         run: |
           if [ "${DRY_RUN}" = 'true' ]; then
             # Say which bundle this run produced: without the keystore secret the
@@ -227,6 +233,10 @@ jobs:
             else
               echo "::notice::Dry run — an unsigned bundle was built and not uploaded to Play."
             fi
+            exit 0
+          fi
+          if [ "${PLAY_PUBLISH}" != 'true' ]; then
+            echo "::notice::Play publishing is off — this release went to Firebase and the release page. Set the PLAY_PUBLISH repository variable to true once the app exists in Play Console and the service account has release access."
             exit 0
           fi
           echo "::notice::Signed .aab built but PLAY_SERVICE_ACCOUNT_JSON is not set — upload it in the Play Console, or add the service account to publish from here."
@@ -262,3 +272,22 @@ jobs:
           name: warden-android-aab
           path: mobile/android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
+
+      # Internal testing needs no review, so this is the fastest way onto a phone
+      # for someone who uses Play. Two things outside this repository have to be
+      # true first: the package exists in Play Console with one release uploaded
+      # by hand (the API cannot create the app), and the service account has been
+      # invited to it with release rights. That is what PLAY_PUBLISH waits for.
+      #
+      # It comes last on purpose. A tag's free channels — the Firebase release and
+      # the APK on the release page — have already happened by now, so a Play
+      # rejection cannot take them back or strand the asset.
+      - name: Upload to Play internal testing
+        if: env.DRY_RUN != 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.PLAY_SERVICE_ACCOUNT_JSON != '' && env.PLAY_PUBLISH == 'true'
+        uses: r0adkll/upload-google-play@v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: us.innotel.warden
+          releaseFiles: mobile/android/app/build/outputs/bundle/release/WARDEN-${{ steps.version.outputs.version }}.aab
+          tracks: internal
+          status: completed

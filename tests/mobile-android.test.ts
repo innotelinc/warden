@@ -174,3 +174,54 @@ describe('Android App Distribution', () => {
     )
   })
 })
+
+/**
+ * Android will not replace a debug-signed install with a release-signed one, and
+ * the two APKs are identical in every way a run can see: same name, same build,
+ * same artifact. So the signer certificate is the only thing that can tell them
+ * apart, and it has to be checked before distribution rather than after a tester
+ * reports that an update will not install.
+ */
+describe('APK signing check', () => {
+  const workflow = read('.github/workflows/mobile-android.yml')
+  const script = read('scripts/verify-apk-signature.py')
+
+  it('checks the APK before anything is published', () => {
+    expect(workflow).toContain('scripts/verify-apk-signature.py')
+    expect(workflow.indexOf('Check the APK is signed with the upload key')).toBeLessThan(
+      workflow.indexOf('name: Publish to Firebase App Distribution')
+    )
+    expect(workflow.indexOf('Check the APK is signed with the upload key')).toBeLessThan(
+      workflow.indexOf('name: Attach the APK to the release')
+    )
+  })
+
+  it('pins the upload key rather than trusting the keystore it just used', () => {
+    expect(script).toContain('62:EB:DA:C2')
+    expect(script).toContain('::error::')
+    expect(script).toContain('debug-signed')
+    expect(script).toContain('META-INF/')
+  })
+})
+
+/**
+ * Play publishing is the one publishing step that depends on something no
+ * workflow can create: a package in Play Console, and a service account invited
+ * to it. Making it opt-in keeps a tag's free channels — Firebase, the release
+ * page — from going red over a console that is not set up yet, and keeping it
+ * last means a rejection there cannot strand the APK asset.
+ */
+describe('Play publishing switch', () => {
+  const workflow = read('.github/workflows/mobile-android.yml')
+
+  it('stays off until the PLAY_PUBLISH variable says otherwise', () => {
+    expect(workflow).toContain('PLAY_PUBLISH: ${{ vars.PLAY_PUBLISH }}')
+    expect(workflow).toContain("env.PLAY_PUBLISH == 'true'")
+  })
+
+  it('runs after the APK has reached the release page', () => {
+    expect(workflow.indexOf('name: Attach the APK to the release')).toBeLessThan(
+      workflow.indexOf('Upload to Play internal testing')
+    )
+  })
+})
