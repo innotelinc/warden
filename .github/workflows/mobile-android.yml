@@ -30,6 +30,8 @@ on:
 
 permissions:
   contents: read
+  # The CI gate reads ci.yml's runs for the commit being built.
+  actions: read
 
 jobs:
   bundle:
@@ -44,6 +46,15 @@ jobs:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+
+      # A tag is a release request, and the checks for that commit ran on the
+      # push. Waiting for them here means a tag on a red commit never reaches
+      # the internal testing track. Manual runs are gated the same way: the
+      # commit is the branch tip, which CI has already seen.
+      - name: Wait for CI on this commit
+        uses: ./.github/actions/wait-for-ci
+        with:
+          token: ${{ github.token }}
 
       - uses: actions/setup-node@v4
         with:

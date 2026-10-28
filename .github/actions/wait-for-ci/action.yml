@@ -1,0 +1,82 @@
+name: Wait for CI
+description: >-
+  Block until the CI workflow has passed for the commit this build is for, so a
+  tag can never publish a tree the checks have not seen. The checks run on every
+  push (`.github/workflows/ci.yml`), so waiting for that run is a gate; running
+  them again in each release workflow was a second copy that only ever proved
+  the tagged tree, not that the commit on the branch had passed.
+
+inputs:
+  token:
+    description: >-
+      Token allowed to read Actions runs. Pass `github.token`: the calling
+      workflow must also grant `actions: read`, since a composite action uses
+      the caller's permissions.
+    required: true
+  sha:
+    description: Commit to gate on. Defaults to the one this run is for.
+    required: false
+    default: ''
+  workflow:
+    description: Workflow file whose run is the gate.
+    required: false
+    default: ci.yml
+  timeout-minutes:
+    description: How long to wait before failing the build.
+    required: false
+    default: '20'
+
+runs:
+  using: composite
+  steps:
+    # Checkout has to come first for `uses: ./.github/actions/wait-for-ci` to
+    # resolve at all, so the caller checks out before this step. It costs
+    # seconds and touches no build output.
+    - name: Wait for CI
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ github.repository }}
+        SHA: ${{ inputs.sha != '' && inputs.sha || github.sha }}
+        CI_WORKFLOW: ${{ inputs.workflow }}
+        WAIT_MINUTES: ${{ inputs.timeout-minutes }}
+      run: |
+        deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
+        # The newest push run for this commit, preferring one started by a
+        # branch: pushing the tag starts a CI run of its own over the same tree,
+        # and waiting for that would be the copy this gate exists to stop
+        # making. A pull-request run is a different tree, so it never counts.
+        # Both fallbacks end as "none", which just keeps waiting.
+        query='([.workflow_runs[] | select(.event == "push" and .head_branch != null)]
+                + [.workflow_runs[] | select(.event == "push")]) | .[0]
+               | if . == null then "none" else .status + " " + (.conclusion // "-") end'
+        while :; do
+          # A failed query is not the same as "no run yet": swallowed, a typo
+          # here would sit silently until the deadline and blame the commit.
+          if ! state="$(gh api "repos/$REPO/actions/workflows/$CI_WORKFLOW/runs?head_sha=$SHA&per_page=20" --jq "$query" 2>&1)"; then
+            echo "::error::Could not read the CI runs for $SHA: $state"
+            exit 1
+          fi
+          state="${state:-none}"
+          case "$state" in
+            'completed success')
+              echo "CI passed for $SHA"
+              exit 0
+              ;;
+            completed*)
+              echo "::error::CI finished as '$state' for $SHA — a release is only built from a commit that passed."
+              exit 1
+              ;;
+            none)
+              echo "waiting for CI: no run yet for $SHA"
+              ;;
+            *)
+              echo "waiting for CI: $state"
+              ;;
+          esac
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "::error::No successful CI run for $SHA after ${WAIT_MINUTES}m (last seen: '$state'). Push the commit so the checks run, wait for them, then tag."
+            exit 1
+          fi
+          sleep 20
+        done
