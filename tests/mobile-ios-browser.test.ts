@@ -28,11 +28,13 @@ describe('the in-app browser package', () => {
   })
 
   it('ships a podspec whose name the iOS build can resolve', () => {
-    expect(existsSync(`${PLUGIN}/ios/WardenBrowser.podspec`)).toBe(true)
-    const podspec = read(`${PLUGIN}/ios/WardenBrowser.podspec`)
+    // CocoaPods resolves `<Name>.podspec` beside the path the generated Podfile
+    // points at — the plugin package root — so it cannot live under `ios/`.
+    expect(existsSync(`${PLUGIN}/WardenBrowser.podspec`)).toBe(true)
+    const podspec = read(`${PLUGIN}/WardenBrowser.podspec`)
     expect(podspec).toContain("s.name = 'WardenBrowser'")
     expect(podspec).toContain("s.dependency 'Capacitor'")
-    expect(podspec).toContain('Sources/**/*.{swift,h,m}')
+    expect(podspec).toContain('ios/Sources/**/*.{swift,h,m}')
     expect(podspec).toContain("s.ios.deployment_target = '15.0'")
   })
 
