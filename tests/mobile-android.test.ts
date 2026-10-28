@@ -229,48 +229,68 @@ describe('Play publishing switch', () => {
 /**
  * A signature check says the bytes are signed; it says nothing about whether a
  * phone will take them. Every APK up to 0.2.12 was verified with apksigner and
- * installed nowhere, so "it installs" was an inference. This job is what turns
- * it into a fact, on a device with nothing on it.
+ * installed nowhere, so "it installs" was an inference. This job turns it into a
+ * fact, on a device with nothing on it.
  */
 describe('Installing the published APK on a device', () => {
   const workflow = read('.github/workflows/mobile-android.yml')
+  const script = read('scripts/verify-android-install.py')
 
-  it('installs and launches the APK the bundle job built', () => {
+  it('runs after the bundle job, on the APK that job built', () => {
     expect(workflow).toMatch(/\n  install:\n    needs: bundle\n/)
     expect(workflow).toContain('reactivecircus/android-emulator-runner')
-    expect(workflow).toContain('adb install "$APK"')
-    expect(workflow).toContain('am start -W')
-    expect(workflow).toContain('package:${APP_ID}')
-    expect(workflow).toContain('Status: ok')
+    expect(workflow).toContain('actions/download-artifact@v4')
+    expect(workflow).toContain('script: python3 scripts/verify-android-install.py')
+  })
+
+  /**
+   * The action runs `script` one line at a time, each in a fresh /bin/sh, so
+   * shell state does not survive it: the first version of this check lost its
+   * APK between two lines and installed nothing at all.
+   */
+  it('hands the runner one command rather than inline shell', () => {
+    expect(workflow).not.toContain('pipefail')
+  })
+
+  it('installs it, resolves the launcher and launches it', () => {
+    expect(script).toContain('"install", apk')
+    expect(script).toContain('"resolve-activity"')
+    expect(script).toContain('"-W"')
+    expect(script).toContain('"pidof"')
+    expect(script).toContain('Status: ok')
   })
 
   /**
    * The artifact and the release asset share a name and a build number, so a
-   * stale download would pass an install check against the wrong build. The
-   * version a device reports is compared with the one the bundle job resolved.
+   * stale download would pass an install check against the wrong build.
    */
   it('refuses a device whose version is not the one that was built', () => {
-    expect(workflow).toContain('outputs:\n      version: ${{ steps.version.outputs.version }}')
+    expect(workflow).toContain(
+      'outputs:\n      version: ${{ steps.version.outputs.version }}'
+    )
     expect(workflow).toContain('VERSION: ${{ needs.bundle.outputs.version }}')
-    expect(workflow).toContain('the installed artifact is not the one that was published')
+    expect(script).toContain('versionName=')
+    expect(script).toContain('installed artifact is not the one that was published')
   })
 
   /** A launch that reports success and then dies is still a broken APK. */
   it('fails when the app is not in the foreground or has died', () => {
-    expect(workflow).toContain('topResumedActivity|mResumedActivity')
-    expect(workflow).toContain('adb shell pidof "$APP_ID"')
-    expect(workflow).toContain('-b crash')
+    expect(script).toContain('topResumedActivity')
+    expect(script).toContain('mResumedActivity')
+    expect(script).toContain('"-b", "crash"')
+    expect(script).toContain('the process was gone')
   })
 
-  /**
-   * The emulator action hands `script` to /bin/sh, which is dash on the runner:
-   * `set -o pipefail` is an illegal option there, and it exits 2 before the
-   * first command, so the run says only that the step failed.
-   */
-  it('keeps the emulator script inside POSIX sh', () => {
-    const script = workflow.slice(workflow.indexOf('script: |'))
-    expect(script).not.toContain('pipefail')
-    expect(script).not.toContain('set -euo')
+  /** An empty directory installs nothing and passes a check that trusts it. */
+  it('refuses an artifact it cannot identify', () => {
+    expect(script).toContain('expected exactly one .apk')
+  })
+
+  /** The package is named twice now, so the two are checked against each other. */
+  it('checks the package the app declares', () => {
+    const id = /applicationId "([^"]+)"/.exec(read(APP))?.[1]
+    expect(id).toBeTruthy()
+    expect(script).toContain(`PACKAGE = "${id}"`)
   })
 })
 

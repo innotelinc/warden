@@ -348,8 +348,11 @@ jobs:
     timeout-minutes: 30
     env:
       VERSION: ${{ needs.bundle.outputs.version }}
-      APP_ID: us.innotel.warden
     steps:
+      # The check is a script in this repository; nothing else here needs the
+      # source.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: warden-android-apk
@@ -375,55 +378,8 @@ jobs:
           disable-animations: true
           # No display and no GPU on the runner; swiftshader renders in software.
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          # /bin/sh, not bash — dash rejects `set -o pipefail` as an illegal
-          # option and exits 2 before running a single command, which reads like
-          # a broken job rather than a broken script.
-          script: |
-            set -eu
-
-            APK="$(ls "${{ runner.temp }}"/apk/*.apk | head -n1)"
-            echo "installing ${APK##*/} on a device with nothing on it"
-
-            adb install "$APK"
-            adb shell pm list packages | grep -qx "package:${APP_ID}" \
-              || { echo "::error::${APP_ID} is not installed, although adb install reported success."; exit 1; }
-
-            # The artifact and the published asset share a name and a build
-            # number, so the version a device reports is what tells them apart.
-            INSTALLED="$(adb shell dumpsys package "$APP_ID" | sed -n 's/^ *versionName=\(.*\)$/\1/p' | head -n1 | tr -d '\r')"
-            echo "the device reports version ${INSTALLED}, this run built ${VERSION}"
-            if [ "$INSTALLED" != "$VERSION" ]; then
-              echo "::error::the device has ${INSTALLED} but this run built ${VERSION} — the installed artifact is not the one that was published."
-              exit 1
-            fi
-
-            # Resolved rather than hardcoded: an APK with no launcher activity
-            # installs perfectly and is then unreachable from the home screen.
-            ACTIVITY="$(adb shell cmd package resolve-activity --brief "$APP_ID" | tail -n1 | tr -d '\r')"
-            echo "launcher activity: ${ACTIVITY}"
-            case "$ACTIVITY" in
-              "$APP_ID"/*) ;;
-              *) echo "::error::the APK has no launcher activity, so nothing happens when the icon is tapped."; exit 1 ;;
-            esac
-
-            adb shell am start -W -n "$ACTIVITY" | tee "${{ runner.temp }}/launch.txt"
-            grep -q 'Status: ok' "${{ runner.temp }}/launch.txt" \
-              || { echo "::error::the launch did not report Status: ok — this is what tapping the icon does."; exit 1; }
-
-            # A launch that reports ok and dies a second later is still broken.
-            sleep 8
-            RESUMED="$(adb shell dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity' | tr -d '\r' || true)"
-            echo "foreground: ${RESUMED}"
-            case "$RESUMED" in
-              *"$APP_ID"*) ;;
-              *) echo "::error::WARDEN launched but is not the foreground activity."; exit 1 ;;
-            esac
-
-            PID="$(adb shell pidof "$APP_ID" | tr -d '\r')"
-            if [ -z "$PID" ]; then
-              echo "::error::the process was gone eight seconds after launch (crash buffer below)."
-              adb logcat -d -b crash | tail -n 40
-              exit 1
-            fi
-            echo "running as pid ${PID}, eight seconds after a cold start"
-
+          # One command, because this action runs `script` a line at a time in a
+          # fresh /bin/sh: a variable set on one line does not exist on the next,
+          # and a multi-line `if` is a syntax error. The check is a program for
+          # exactly that reason.
+          script: python3 scripts/verify-android-install.py "${{ runner.temp }}/apk" "${{ env.VERSION }}"
