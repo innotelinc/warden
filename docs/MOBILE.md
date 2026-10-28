@@ -210,6 +210,14 @@ behave exactly as they did.
    signed APK is distributed to the group. A dry run builds and stops, because
    `dry_run` means "do not publish".
 
+**This repository is already registered**, so the steps above are only needed
+for a fork: project `warden-innotel`, Android app
+`1:1031472066945:android:bf654de1a4ce1cc07f3880`, iOS app
+`1:1031472066945:ios:69db47ec449d951a7f3880`, tester group `testers`. The
+`FIREBASE_SERVICE_ACCOUNT` secret and the `FIREBASE_ANDROID_APP_ID` and
+`FIREBASE_TESTER_GROUPS` variables are set on the repository; `FIREBASE_IOS_APP_ID`
+is deliberately absent, for the reason in the next paragraph.
+
 **iOS needs one more thing, and it is Apple's rule rather than Firebase's.** An
 App Distribution install must be an **ad hoc** build whose provisioning profile
 names the installing device's UDID — an App Store-signed ipa cannot be side-loaded
