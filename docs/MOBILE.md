@@ -41,7 +41,8 @@ mobile/
   android/                generated Gradle project (signed in CI)
   ios/                    generated Xcode project (archive on macOS runners)
   store/android/listing.json, store/ios/listing.json
-  ../.github/workflows/mobile-android.yml, mobile-ios.yml, ios-build-status.yml
+  ../.github/workflows/mobile-android.yml, mobile-ios.yml, ios-build-status.yml,
+  ../.github/workflows/ios-register-device.yml
   ../web/landing/privacy.html   public privacy policy for both listings
 ```
 
@@ -214,19 +215,29 @@ behave exactly as they did.
 for a fork: project `warden-innotel`, Android app
 `1:1031472066945:android:bf654de1a4ce1cc07f3880`, iOS app
 `1:1031472066945:ios:69db47ec449d951a7f3880`, tester group `testers`. The
-`FIREBASE_SERVICE_ACCOUNT` secret and the `FIREBASE_ANDROID_APP_ID` and
-`FIREBASE_TESTER_GROUPS` variables are set on the repository; `FIREBASE_IOS_APP_ID`
-is deliberately absent, for the reason in the next paragraph.
+`FIREBASE_SERVICE_ACCOUNT` secret and all three variables are set on the
+repository, so a tag publishes to both platforms with no further setup.
 
-**iOS needs one more thing, and it is Apple's rule rather than Firebase's.** An
+**iOS needs a second export, and it is Apple's rule rather than Firebase's.** An
 App Distribution install must be an **ad hoc** build whose provisioning profile
 names the installing device's UDID — an App Store-signed ipa cannot be side-loaded
 at all. So the iOS job exports a second, ad hoc ipa (the TestFlight export is a
-store build, and on a tag it writes no file at all). `-allowProvisioningUpdates`
-creates that profile once each tester's device is registered on the developer
-account. **Until at least one device is registered, leave `FIREBASE_IOS_APP_ID`
-unset**: the two iOS steps skip, and TestFlight — which already works and costs
-nothing extra with the account you have — remains the way to test.
+store build, and on a tag it writes no file at all), and that export can only
+succeed once a device is on the developer account. **iOS device registration**
+does that, with the same App Store Connect key and nothing installed:
+
+```bash
+gh workflow run ios-register-device.yml \
+  -f udid=00008150-00084d5e0190c01c -f name='My iPhone'
+```
+
+It runs on Ubuntu in seconds and is idempotent — a UDID that is already on the
+account is reported, not added twice. Registering is one-off, so it stays out of
+the build: the next `mobile-ios.yml` run signs an ad hoc ipa that phone can
+install. Check the artifact's `Payload/App.app/embedded.mobileprovision`: its
+`ProvisionedDevices` should list the phone, the profile name should say *Ad Hoc*,
+and `get-task-allow` should be `false`. Apple allows 100 devices per product
+family per membership year.
 
 **targetSdk is 36, and that is not cosmetic.** Play requires 36 for new apps and
 updates submitted from 31 August 2026, and the extension to 1 November 2026 is

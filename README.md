@@ -518,7 +518,9 @@ analytics or ad SDK, and requests no camera or microphone.
 
 `.github/workflows/mobile-android.yml` builds a signed `.aab` when the keystore secrets exist (an
 unsigned bundle otherwise), and `mobile-ios.yml` archives on a macOS runner, signed when an App Store
-Connect key is configured. Store listing text, the data-safety answers and the roadmap are in
+Connect key is configured. Both hand the build to Firebase App Distribution — the Android APK, and on
+iOS an ad hoc ipa signed for each registered device — so a tester gets an invite instead of a file in
+a release list. Store listing text, the data-safety answers and the roadmap are in
 [docs/MOBILE.md](docs/MOBILE.md) and `mobile/store/`.
 
 ---
