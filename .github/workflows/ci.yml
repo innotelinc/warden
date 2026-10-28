@@ -1,8 +1,12 @@
-# ci.yml — the repo's own static checks.
+# ci.yml — the repo's own checks.
 #
 # The attribution guard and the conformity audit run in their own workflows;
 # this one checks the structure and the landing page so a broken shared layer
-# is caught here as well.
+# is caught here as well, and runs the typecheck and the unit suite.
+#
+# The suite used to run only inside the release job, which is triggered by a
+# `v*` tag: a change that broke a test was discovered when someone tried to
+# publish, after the commit was already on main. It runs on every push now.
 name: CI
 
 on:
@@ -14,6 +18,26 @@ permissions:
   contents: read
 
 jobs:
+  # Typecheck and the unit suite, on every push and pull request.
+  checks:
+    name: Typecheck and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          # The version the desktop package declares in `engines`.
+          node-version: '24'
+          cache: npm
+      # A full install: the tests reach `terminal-service`, which loads
+      # node-pty, so the native build has to run here rather than be skipped.
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+
   structure:
     name: Repository structure
     runs-on: ubuntu-latest
