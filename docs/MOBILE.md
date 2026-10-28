@@ -158,6 +158,23 @@ dragged into the console by hand.
    **internal** track marked completed, so the build is installable within
    minutes of the run finishing. Internal testing needs no review.
 
+**This repository is already part-way there**, so a fork needs all of the above
+and this one does not. The upload keystore exists — alias `warden`, 4096-bit RSA,
+SHA-256 `62:EB:DA:C2:BA:2E:B9:3C:B7:51:D2:82:A9:CD:D3:BD:13:77:B7:C2:B1:E1:91:FE:FB:73:8E:C7:A7:D5:A4:8A`
+— and all five secrets are set, so a `dry_run` now decodes it and signs the
+bundle (`jarsigner -verify` says `jar verified`, certificate `CN=WARDEN`). The
+Play publisher account `warden-play-publisher@warden-innotel.iam.gserviceaccount.com`
+exists in the `warden-innotel` project with the Android Developer API enabled.
+The key and its password live in `~/.warden-secrets` on the owner's machine, never
+in the repository; **back them up**, because losing the upload key costs a Play
+support round-trip to reset it.
+
+What is left is Play Console itself, where no API can reach: the app record, its
+first upload by hand (step 4), and inviting that service account with *Release
+apps to testing tracks* (step 5). Until both are done the upload step stops with
+`404 Package not found: us.innotel.warden` — that is Play saying the calling
+account cannot see the app, not a signing or credentials fault.
+
 6. Install it: Play Console → Internal testing → Testers → add your Google
    account, open the opt-in link on the phone, then install WARDEN from Play.
    Internal testers install through Play, not from a side-loaded file.
