@@ -137,15 +137,22 @@ jobs:
                 -archivePath "$RUNNER_TEMP/WARDEN.xcarchive"
                 MARKETING_VERSION="$VERSION"
                 CURRENT_PROJECT_VERSION="$BUILD")
+          # Signed here, the archive stops before it compiles: automatic signing
+          # asks Apple for a *development* profile for the app target, and a
+          # development profile needs a registered device. A runner has none,
+          # which is why every store build failed with "Your team has no devices
+          # from which to generate a provisioning profile".
+          #
+          # Distribution signing belongs to the export, which asks for an App
+          # Store profile — a profile with no device list — and can create the
+          # certificate from the App Store Connect key. So the archive is built
+          # unsigned and signed on the way out.
           if [ -n "${KEY_ID:-}" ] && [ -n "${ISSUER_ID:-}" ] \
              && [ -f "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" ]; then
-            args+=(-allowProvisioningUpdates
-                   -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8"
-                   -authenticationKeyID "$KEY_ID"
-                   -authenticationKeyIssuerID "$ISSUER_ID"
-                   DEVELOPMENT_TEAM="$TEAM_ID")
+            echo "::notice::archiving unsigned; the export step applies App Store signing"
+            args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY="")
           else
-            echo "::notice::no App Store Connect key configured — archiving unsigned"
+            echo "::notice::no App Store Connect key configured — archiving unsigned for inspection"
             args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
           fi
           xcodebuild "${args[@]}" archive
