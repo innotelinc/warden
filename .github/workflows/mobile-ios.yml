@@ -139,15 +139,10 @@ jobs:
                 CURRENT_PROJECT_VERSION="$BUILD")
           if [ -n "${KEY_ID:-}" ] && [ -n "${ISSUER_ID:-}" ] \
              && [ -f "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8" ]; then
-            # The project signs with "iPhone Developer", which asks Apple for a
-            # development profile — and that needs a registered device, so a
-            # runner with none fails the archive. An App Store build signs with
-            # the distribution identity and gets a profile without one.
             args+=(-allowProvisioningUpdates
                    -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${KEY_ID}.p8"
                    -authenticationKeyID "$KEY_ID"
                    -authenticationKeyIssuerID "$ISSUER_ID"
-                   CODE_SIGN_IDENTITY="Apple Distribution"
                    DEVELOPMENT_TEAM="$TEAM_ID")
           else
             echo "::notice::no App Store Connect key configured — archiving unsigned"
