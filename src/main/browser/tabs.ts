@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, WebContentsView, clipboard } from 'electron'
+import { BrowserWindow, Menu, WebContentsView, clipboard, nativeTheme } from 'electron'
 import path from 'node:path'
 import type { ChallengeHint, Rect, TabState } from '@shared/types'
 import type { PrivacyService } from '../privacy/privacy-service'
@@ -8,7 +8,7 @@ import { popupDecision } from './popup-policy'
 import { buildPageMenu, isLocalMediaSource, probeMediaScript, type PageMenuCommand } from './page-menu'
 import { signInHostsFor } from '@shared/auth-flow'
 import { looksBrokenPage, type PageHealth } from '@shared/site-breakage'
-import { themeFor } from '@shared/themes'
+import { resolveThemeId, themeFor } from '@shared/themes'
 
 export { resolveInput } from '@shared/urls'
 
@@ -113,7 +113,11 @@ export class TabManager {
    * instead, which is the same surface the renderer paints its chrome with.
    */
   private pageBackground(): string {
-    return themeFor(this.privacy.getSettings().theme).vars['--bg'] ?? '#0b0e12'
+    // A `system` setting is a rule, not a palette: resolving it through the OS
+    // is what stops a light Windows session flashing the dark value under every
+    // page it opens.
+    const id = resolveThemeId(this.privacy.getSettings().theme, nativeTheme.shouldUseDarkColors)
+    return themeFor(id).vars['--bg'] ?? '#0b0e12'
   }
 
   get count(): number {

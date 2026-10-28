@@ -208,7 +208,8 @@ async function createWindow(stores: Stores): Promise<void> {
     show: false,
     // Start on the palette's own background, so a light theme does not show a
     // dark frame for the frame or two before the renderer paints.
-    backgroundColor: themeFor(stores.settings.get().theme).vars['--bg'] ?? '#080a0d',
+    backgroundColor:
+      themeFor(resolveThemeId(stores.settings.get().theme, nativeTheme.shouldUseDarkColors)).vars['--bg'] ?? '#080a0d',
     title: 'WARDEN',
     // No native caption overlay: its glyphs are drawn by Windows and on some
     // builds they vanish against a dark frame with no hover feedback at all.

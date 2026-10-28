@@ -1,7 +1,7 @@
-import { BrowserWindow, ipcMain, shell } from 'electron'
+import { BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { SEARCH_ENGINES } from '@shared/defaults'
 import { sanitizeSettings } from '@shared/settings'
-import { themeFor } from '@shared/themes'
+import { resolveThemeId, themeFor } from '@shared/themes'
 import type {
   AppState,
   Bookmark,
@@ -96,7 +96,9 @@ const handle = (channel: string, listener: (...args: never[]) => unknown): void 
  * frame around a light theme reads as a rendering fault rather than a palette.
  */
 const paintWindow = (theme: unknown): void => {
-  context().win.setBackgroundColor(themeFor(theme).vars['--bg'] ?? '#080a0d')
+  // `system` has no colours of its own; it means "whichever Windows is".
+  const id = resolveThemeId(theme, nativeTheme.shouldUseDarkColors)
+  context().win.setBackgroundColor(themeFor(id).vars['--bg'] ?? '#080a0d')
 }
 
 /**

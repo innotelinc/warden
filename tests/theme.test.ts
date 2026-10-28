@@ -2,7 +2,16 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
 import { sanitizeSettings } from '../src/shared/settings'
-import { DEFAULT_THEME, THEMES, applyTheme, isThemeId, themeFor, themeSwatch } from '../src/shared/themes'
+import {
+  DEFAULT_THEME,
+  SYSTEM_THEME,
+  THEMES,
+  applyTheme,
+  isThemeId,
+  resolveThemeId,
+  themeFor,
+  themeSwatch
+} from '../src/shared/themes'
 
 describe('theme presets', () => {
   it('ships distinct palettes with a complete token set', () => {
@@ -35,6 +44,33 @@ describe('theme presets', () => {
     expect(ops.vars['--bg']).toBe('#07090c')
     expect(ops.vars['--mint']).toBe('#4fe3c1')
     expect(ops.vars['color-scheme']).toBe('dark')
+  })
+
+  /**
+   * "Follow system" is a rule, not a palette: the same setting has to answer
+   * with different colours at night and by day, and every surface that paints
+   * from it — chrome, window frame, WARDEN's own pages — resolves it the same
+   * way rather than falling back to the first preset.
+   */
+  it('resolves the follow-system setting from the OS appearance', () => {
+    expect(isThemeId(SYSTEM_THEME)).toBe(true)
+    expect(resolveThemeId(SYSTEM_THEME, true)).toBe('ops')
+    expect(resolveThemeId(SYSTEM_THEME, false)).toBe('light')
+    // A fixed palette ignores the OS, and junk still falls back.
+    expect(resolveThemeId('ice', true)).toBe('ice')
+    expect(resolveThemeId('hotdog', false)).toBe(DEFAULT_THEME)
+    // The setting itself survives a round trip through disk.
+    expect(sanitizeSettings({ theme: SYSTEM_THEME }).theme).toBe(SYSTEM_THEME)
+  })
+
+  it('applies the palette the system resolves to', () => {
+    const applied = new Map<string, string>()
+    const target = {
+      style: { setProperty: (name: string, value: string) => applied.set(name, value) } as unknown as CSSStyleDeclaration
+    }
+    expect(applyTheme(SYSTEM_THEME, target, false).id).toBe('light')
+    expect(applied.get('--bg')).toBe(themeFor('light').vars['--bg'])
+    expect(applyTheme(SYSTEM_THEME, target, true).id).toBe('ops')
   })
 
   it('ships a light palette that is actually light', () => {
