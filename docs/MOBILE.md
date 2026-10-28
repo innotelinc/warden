@@ -161,6 +161,34 @@ dragged into the console by hand.
    account, open the opt-in link on the phone, then install WARDEN from Play.
    Internal testers install through Play, not from a side-loaded file.
 
+### Testing without Play (free)
+
+Play costs $25 once and takes identity verification, and neither is needed to put
+a build on a phone. Every run also builds an **APK**, which is what a device
+actually installs:
+
+- **From a run**: open the run → *warden-android-apk*. A `dry_run` gets you one
+  without touching a track, which is the fastest loop while the app is being
+  built out.
+- **From a release**: a `v*` tag attaches it to the release page as
+  `WARDEN-android.apk` — a name that never changes, so
+  `https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk`
+  is a single link to bookmark on the test phone and re-open after every tag.
+
+On the phone: open the link, allow installs from the browser once, install.
+
+With the keystore secret the APK is release-signed with the upload key — the
+same identity a Play release would use, so nothing has to be uninstalled when
+Play is configured later. **Without it the APK is debug-signed**: it installs,
+but Android refuses to replace a debug-signed app with a release-signed one, so
+uninstall first when you switch.
+
+This is a download, not a distribution service: no invitations, no update
+prompt, no review. If that becomes worth having, Firebase App Distribution is
+the no-cost service that behaves like TestFlight — email invitations, tester
+groups, and the same APK uploaded from CI
+([product page](https://firebase.google.com/products/app-distribution)).
+
 **targetSdk is 36, and that is not cosmetic.** Play requires 36 for new apps and
 updates submitted from 31 August 2026, and the extension to 1 November 2026 is
 running out; an upload built against 35 is refused at the console. API 36 needs
@@ -410,7 +438,8 @@ internal build exists and show the real UI rather than a mockup.
 
 - Google Play: account existence, identity verification and the one-time $25
   fee. The Play Console app record cannot be created by automation without that
-  account, and the first `.aab` upload has to come from a signed build.
+  account, and the first `.aab` upload has to come from a signed build. Testing
+  does not need any of it — the APK route above installs on a phone today.
 - Apple: the developer account exists. Three things are still only doable from
   the account: create the app record in App Store Connect for
   `us.innotel.warden`, create the App Store Connect API key, and set the four

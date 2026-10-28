@@ -41,7 +41,9 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  # Write, not read: a tag attaches the APK to the release page the desktop
+  # job publishes.
+  contents: write
   # The CI gate reads ci.yml's runs for the commit being built.
   actions: read
 
@@ -146,6 +148,38 @@ jobs:
           fi
           ls -la
 
+      # Play takes an .aab, and a phone cannot install one. This is the same
+      # build as an APK, which is the free way onto a test device: no Play
+      # account, no review, no fee. With the keystore it is signed with the
+      # upload key and is the artefact a later Play release comes from; without
+      # it the debug variant is built instead, so a build can still be tried.
+      - name: Build installable APK
+        working-directory: mobile/android
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CODE: ${{ steps.version.outputs.code }}
+        run: |
+          common=(--no-daemon
+                  "-PwardenVersionName=${VERSION}"
+                  "-PwardenVersionCode=${CODE}")
+          if [ -f keystore.properties ]; then
+            ./gradlew assembleRelease "${common[@]}"
+            built=app/build/outputs/apk/release/app-release.apk
+          else
+            echo "::notice::No keystore configured — the APK is debug-signed: it installs, but moving to a release-signed build later needs an uninstall first."
+            ./gradlew assembleDebug "${common[@]}"
+            built=app/build/outputs/apk/debug/app-debug.apk
+          fi
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp "$built" "$RUNNER_TEMP/apk/WARDEN-${VERSION}.apk"
+          ls -la "$RUNNER_TEMP/apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warden-android-apk
+          path: ${{ runner.temp }}/apk/*.apk
+          if-no-files-found: error
+
       # Internal testing needs no review, so this is the fastest way to get a
       # build onto a phone. The package must already exist in Play Console and
       # have had its first upload done by hand: the API cannot create the app.
@@ -174,6 +208,30 @@ jobs:
             exit 0
           fi
           echo "::notice::Signed .aab built but PLAY_SERVICE_ACCOUNT_JSON is not set — upload it in the Play Console, or add the service account to publish from here."
+
+      # The desktop release job owns the release page for a tag and this job can
+      # reach here first, so wait for it rather than create a second one. The
+      # asset keeps a constant name on purpose: .../releases/latest/download/
+      # WARDEN-android.apk is a link that survives every version, which is the
+      # one worth bookmarking on the phone you test on.
+      - name: Attach the APK to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cp "$RUNNER_TEMP/apk/WARDEN-${VERSION}.apk" "$RUNNER_TEMP/apk/WARDEN-android.apk"
+          for attempt in $(seq 1 20); do
+            if gh release view "$TAG" > /dev/null 2>&1; then
+              gh release upload "$TAG" "$RUNNER_TEMP/apk/WARDEN-android.apk" --clobber
+              exit 0
+            fi
+            echo "waiting for the release page for $TAG (${attempt}/20)"
+            sleep 15
+          done
+          echo "::error::No release page for $TAG after five minutes; the APK is on this run's artifacts."
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:

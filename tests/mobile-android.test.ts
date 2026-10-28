@@ -126,3 +126,30 @@ describe('Play internal testing wiring', () => {
     expect(workflow).toContain('warden-android-aab')
   })
 })
+
+describe('Installing a build without Play', () => {
+  const workflow = read('.github/workflows/mobile-android.yml')
+
+  /**
+   * An .aab is a Play upload, not something a phone installs. The free route to
+   * a test device is the APK, and it has to be built on every run — including
+   * the dry runs that never touch the track — signed when the keystore exists
+   * and debug-signed when it does not.
+   */
+  it('builds an APK that a phone can install', () => {
+    expect(workflow).toContain('./gradlew assembleRelease')
+    expect(workflow).toContain('./gradlew assembleDebug')
+    expect(workflow).toContain('WARDEN-${VERSION}.apk')
+    expect(workflow).toContain('warden-android-apk')
+  })
+
+  /**
+   * The release asset keeps one name across versions, so
+   * `/releases/latest/download/WARDEN-android.apk` is a link a phone can
+   * bookmark instead of one that has to be dug out of each release.
+   */
+  it('attaches the APK under a name that survives versions', () => {
+    expect(workflow).toContain('$RUNNER_TEMP/apk/WARDEN-android.apk" --clobber')
+    expect(workflow).toContain("startsWith(github.ref, 'refs/tags/v')")
+  })
+})
