@@ -375,8 +375,11 @@ jobs:
           disable-animations: true
           # No display and no GPU on the runner; swiftshader renders in software.
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          # /bin/sh, not bash — dash rejects `set -o pipefail` as an illegal
+          # option and exits 2 before running a single command, which reads like
+          # a broken job rather than a broken script.
           script: |
-            set -euo pipefail
+            set -eu
 
             APK="$(ls "${{ runner.temp }}"/apk/*.apk | head -n1)"
             echo "installing ${APK##*/} on a device with nothing on it"

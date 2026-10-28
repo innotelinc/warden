@@ -261,6 +261,17 @@ describe('Installing the published APK on a device', () => {
     expect(workflow).toContain('adb shell pidof "$APP_ID"')
     expect(workflow).toContain('-b crash')
   })
+
+  /**
+   * The emulator action hands `script` to /bin/sh, which is dash on the runner:
+   * `set -o pipefail` is an illegal option there, and it exits 2 before the
+   * first command, so the run says only that the step failed.
+   */
+  it('keeps the emulator script inside POSIX sh', () => {
+    const script = workflow.slice(workflow.indexOf('script: |'))
+    expect(script).not.toContain('pipefail')
+    expect(script).not.toContain('set -euo')
+  })
 })
 
 /**
