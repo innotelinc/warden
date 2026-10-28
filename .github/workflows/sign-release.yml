@@ -50,11 +50,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify before packaging
-        run: |
-          npm run typecheck
-          npm test
-
+      # The typecheck and the tests used to run here as well, which meant a break
+      # in either was only found when someone tried to publish. They run on every
+      # push now (ci.yml, job `checks`), against the same commit this tag points
+      # at, so packaging does not repeat them.
       - name: Build installers
         # dist:ci is dist with --publish never: electron-builder otherwise tries
         # to publish implicitly whenever the commit is tagged, and fails without
