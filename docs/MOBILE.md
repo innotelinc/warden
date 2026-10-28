@@ -175,6 +175,41 @@ apps to testing tracks* (step 5). Until both are done the upload step stops with
 `404 Package not found: us.innotel.warden` — that is Play saying the calling
 account cannot see the app, not a signing or credentials fault.
 
+**Publishing to Play is therefore switched by the `PLAY_PUBLISH` repository
+variable, and it is off here.** Until Play Console is ready, a tag is Firebase
+App Distribution plus the release page, and it stays green. Set the variable to
+`true` once steps 4 and 5 are done and the same tag publishes to the internal
+track as well. The upload is the *last* step in the job on purpose: a Play
+rejection cannot take back an APK that is already on the release page.
+
+### The upload key, and the two ways a release goes wrong
+
+A bundle signed with a key Play does not know is rejected at upload. An APK that
+is actually debug-signed is worse, because nothing else can tell: same name, same
+build, same artifact, and Android then refuses every release-signed update until
+each install is removed by hand. So `scripts/verify-apk-signature.py` reads the
+signer certificate out of the APK and compares it with the upload key's
+fingerprint before Firebase or the release page is touched — naming the debug
+certificate when that is what it finds. The fingerprint is pinned in the script
+rather than read from the keystore, because a check that trusts the same file the
+build trusted proves nothing.
+
+That makes the key worth keeping. `scripts/backup-upload-key.mjs` puts the
+keystore and its password in one directory, writes `RESTORE.md` beside them, then
+re-reads the copy to prove the fingerprint still matches:
+
+```bash
+node scripts/backup-upload-key.mjs \
+  --keystore ~/.warden-secrets/warden-upload.keystore \
+  --password-file ~/.warden-secrets/warden-upload-password.txt \
+  --dest ~/Documents/warden-upload-key
+```
+
+It refuses a keystore that is not the pinned key, and refuses one it cannot open.
+Move the result somewhere that outlives the machine — a password manager entry, a
+synced folder, an encrypted disk. **The repository secrets are not a backup:**
+GitHub never hands a secret value back, so they cannot restore a lost file.
+
 6. Install it: Play Console → Internal testing → Testers → add your Google
    account, open the opt-in link on the phone, then install WARDEN from Play.
    Internal testers install through Play, not from a side-loaded file.
