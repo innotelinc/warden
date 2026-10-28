@@ -10,8 +10,9 @@
 name: CI
 
 on:
+  # Every branch, not only the default one: the point of running the suite here
+  # is to see a break before it is merged, not after.
   push:
-    branches: [main, master]
   pull_request:
 
 permissions:
