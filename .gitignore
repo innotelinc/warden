@@ -30,3 +30,7 @@ mobile/ios/App/App/public/
 mobile/ios/App/build/
 *.keystore
 *.keystore.b64
+
+# Python bytecode from running the scripts by hand
+__pycache__/
+*.pyc
