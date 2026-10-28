@@ -38,6 +38,17 @@ describe('the in-app browser package', () => {
     expect(podspec).toContain("s.ios.deployment_target = '15.0'")
   })
 
+  it('leaves the signing identity to cloud signing', () => {
+    const project = read('mobile/ios/App/App.xcodeproj/project.pbxproj')
+    // A pinned identity is what stopped a store archive: automatic signing took
+    // "iPhone Developer" literally, asked Apple for a development profile, and
+    // that profile needs a registered device — which a runner has none of.
+    // With the style set to Automatic and no identity pinned, the App Store
+    // Connect key lets Xcode manage the distribution certificate and profile.
+    expect(project.match(/CODE_SIGN_IDENTITY/g)).toBe(null)
+    expect(project.match(/CODE_SIGN_STYLE = Automatic;/g)?.length).toBeGreaterThan(0)
+  })
+
   it('is listed as a file dependency of the shell', () => {
     const pkg = JSON.parse(read('mobile/package.json')) as { dependencies: Record<string, string> }
     expect(pkg.dependencies['warden-browser']).toBe('file:./plugins/warden-browser')
