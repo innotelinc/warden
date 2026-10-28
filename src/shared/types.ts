@@ -517,6 +517,11 @@ export interface AppState {
     health: 'unknown' | 'up' | 'down'
     killSwitch: boolean
   }
+  /**
+   * The tab whose page is in HTML fullscreen, if any. The tab then owns the
+   * whole window: the chrome is underneath the view and the dock is hidden.
+   */
+  fullscreenTabId: string | null
   media: MediaSlot[]
   mediaForTab: string | null
   mediaAvailable: MediaItem[]

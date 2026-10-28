@@ -207,6 +207,11 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [activeTab, findOpen, paletteOpen, shieldOpen, state?.drawerOpen, showTour])
 
+  /** The active tab's page asked for fullscreen and has it. */
+  const htmlFullscreen = Boolean(
+    state?.fullscreenTabId && activeTab && state.fullscreenTabId === activeTab.id
+  )
+
   const mediaRects = useMemo(() => {
     if (!rect || !dockVisible || shieldOpen) return []
     if (!slots.length) return []
@@ -226,6 +231,18 @@ function Shell() {
 
   useEffect(() => {
     if (!rect) return
+    // A page in fullscreen owns the window: the tab view is a native child on
+    // top of this document, so giving it every pixel is what removes the chrome
+    // and the dock — and nothing else may claim part of the layout.
+    if (htmlFullscreen) {
+      void window.warden.setLayout({
+        surface: 'browse',
+        tabBounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        mediaBounds: [],
+        msgBounds: null
+      })
+      return
+    }
     if (workspace === 'concourse') return
     if (workspace !== 'browse') {
       void window.warden.setLayout({ surface: 'hidden', tabBounds: null, mediaBounds: [], msgBounds: null })
@@ -242,7 +259,7 @@ function Shell() {
       mediaBounds: paletteOpen ? [] : mediaRects,
       msgBounds: null
     })
-  }, [rect, dockW, drawerH, findH, workspace, paletteOpen, mediaRects])
+  }, [rect, dockW, drawerH, findH, workspace, paletteOpen, mediaRects, htmlFullscreen])
 
   const openMedia = (item: MediaItem): void => {
     if (!state?.activeTabId) return

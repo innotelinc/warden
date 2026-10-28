@@ -75,6 +75,15 @@ export interface TabHooks {
    * decision; this carries it through to policy.
    */
   onSignInHosts: (hosts: string[]) => void
+  /**
+   * A page asked for fullscreen, or gave it back.
+   *
+   * The page's request is `enter-html-full-screen` on its webContents, and a
+   * `WebContentsView` does not react to it: the video would go "fullscreen"
+   * inside the tab's rectangle. The embedder owns the rectangle, so the signal
+   * comes out here and the window answers it.
+   */
+  onFullscreen: (tabId: string, on: boolean) => void
 }
 
 export class TabManager {
@@ -772,6 +781,10 @@ export class TabManager {
       note(url)
     })
 
+    // A <video>'s fullscreen button and the Fullscreen API both land here.
+    wc.on('enter-html-full-screen', () => this.hooks.onFullscreen(tab.id, true))
+    wc.on('leave-html-full-screen', () => this.hooks.onFullscreen(tab.id, false))
+
     wc.on('context-menu', (_event, params) => {
       // One menu per click. A second template from a stacked handler would put
       // two menus on screen and let the operator click a label that belongs to
@@ -807,6 +820,8 @@ export class TabManager {
     })
 
     wc.on('destroyed', () => {
+      // A fullscreen page that is closed must not leave the window fullscreen.
+      this.hooks.onFullscreen(tab.id, false)
       this.tabs.delete(tab.id)
       this.order = this.order.filter((entry) => entry !== tab.id)
       this.hooks.onState()

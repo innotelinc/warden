@@ -317,6 +317,10 @@ async function createWindow(stores: Stores): Promise<void> {
   await privacy.start()
 
   const browserWindow = win
+  /** Which tab owns the window because its page asked for fullscreen. */
+  let fullscreenTabId: string | null = null
+  /** Whether WARDEN took the window fullscreen for that page, to give it back. */
+  let fullscreenByPage = false
   const tabs = new TabManager(browserWindow, privacy, {
     onState: sendState,
     onShortcut: (command, tabId) => handleShortcut(command, tabId),
@@ -383,7 +387,47 @@ async function createWindow(stores: Stores): Promise<void> {
       }))
       privacy.applySettings(next)
       sendState()
+    },
+    /**
+     * A page went fullscreen, or gave it back.
+     *
+     * `enter-html-full-screen` is the page's request; a `WebContentsView` does
+     * not act on it, so the video would play inside the tab's rectangle with
+     * the chrome still around it. The window takes the screen (a browser's
+     * fullscreen covers the taskbar too) and the renderer gives the view the
+     * whole window, because only it knows the current content rect.
+     */
+    onFullscreen: (tabId, on) => {
+      if (!on) {
+        if (fullscreenTabId !== tabId) return
+        fullscreenTabId = null
+        if (fullscreenByPage) {
+          fullscreenByPage = false
+          browserWindow.setFullScreen(false)
+        }
+        sendState()
+        return
+      }
+      if (fullscreenTabId === tabId) return
+      fullscreenTabId = tabId
+      if (!browserWindow.isFullScreen()) {
+        fullscreenByPage = true
+        browserWindow.setFullScreen(true)
+      }
+      sendState()
     }
+  })
+
+  // Leaving fullscreen at the window level (F11, the operator's own Escape)
+  // has to reach the page, or the tab stays expanded over a window that is no
+  // longer fullscreen.
+  browserWindow.on('leave-full-screen', () => {
+    fullscreenByPage = false
+    if (!fullscreenTabId) return
+    const wc = tabs.getWebContents(fullscreenTabId)
+    void wc
+      ?.executeJavaScript('document.exitFullscreen && document.exitFullscreen().catch(() => {})')
+      .catch(() => undefined)
   })
 
   const media = new MediaDock(browserWindow, () => privacy.createIsolatedSession('media'))
@@ -549,6 +593,7 @@ async function createWindow(stores: Stores): Promise<void> {
   const snapshot = (): AppState => ({
     tabs: tabs.list(),
     activeTabId: tabs.activeTabId,
+    fullscreenTabId: fullscreenTabId && tabs.getWebContents(fullscreenTabId) ? fullscreenTabId : null,
     challenge: tabs.challengeHint(),
     sessionExemptions: privacy.sessionExemptions(),
     workspace,
