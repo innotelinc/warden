@@ -45,7 +45,22 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({}).privateByDefault).toBe(false)
     expect(sanitizeSettings({ privateByDefault: undefined }).privateByDefault).toBe(false)
     expect(sanitizeSettings({ privateByDefault: 'yes' }).privateByDefault).toBe(false)
-    expect(sanitizeSettings({ privateByDefault: true }).privateByDefault).toBe(true)
+    expect(sanitizeSettings({ privateByDefault: true, settingsVersion: 2 }).privateByDefault).toBe(true)
+  })
+
+  /**
+   * Burn mode used to default on, so a profile saved under that default says
+   * `true` whether or not the operator chose it and every new tab opened
+   * cloaked. The first load at version 2 turns it off, once; the switch still
+   * turns it back on.
+   */
+  it('turns off the burn mode an older profile inherited', () => {
+    expect(DEFAULT_SETTINGS.settingsVersion).toBe(2)
+    expect(sanitizeSettings({ privateByDefault: true }).privateByDefault).toBe(false)
+    expect(sanitizeSettings({ privateByDefault: true, settingsVersion: 1 }).privateByDefault).toBe(false)
+    expect(
+      sanitizeSettings({ privateByDefault: true, settingsVersion: 1 }).settingsVersion
+    ).toBe(2)
   })
 
   /**

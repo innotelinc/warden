@@ -33,8 +33,15 @@ export function sanitizeSettings(value: unknown): Settings {
   merged.walkthroughSeen = merged.walkthroughSeen === true
   merged.dnsOverHttps = merged.dnsOverHttps !== false
   merged.dnsProvider = dohTemplateFor(input.dnsProvider ?? '') ? String(input.dnsProvider) : DEFAULT_DOH_PROVIDER
+  // Burn mode shipped on, so a profile written before version 2 says `true`
+  // whether or not the operator ever chose it — every new tab opened cloaked
+  // and looked like the app had decided for them. The first load after this
+  // version turns it off once; the switch in Policy turns it back on.
+  const version = Number(input.settingsVersion)
+  const inheritedBurn = !Number.isFinite(version) || version < 2
   // Opt in, not out: only an explicit true cloaks every new tab.
-  merged.privateByDefault = input.privateByDefault === true
+  merged.privateByDefault = inheritedBurn ? false : input.privateByDefault === true
+  merged.settingsVersion = DEFAULT_SETTINGS.settingsVersion
   // Opt out, not in: only an explicit false stops downloads from reaching disk.
   merged.allowDownloads = input.allowDownloads !== false
   merged.vpnEnabled = merged.vpnEnabled !== false

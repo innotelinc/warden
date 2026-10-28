@@ -117,8 +117,16 @@ export interface Settings {
   dnsOverHttps: boolean
   /** Id from the provider list in shared/dns.ts. */
   dnsProvider: string
-  /** New tabs start in a fresh in-memory session, so nothing follows them. */
+  /**
+   * New tabs start in a fresh in-memory session, so nothing follows them.
+   *
+   * Off by default: burn mode is a decision about one tab. It used to default
+   * on, and `settingsVersion` below carries profiles that were saved under that
+   * default over to the current one.
+   */
   privateByDefault: boolean
+  /** Schema version of this file, so a changed default can reach an old profile. */
+  settingsVersion: number
   /**
    * Let a page write a download to disk. Off means `will-download` is cancelled:
    * nothing reaches the Downloads folder and nothing is listed.

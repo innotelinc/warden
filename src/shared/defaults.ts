@@ -42,6 +42,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // Off by default: a new tab joins the shared session unless the operator asks
   // for a throwaway one. The per-tab cape still cloaks any tab on demand.
   privateByDefault: false,
+  // Bumped when a default changes in a way an existing profile should adopt;
+  // `sanitizeSettings` migrates a file that predates it. 2 = burn mode off.
+  settingsVersion: 2,
   // Downloads work unless the operator turns them off: a policy browser that
   // silently drops a file the operator asked for is worse than the risk.
   allowDownloads: true,
