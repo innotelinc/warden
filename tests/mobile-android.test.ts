@@ -225,3 +225,90 @@ describe('Play publishing switch', () => {
     )
   })
 })
+
+/**
+ * A signature check says the bytes are signed; it says nothing about whether a
+ * phone will take them. Every APK up to 0.2.12 was verified with apksigner and
+ * installed nowhere, so "it installs" was an inference. This job is what turns
+ * it into a fact, on a device with nothing on it.
+ */
+describe('Installing the published APK on a device', () => {
+  const workflow = read('.github/workflows/mobile-android.yml')
+
+  it('installs and launches the APK the bundle job built', () => {
+    expect(workflow).toMatch(/\n  install:\n    needs: bundle\n/)
+    expect(workflow).toContain('reactivecircus/android-emulator-runner')
+    expect(workflow).toContain('adb install "$APK"')
+    expect(workflow).toContain('am start -W')
+    expect(workflow).toContain('package:${APP_ID}')
+    expect(workflow).toContain('Status: ok')
+  })
+
+  /**
+   * The artifact and the release asset share a name and a build number, so a
+   * stale download would pass an install check against the wrong build. The
+   * version a device reports is compared with the one the bundle job resolved.
+   */
+  it('refuses a device whose version is not the one that was built', () => {
+    expect(workflow).toContain('outputs:\n      version: ${{ steps.version.outputs.version }}')
+    expect(workflow).toContain('VERSION: ${{ needs.bundle.outputs.version }}')
+    expect(workflow).toContain('the installed artifact is not the one that was published')
+  })
+
+  /** A launch that reports success and then dies is still a broken APK. */
+  it('fails when the app is not in the foreground or has died', () => {
+    expect(workflow).toContain('topResumedActivity|mResumedActivity')
+    expect(workflow).toContain('adb shell pidof "$APP_ID"')
+    expect(workflow).toContain('-b crash')
+  })
+})
+
+/**
+ * `npx --yes firebase-tools@15` re-fetched a 244 MB tree on every run — 24
+ * minutes of the v0.2.12 iOS release — and even with that tree cached it asked
+ * the registry which version the range meant, every run, failing when there was
+ * no registry. Both workflows install a pinned version into a cached prefix and
+ * call the binary instead. Asserted for both together, because a fix applied to
+ * one of them is the way this comes back.
+ */
+describe('Firebase CLI', () => {
+  const workflows = [
+    read('.github/workflows/mobile-android.yml'),
+    read('.github/workflows/mobile-ios.yml'),
+  ]
+
+  it('pins one version and installs exactly that', () => {
+    for (const workflow of workflows) {
+      expect(workflow).toContain("FIREBASE_TOOLS_VERSION: '15.34.1'")
+      expect(workflow).toContain('"firebase-tools@${FIREBASE_TOOLS_VERSION}"')
+    }
+  })
+
+  it('caches the install under the version that was installed', () => {
+    for (const workflow of workflows) {
+      expect(workflow).toContain('path: ~/.warden-firebase-tools')
+      expect(workflow).toContain(
+        'key: firebase-tools-${{ runner.os }}-${{ env.FIREBASE_TOOLS_VERSION }}'
+      )
+      expect(workflow).toContain("steps.firebase-tools.outputs.cache-hit != 'true'")
+    }
+  })
+
+  it('publishes with the cached binary rather than npx', () => {
+    for (const workflow of workflows) {
+      expect(workflow).not.toContain('npx --yes firebase-tools')
+      expect(workflow).toContain(
+        '"$HOME/.warden-firebase-tools/node_modules/.bin/firebase" appdistribution:distribute'
+      )
+    }
+  })
+
+  /** A cache hit is a directory of files, so the CLI is proved to run first. */
+  it('checks the cached CLI before the publish step needs it', () => {
+    for (const workflow of workflows) {
+      const check = workflow.indexOf('name: Check firebase-tools')
+      expect(check).toBeGreaterThan(-1)
+      expect(check).toBeLessThan(workflow.indexOf('appdistribution:distribute'))
+    }
+  })
+})

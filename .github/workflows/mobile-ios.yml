@@ -47,6 +47,10 @@ jobs:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       FIREBASE_IOS_APP_ID: ${{ vars.FIREBASE_IOS_APP_ID }}
       FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS }}
+      # Pinned, because the cache below is keyed on it: a floating range would
+      # keep whatever version it resolved to the first time, under a key that
+      # still claims to be current.
+      FIREBASE_TOOLS_VERSION: '15.34.1'
     defaults:
       run:
         working-directory: mobile
@@ -67,6 +71,37 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
+
+      # firebase-tools is a 244 MB tree, and `npx --yes` fetched it from scratch
+      # on every run: this job spent 24 minutes on that in the v0.2.12 release
+      # with a cold npm cache. Caching that tree is not enough on its own — npx
+      # still asked the registry which version the range meant, every run, and
+      # failed when it could not — so it is installed once into a fixed prefix
+      # and called directly. A cache hit touches neither npm nor the network,
+      # which costs seconds on a runner that has just spent fifteen minutes on
+      # an archive.
+      - name: Cache firebase-tools
+        id: firebase-tools
+        if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.warden-firebase-tools
+          key: firebase-tools-${{ runner.os }}-${{ env.FIREBASE_TOOLS_VERSION }}
+
+      - name: Install firebase-tools
+        if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && steps.firebase-tools.outputs.cache-hit != 'true'
+        run: |
+          npm install --prefix "$HOME/.warden-firebase-tools" \
+            --no-audit --no-fund --loglevel=error \
+            "firebase-tools@${FIREBASE_TOOLS_VERSION}"
+
+      # A restored cache is a directory of files, not a CLI that runs, and the
+      # publisher is the last step of a long job. Checking here is a second;
+      # finding out after the archive is a wasted release.
+      - name: Check firebase-tools
+        if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''
+        run: |
+          "$HOME/.warden-firebase-tools/node_modules/.bin/firebase" --version
 
       # The macos-15 image still defaults to Xcode 16.4, which builds against the
       # iOS 18.5 SDK. App Store Connect accepts nothing older than the iOS 26
@@ -281,7 +316,7 @@ jobs:
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase.json"
-          npx --yes firebase-tools@15 appdistribution:distribute "$RUNNER_TEMP/adhoc/WARDEN-${VERSION}.ipa" \
+          "$HOME/.warden-firebase-tools/node_modules/.bin/firebase" appdistribution:distribute "$RUNNER_TEMP/adhoc/WARDEN-${VERSION}.ipa" \
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "${FIREBASE_TESTER_GROUPS:-testers}" \
             --release-notes "WARDEN ${VERSION} — build ${GITHUB_RUN_NUMBER}"

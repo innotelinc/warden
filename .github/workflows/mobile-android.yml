@@ -30,6 +30,10 @@ name: Mobile (Android)
 # upload, which is how the pipeline (and the CI gate) is exercised without
 # spending a version code on the internal track. A tag push publishes.
 #
+# After everything is published, the `install` job boots an emulator and installs
+# the APK this run produced. apksigner proves the bytes are signed; only a device
+# proves the package installs.
+#
 # Play requires targetSdk 36 for submissions from 31 August 2026; see
 # mobile/android/variables.gradle.
 
@@ -57,6 +61,10 @@ permissions:
 jobs:
   bundle:
     runs-on: ubuntu-latest
+    # The install check below asserts that the version the device reports is the
+    # one this run built, rather than a stale artifact.
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     # A secret cannot be read in a step's `if:` — GitHub rejects the whole file.
     # Hoist them to the job env and test those instead.
     env:
@@ -67,6 +75,10 @@ jobs:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       FIREBASE_ANDROID_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
       FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS }}
+      # Pinned, because the cache below is keyed on it: a floating range would
+      # keep whatever version it resolved to the first time, under a key that
+      # still claims to be current.
+      FIREBASE_TOOLS_VERSION: '15.34.1'
       # Hoisted so the steps below can test it; empty means "not configured yet".
       PLAY_PUBLISH: ${{ vars.PLAY_PUBLISH }}
       # Empty on a tag push, which is what keeps publishing the tag's job.
@@ -91,6 +103,35 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
+
+      # firebase-tools is a 244 MB tree, and `npx --yes` fetched it from scratch
+      # on every run — 24 minutes on the iOS job with a cold npm cache. Caching
+      # that tree is not enough on its own: npx still asked the registry which
+      # version the range meant, on every run, and failed without one. So it is
+      # installed once into a fixed prefix and called directly, which on a hit
+      # touches neither npm nor the network.
+      - name: Cache firebase-tools
+        id: firebase-tools
+        if: env.FIREBASE_ANDROID_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.warden-firebase-tools
+          key: firebase-tools-${{ runner.os }}-${{ env.FIREBASE_TOOLS_VERSION }}
+
+      - name: Install firebase-tools
+        if: env.FIREBASE_ANDROID_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && steps.firebase-tools.outputs.cache-hit != 'true'
+        run: |
+          npm install --prefix "$HOME/.warden-firebase-tools" \
+            --no-audit --no-fund --loglevel=error \
+            "firebase-tools@${FIREBASE_TOOLS_VERSION}"
+
+      # A restored cache is a directory of files, not a CLI that runs, and the
+      # publisher is the last step of a long job. Checking here is a second;
+      # finding out after the build is a wasted release.
+      - name: Check firebase-tools
+        if: env.FIREBASE_ANDROID_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''
+        run: |
+          "$HOME/.warden-firebase-tools/node_modules/.bin/firebase" --version
 
       - uses: actions/setup-java@v4
         with:
@@ -216,7 +257,7 @@ jobs:
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase.json"
-          npx --yes firebase-tools@15 appdistribution:distribute "$APK_PATH" \
+          "$HOME/.warden-firebase-tools/node_modules/.bin/firebase" appdistribution:distribute "$APK_PATH" \
             --app "$FIREBASE_ANDROID_APP_ID" \
             --groups "${FIREBASE_TESTER_GROUPS:-testers}" \
             --release-notes "WARDEN ${VERSION} — build ${GITHUB_RUN_NUMBER}"
@@ -291,3 +332,95 @@ jobs:
           releaseFiles: mobile/android/app/build/outputs/bundle/release/WARDEN-${{ steps.version.outputs.version }}.aab
           tracks: internal
           status: completed
+
+  # A signature proves the bytes are signed; only a device proves the package
+  # installs. Every APK before this job was checked with apksigner and never
+  # installed anywhere, so "it installs" was an inference. This boots a pristine
+  # emulator — the state a first-time user's phone is in — installs the APK this
+  # run published, and launches it.
+  #
+  # It runs after `bundle`, which has published by then: a red run here means
+  # exactly what it says — the release is out and its APK did not install — not
+  # that something could have been stopped.
+  install:
+    needs: bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.bundle.outputs.version }}
+      APP_ID: us.innotel.warden
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: warden-android-apk
+          path: ${{ runner.temp }}/apk
+
+      # The runner has /dev/kvm but grants it to the kvm group, and the emulator
+      # exits rather than fall back to software CPU emulation. Without this the
+      # failure reads like a missing system image.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install and launch the APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          # The AOSP image: nothing here needs Play services, and it is the
+          # smaller download.
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          # No display and no GPU on the runner; swiftshader renders in software.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+
+            APK="$(ls "${{ runner.temp }}"/apk/*.apk | head -n1)"
+            echo "installing ${APK##*/} on a device with nothing on it"
+
+            adb install "$APK"
+            adb shell pm list packages | grep -qx "package:${APP_ID}" \
+              || { echo "::error::${APP_ID} is not installed, although adb install reported success."; exit 1; }
+
+            # The artifact and the published asset share a name and a build
+            # number, so the version a device reports is what tells them apart.
+            INSTALLED="$(adb shell dumpsys package "$APP_ID" | sed -n 's/^ *versionName=\(.*\)$/\1/p' | head -n1 | tr -d '\r')"
+            echo "the device reports version ${INSTALLED}, this run built ${VERSION}"
+            if [ "$INSTALLED" != "$VERSION" ]; then
+              echo "::error::the device has ${INSTALLED} but this run built ${VERSION} — the installed artifact is not the one that was published."
+              exit 1
+            fi
+
+            # Resolved rather than hardcoded: an APK with no launcher activity
+            # installs perfectly and is then unreachable from the home screen.
+            ACTIVITY="$(adb shell cmd package resolve-activity --brief "$APP_ID" | tail -n1 | tr -d '\r')"
+            echo "launcher activity: ${ACTIVITY}"
+            case "$ACTIVITY" in
+              "$APP_ID"/*) ;;
+              *) echo "::error::the APK has no launcher activity, so nothing happens when the icon is tapped."; exit 1 ;;
+            esac
+
+            adb shell am start -W -n "$ACTIVITY" | tee "${{ runner.temp }}/launch.txt"
+            grep -q 'Status: ok' "${{ runner.temp }}/launch.txt" \
+              || { echo "::error::the launch did not report Status: ok — this is what tapping the icon does."; exit 1; }
+
+            # A launch that reports ok and dies a second later is still broken.
+            sleep 8
+            RESUMED="$(adb shell dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity' | tr -d '\r' || true)"
+            echo "foreground: ${RESUMED}"
+            case "$RESUMED" in
+              *"$APP_ID"*) ;;
+              *) echo "::error::WARDEN launched but is not the foreground activity."; exit 1 ;;
+            esac
+
+            PID="$(adb shell pidof "$APP_ID" | tr -d '\r')"
+            if [ -z "$PID" ]; then
+              echo "::error::the process was gone eight seconds after launch (crash buffer below)."
+              adb logcat -d -b crash | tail -n 40
+              exit 1
+            fi
+            echo "running as pid ${PID}, eight seconds after a cold start"
+

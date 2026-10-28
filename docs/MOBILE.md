@@ -236,6 +236,14 @@ Play is configured later. **Without it the APK is debug-signed**: it installs,
 but Android refuses to replace a debug-signed app with a release-signed one, so
 uninstall first when you switch.
 
+**Every run installs the APK before it publishes it.** A signature says the bytes
+are signed; it says nothing about whether a phone will take them. So the `install`
+job boots an Android emulator with nothing on it, installs the APK the run built,
+resolves the launcher activity, launches it, and fails if the app is not in the
+foreground eight seconds later, if it died, or if the version the device reports
+is not the version that was built. That is the check that would have caught
+0.2.11's debug-signed APK before a tester did.
+
 This is a download, not a distribution service: no invitations, no update
 prompt, no review. Firebase App Distribution adds those, and is wired up below.
 
@@ -269,6 +277,12 @@ for a fork: project `warden-innotel`, Android app
 `1:1031472066945:ios:69db47ec449d951a7f3880`, tester group `testers`. The
 `FIREBASE_SERVICE_ACCOUNT` secret and all three variables are set on the
 repository, so a tag publishes to both platforms with no further setup.
+
+The CLI is installed once into a cached prefix, under the version in
+`FIREBASE_TOOLS_VERSION`, and the workflow calls that binary — not `npx`, which
+fetched a 244 MB tree on every run and re-asked the registry each time even when
+the tree was cached. The 0.2.12 iOS release spent 24 minutes on it. A hit costs
+seconds and needs no network.
 
 **iOS needs a second export, and it is Apple's rule rather than Firebase's.** An
 App Distribution install must be an **ad hoc** build whose provisioning profile
