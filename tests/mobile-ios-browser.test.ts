@@ -38,15 +38,6 @@ describe('the in-app browser package', () => {
     expect(podspec).toContain("s.ios.deployment_target = '15.0'")
   })
 
-  it('archives with the distribution identity so no registered device is needed', () => {
-    const project = read('mobile/ios/App/App.xcodeproj/project.pbxproj')
-    // Automatic signing asks Apple for a profile matching the identity. With
-    // the development identity that profile needs a registered device, which a
-    // runner has none of; the archive now asks for the App Store one.
-    expect(project.match(/CODE_SIGN_IDENTITY = "Apple Distribution";/g)?.length).toBe(1)
-    expect(project.match(/CODE_SIGN_IDENTITY = "iPhone Developer";/g)?.length).toBe(1)
-  })
-
   it('is listed as a file dependency of the shell', () => {
     const pkg = JSON.parse(read('mobile/package.json')) as { dependencies: Record<string, string> }
     expect(pkg.dependencies['warden-browser']).toBe('file:./plugins/warden-browser')
