@@ -220,3 +220,30 @@ describe('iOS device registration', () => {
     expect(script).toContain('if error.code == 409')
   })
 })
+
+/**
+ * A signed export is not an installable one. Xcode will sign with a profile that
+ * names no phone — or a stale one that predates the latest registration — and
+ * the run goes green while the tester's phone refuses the build. The check has
+ * to happen on the ipa being published, and before the publish, or it reports a
+ * failure that has already reached everyone's inbox.
+ */
+describe('iOS ad hoc profile check', () => {
+  const workflow = read('.github/workflows/mobile-ios.yml')
+  const script = read('scripts/verify-adhoc-profile.py')
+
+  it('runs on the exported ipa before it is distributed', () => {
+    expect(workflow).toContain('scripts/verify-adhoc-profile.py')
+    expect(workflow.indexOf('Check the ad hoc profile names the registered devices')).toBeLessThan(
+      workflow.indexOf('name: Publish to Firebase App Distribution')
+    )
+  })
+
+  it('compares the embedded profile with the account, and fails loudly', () => {
+    expect(script).toContain('embedded.mobileprovision')
+    expect(script).toContain('/v1/devices')
+    expect(script).toContain('ProvisionedDevices')
+    expect(script).toContain('::error::')
+    expect(script).toContain('ios-register-device.yml')
+  })
+})

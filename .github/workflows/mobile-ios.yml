@@ -260,6 +260,20 @@ jobs:
             -authenticationKeyIssuerID "$ISSUER_ID"
           mv "$RUNNER_TEMP/adhoc/App.ipa" "$RUNNER_TEMP/adhoc/WARDEN-${VERSION}.ipa"
 
+      # A green export has only proven that Xcode found *a* profile: one that
+      # names no phone still signs, and the failure then shows up on the phone as
+      # "Unable to Install" after the invite has gone out. So the profile is read
+      # back out of the ipa that is about to be uploaded and compared with the
+      # devices the account has. It runs before the upload for that reason.
+      - name: Check the ad hoc profile names the registered devices
+        if: env.FIREBASE_IOS_APP_ID != '' && env.ASC_KEY_ID != ''
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 "$GITHUB_WORKSPACE/scripts/verify-adhoc-profile.py" "$RUNNER_TEMP/adhoc/WARDEN-${VERSION}.ipa"
+
       - name: Publish to Firebase App Distribution
         if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.ASC_KEY_ID != ''
         env:
