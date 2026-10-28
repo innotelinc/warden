@@ -70,37 +70,77 @@ dragged into the console by hand.
 
 1. Create the upload key once, on your own machine, and keep a copy. A key made
    in CI is a key nobody can back up — losing it is recoverable, since Play
-   resets upload keys, but it costs a support round-trip.
+   resets upload keys, but it costs a support round-trip. `keytool` comes with
+   any JDK: `winget install Microsoft.OpenJDK.21` on Windows, or the JBR that
+   Android Studio already ships.
 
    ```bash
+   read -rsp 'Keystore password: ' STOREPASS; echo
    keytool -genkeypair -v -keystore warden-upload.keystore -alias warden \
-     -keyalg RSA -keysize 4096 -validity 10000
-   base64 -w0 warden-upload.keystore > warden-upload.keystore.b64
-
-   gh secret set ANDROID_KEYSTORE_BASE64 < warden-upload.keystore.b64
-   gh secret set ANDROID_KEYSTORE_PASSWORD --body '<store password>'
-   gh secret set ANDROID_KEY_ALIAS --body warden
-   gh secret set ANDROID_KEY_PASSWORD --body '<key password>'
+     -keyalg RSA -keysize 4096 -validity 10000 \
+     -storepass "$STOREPASS" -keypass "$STOREPASS"
    ```
 
-   Commit neither file. CI writes `android/keystore.properties` from the
-   secrets; without it the build is unsigned, and Play refuses an unsigned
-   bundle by design.
+   Read the password with `read -s` rather than `-storepass '<password>'`: a
+   password on a command line is a password in the shell history.
+
+   Then base64 the file, because a secret is text and a keystore is binary —
+   and **no byte-order mark**: the workflow decodes it with `base64 -d`.
+
+   ```bash
+   # Git Bash, Linux
+   base64 -w0 warden-upload.keystore > warden-upload.keystore.b64
+
+   # macOS (no -w; the newlines have to go)
+   base64 -i warden-upload.keystore | tr -d '\n' > warden-upload.keystore.b64
+
+   # PowerShell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("$PWD\warden-upload.keystore")) |
+     Set-Content -NoNewline -Encoding ascii warden-upload.keystore.b64
+   ```
+
+   Add the four secrets. The two passwords are read from a hidden prompt so
+   they are not in the history either; `gh` is not required — Settings →
+   Secrets and variables → Actions does the same thing through the browser.
+
+   ```bash
+   gh secret set ANDROID_KEYSTORE_BASE64 < warden-upload.keystore.b64
+   gh secret set ANDROID_KEYSTORE_PASSWORD   # prompts, input hidden
+   gh secret set ANDROID_KEY_ALIAS --body warden
+   gh secret set ANDROID_KEY_PASSWORD        # prompts, input hidden
+   ```
+
+   Commit neither file; `.gitignore` covers `*.keystore` and `*.keystore.b64`.
+   CI writes `android/keystore.properties` from the secrets; without it the
+   build is unsigned, and Play refuses an unsigned bundle by design.
 
 2. The bundle is stamped the same way the iOS one is: the version name from the
    tag (a manual run takes `mobile/package.json`) and the **version code from
    the run number**, because Play rejects a code it has already seen and cannot
    be asked which ones are free. Never hand-bump `versionCode`.
 
-3. Run **Mobile (Android)**, or push a `v*` tag. Without the keystore it still
-   builds an unsigned bundle so a fork can be inspected; with it, the artifact
-   is `WARDEN-<version>.aab`.
+3. Run **Mobile (Android)**, or push a `v*` tag. Every run first waits for the
+   CI checks on the commit it is building (`.github/actions/wait-for-ci`): a tag
+   on a commit that failed, or never got a run, stops before Gradle starts.
+
+   A manual run **publishes** unless `dry_run` is ticked. Tick it while setting
+   the secrets up: the bundle is built and signed, nothing reaches the track,
+   and the log says which of the two it produced. Without the keystore the run
+   still builds an unsigned bundle so a fork can be inspected; with it, the
+   artifact is `WARDEN-<version>.aab`.
+
+   To check the secrets arrived: after a `dry_run`, **Decode keystore** should
+   show as executed rather than skipped, and the log must not contain *No
+   keystore configured*. If it does, `ANDROID_KEYSTORE_BASE64` did not decode —
+   usually a byte-order mark or a truncated copy.
 
 4. **The app must already exist in Play Console, with one release uploaded by
    hand.** The API uploads a bundle to an existing package and cannot create
    the app record, so an automated first upload fails with `Package not found`.
-   Play Console → Create app → Internal testing → Create new release → upload
-   that first `.aab` yourself.
+   The signed bundle for that first upload is the artifact from the `dry_run`
+   above: download `WARDEN-<version>.aab`, then Play Console → Create app →
+   Internal testing → Create new release → upload it yourself. That upload is
+   also what enrols Play App Signing, which is why it cannot be automated away.
 
 5. To let CI publish from then on, create a service account and give it exactly
    the permission it needs:
@@ -110,7 +150,8 @@ dragged into the console by hand.
    - Play Console → **Users and permissions** → invite the service account's
      email → app access to WARDEN → **Release apps to testing tracks**. That is
      enough for internal testing; do not grant production release.
-   - `gh secret set PLAY_SERVICE_ACCOUNT_JSON < service-account.json`
+   - `gh secret set PLAY_SERVICE_ACCOUNT_JSON < service-account.json`, or paste
+     the file's contents into a repository secret.
 
    With that secret present every run uploads `WARDEN-<version>.aab` to the
    **internal** track marked completed, so the build is installable within
