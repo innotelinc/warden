@@ -67,7 +67,13 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
             self?.progress.isHidden = value >= 1
         }
 
-        load(startURL)
+        // The rules are compiled, not fetched, so this is the one moment they
+        // can be attached. The first page waits for them: loading first and
+        // attaching afterwards leaves the page the operator opened unfiltered.
+        WardenAdBlocker.install(on: configuration.userContentController) { [weak self] in
+            guard let strongSelf = self else { return }
+            strongSelf.load(strongSelf.startURL)
+        }
     }
 
     // MARK: - Chrome
