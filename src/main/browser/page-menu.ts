@@ -185,11 +185,35 @@ export function probeMediaScript(x: number, y: number): string {
       if (tag !== 'VIDEO' && tag !== 'AUDIO') return null;
       return { src: el.currentSrc || el.src || '', kind: tag === 'VIDEO' ? 'video' : 'audio' };
     };
-    const stack = (document.elementsFromPoint(${Math.round(x)}, ${Math.round(y)}) || []);
+    const px = ${Math.round(x)};
+    const py = ${Math.round(y)};
+    const stack = (document.elementsFromPoint(px, py) || []);
     for (const el of stack) {
       const found = media(el);
       if (found) return found;
     }
+    // A custom player covers its <video> with its own overlay, so the point
+    // often names no element. The nearest player to the click is the one the
+    // operator pointed at; taking the first on the page is how "move video 2"
+    // used to dock video 1.
+    let best = null;
+    let bestDistance = Infinity;
+    for (const el of document.querySelectorAll('video, audio')) {
+      const found = media(el);
+      if (!found) continue;
+      const box = el.getBoundingClientRect();
+      if (box.width <= 0 && box.height <= 0) continue;
+      const dx = Math.max(box.left - px, 0, px - box.right);
+      const dy = Math.max(box.top - py, 0, py - box.bottom);
+      const distance = dx * dx + dy * dy;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = found;
+      }
+    }
+    if (best) return best;
+    // Nothing measurable on screen: a hidden player is still the page's only
+    // media, and the operator asked for it by name.
     for (const el of document.querySelectorAll('video, audio')) {
       const found = media(el);
       if (found) return found;

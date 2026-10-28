@@ -87,7 +87,18 @@ describe('page context menu', () => {
 
   it('uses the page probe to find media at a point', () => {
     const script = probeMediaScript(120.4, 64.6)
-    expect(script).toContain('elementsFromPoint(120, 65)')
+    expect(script).toContain('elementsFromPoint(px, py)')
+    expect(script).toContain('const px = 120;')
+    expect(script).toContain('const py = 65;')
     expect(script).toContain("tag !== 'VIDEO'")
+  })
+
+  it('picks the video nearest the click when a player covers its own element', () => {
+    // "Move video 2 to Splay" used to dock video 1 on any page where the
+    // custom player's overlay was the element under the cursor.
+    const script = probeMediaScript(400, 900)
+    expect(script).toContain('getBoundingClientRect()')
+    expect(script).toContain('bestDistance')
+    expect(script).toContain('if (best) return best;')
   })
 })

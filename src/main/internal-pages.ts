@@ -398,6 +398,29 @@ export function viewerHtml(src: string, title: string, kind: string, startAt = 0
   video.addEventListener('pause', function () { pauseBtn.textContent = 'Play'; });
 
   window.__wardenPlayer = video;
+  // A pane that never paints is indistinguishable from a dock that is broken,
+  // and this viewer is the only thing on screen for the item. If no frame has
+  // arrived shortly after a play request, say what happened instead of leaving
+  // black behind the footer.
+  var stalled = false;
+  window.setTimeout(function () {
+    if (stalled || video.readyState >= 2) return;
+    stalled = true;
+    var note = document.createElement('div');
+    note.className = 'fallback';
+    note.style.position = 'fixed';
+    note.style.inset = '0';
+    note.style.display = 'grid';
+    note.style.placeContent = 'center';
+    note.style.background = '#05070a';
+    note.innerHTML =
+      '<div><b>No picture yet</b>' +
+      'The source has not sent a playable frame. It may need the page it came from, or it may refuse this session.' +
+      '<div class="mono" style="margin-top:10px;font-size:10.5px;color:#5d6c7d;word-break:break-all"></div></div>';
+    note.querySelector('.mono').textContent = src;
+    document.body.appendChild(note);
+    note.addEventListener('click', function () { note.remove(); stalled = false; });
+  }, 3500);
   var startAt = ${Number.isFinite(startAt) ? Math.max(0, Number(startAt)) : 0};
   if (startAt > 0) {
     video.addEventListener('loadedmetadata', function () {

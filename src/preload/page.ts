@@ -468,6 +468,30 @@ function titleFor(element: HTMLElement): string {
   return document.title || 'Media'
 }
 
+/**
+ * Every absolute URL a media element can be named by.
+ *
+ * `currentSrc`, the `src` attribute and each `<source>` can all differ while
+ * pointing at the same player, and different callers name it differently, so
+ * nothing downstream should depend on one spelling being the right one.
+ */
+function mediaUrls(element: HTMLMediaElement): string[] {
+  const raw: string[] = [element.currentSrc, element.getAttribute('src') ?? '', element.src]
+  for (const source of Array.from(element.querySelectorAll('source'))) {
+    raw.push(source.getAttribute('src') ?? '')
+  }
+  const urls = new Set<string>()
+  for (const value of raw) {
+    if (!value || value.startsWith('blob:') || value.startsWith('data:')) continue
+    try {
+      urls.add(new URL(value, location.href).toString())
+    } catch {
+      /* not a URL this document can resolve */
+    }
+  }
+  return [...urls]
+}
+
 const elementsByUrl = new Map<string, HTMLMediaElement>()
 let lastPayload = ''
 let scheduled = 0
@@ -488,7 +512,12 @@ function collect(): MediaItem[] {
     const isAudio = element.tagName === 'AUDIO'
     const hls = /\.m3u8(\?|$)/i.test(absolute)
     const id = `media-${hash(absolute)}`
-    elementsByUrl.set(absolute, element)
+    // Every URL this element answers to, not just the one that wins the
+    // precedence above. The menu is handed whatever Chromium reports for the
+    // element under the cursor — often the `src` attribute or a `<source>` —
+    // and a detach keyed on a single spelling silently found nothing, which is
+    // how a "moved" video kept playing in the page.
+    for (const alias of mediaUrls(element)) elementsByUrl.set(alias, element)
 
     items.push({
       id,
@@ -631,9 +660,26 @@ function takeFromPage(element: HTMLMediaElement): void {
   }
 }
 
+/**
+ * The element the detach means when the URL alone does not identify one.
+ *
+ * A player can rename its own source between the scan and the click (a signed
+ * URL that refreshes, a `<source>` picked by the browser), and a page with a
+ * single player leaves no ambiguity to resolve.
+ */
+function elementForDetach(url: string): HTMLMediaElement | null {
+  const known = elementsByUrl.get(url)
+  if (known) return known
+  const all = Array.from(document.querySelectorAll('video, audio')) as HTMLMediaElement[]
+  const renamed = all.find((element) => mediaUrls(element).includes(url))
+  if (renamed) return renamed
+  return all.length === 1 ? all[0]! : null
+}
+
 ipcRenderer.on('warden:media:detach', (_event, url: string) => {
-  const element = elementsByUrl.get(url)
+  const element = elementForDetach(url)
   if (!element) return
+  for (const alias of mediaUrls(element)) elementsByUrl.delete(alias)
   elementsByUrl.delete(url)
   takeFromPage(element)
   // The page's own layout changed, so the media list is stale until re-read.

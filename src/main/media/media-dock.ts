@@ -81,7 +81,12 @@ export class MediaDock {
         sandbox: true,
         backgroundThrottling: false,
         disableDialogs: true,
-        autoplayPolicy: 'user-gesture-required'
+        // The operator asked for this video by name: moving it to Splay is the
+        // gesture. Left at `user-gesture-required`, the viewer's own `play()`
+        // was refused — no programme, no error — and the pane stayed black, so
+        // a docked video looked like an empty one. The dock is WARDEN's own
+        // page, muted on arrival, and every other permission is still denied.
+        autoplayPolicy: 'no-user-gesture-required'
       }
     })
     view.setBackgroundColor('#05070a')
