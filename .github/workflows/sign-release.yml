@@ -36,10 +36,68 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    # The wait below can take twenty minutes on its own, and packaging takes the
+    # rest; the old limit left no room for both.
+    timeout-minutes: 60
     outputs:
       artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
     steps:
+      # The checks run on every push (ci.yml), so the commit a tag points at has
+      # been verified already, or is being verified right now. Waiting for that
+      # run is a gate; repeating it here was a second copy that only ever proved
+      # the tag's tree, not that the commit on main had passed.
+      #
+      # A tag pushed a second after its commit lands here while CI is still in
+      # progress, which is the race this closes: the build waits rather than
+      # publishing ahead of the checks it should depend on.
+      - name: Wait for CI on this commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          WAIT_MINUTES: '20'
+        run: |
+          deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
+          # The newest push run for this commit, preferring one started by a
+          # branch: pushing the tag starts a CI run of its own over the same
+          # tree, and waiting for that would be the copy this gate exists to
+          # stop making. A pull-request run is a different tree, so it never
+          # counts. Both fallbacks end as "none", which just keeps waiting.
+          query='([.workflow_runs[] | select(.event == "push" and .head_branch != null)]
+                  + [.workflow_runs[] | select(.event == "push")]) | .[0]
+                 | if . == null then "none" else .status + " " + (.conclusion // "-") end'
+          while :; do
+            # A failed query is not the same as "no run yet": swallowed, a typo
+            # here would sit silently until the deadline and blame the commit.
+            if ! state="$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=20" --jq "$query" 2>&1)"; then
+              echo "::error::Could not read the CI runs for $SHA: $state"
+              exit 1
+            fi
+            state="${state:-none}"
+            case "$state" in
+              'completed success')
+                echo "CI passed for $SHA"
+                exit 0
+                ;;
+              completed*)
+                echo "::error::CI finished as '$state' for $SHA — a release is only built from a commit that passed."
+                exit 1
+                ;;
+              none)
+                echo "waiting for CI: no run yet for $SHA"
+                ;;
+              *)
+                echo "waiting for CI: $state"
+                ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::No successful CI run for $SHA after ${WAIT_MINUTES}m (last seen: '$state'). Push the commit so the checks run, wait for them, then tag."
+              exit 1
+            fi
+            sleep 20
+          done
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
