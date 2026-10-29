@@ -77,6 +77,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      # The download code is checked by decoding it, so this job needs a decoder.
+      # opencv is the heavy part of the job and still under a minute; comparing
+      # the image's own <desc> with the manifest instead would pass an image
+      # nobody can scan, which is the failure that matters.
+      - name: Install the QR decoder
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/verify"
+          "$RUNNER_TEMP/verify/bin/pip" install --quiet --upgrade pip
+          "$RUNNER_TEMP/verify/bin/pip" install --quiet opencv-python-headless numpy
+          echo "$RUNNER_TEMP/verify/bin" >> "$GITHUB_PATH"
+
       - name: Landing sanity
         run: |
           set -euo pipefail
@@ -94,11 +107,11 @@ jobs:
           # pass every other check here.
           grep -q 'android-apk-qr.svg' "$f" || { echo "::error::landing has no QR code beside the APK"; exit 1; }
           [ -f web/landing/android-apk-qr.svg ] || { echo "::error::the QR image is missing from web/landing"; exit 1; }
-          # The image is drawn from the manifest, so the two have to name the same
-          # release. A code that points at another tag's APK is worse than no code:
-          # it looks like the same download and installs a different build.
-          python3 scripts/landing-qr.py --check || {
-            echo "::error::the QR image and release.json name different releases"; exit 1
+          # The image is drawn from the manifest, so it has to decode to the APK
+          # that manifest names. A code pointing at another tag is worse than no
+          # code: it looks like the same download and installs a different build.
+          python3 scripts/verify-qr.py || {
+            echo "::error::the QR image does not decode to the release.json APK"; exit 1
           }
           # The version the page prints comes from a file this site serves, not
           # from the GitHub API: 60 unauthenticated requests an hour is a budget

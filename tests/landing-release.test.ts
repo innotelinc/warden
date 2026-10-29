@@ -276,6 +276,18 @@ describe('the landing page and its deploy', () => {
   })
 
   /**
+   * The image has to be *decoded*, not taken at its word: `<desc>` is a label the
+   * generator writes, so an image whose modules are wrong carries an honest
+   * label and still scans to nothing. CI installs a decoder and reads the pixels.
+   */
+  it('decodes the QR in CI instead of trusting its label', () => {
+    const workflow = read('.github/workflows/ci.yml')
+    expect(workflow).toContain('scripts/verify-qr.py')
+    expect(workflow).toContain('opencv-python-headless')
+    expect(read('scripts/verify-qr.py')).toContain('QRCodeDetector')
+  })
+
+  /**
    * The image is only correct against the manifest it was drawn from. If the
    * drawing fails the deploy has to fall back to the pair committed together,
    * not to a new manifest beside an old image.

@@ -14,11 +14,10 @@ printed in the caption, by construction rather than by discipline.
 
 Usage:
   python scripts/landing-qr.py            # manifest -> web/landing/android-apk-qr.svg
-  python scripts/landing-qr.py --check    # exit 1 if the drawn code names another URL
 
-`--check` reads the SVG rather than re-rendering it, so it needs no `segno` and
-runs anywhere — CI uses it to prove the committed image and the committed
-manifest are the same release.
+What the image actually encodes is checked separately, by decoding it:
+`scripts/verify-qr.py` (that is the CI check, and it is the one that matters —
+metadata can be right while the pixels are unscannable).
 
 Requires `segno` (pure Python) to draw:
   python -m pip install segno
@@ -28,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -57,18 +55,6 @@ def manifest_url(path: Path) -> tuple[str, str]:
     return str(manifest.get('tag') or ''), url
 
 
-def drawn_url(path: Path) -> str:
-    """The URL baked into the committed SVG, read out of its own <desc>."""
-    try:
-        svg = path.read_text(encoding='utf-8')
-    except FileNotFoundError:
-        raise SystemExit(f'no QR image at {path}')
-    match = re.search(r'<desc>(.*?)</desc>', svg, re.S)
-    if not match:
-        raise SystemExit(f'{path} carries no <desc>, so its target cannot be checked')
-    return match.group(1).strip()
-
-
 def draw(tag: str, url: str, path: Path) -> None:
     try:
         import segno
@@ -93,8 +79,8 @@ def draw(tag: str, url: str, path: Path) -> None:
         svgclass=None,
         lineclass=None,
         title=f'WARDEN {tag} Android APK',
-        # The <desc> is the checkable record of what this image points at; `--check`
-        # reads it, and so does CI.
+        # A readable record of what the image points at, for whoever opens the
+        # file. `verify-qr.py` does not trust it: it decodes the pixels.
         desc=url,
     )
 
@@ -103,27 +89,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', type=Path, default=MANIFEST)
     parser.add_argument('--out', type=Path, default=OUT)
-    parser.add_argument(
-        '--check',
-        action='store_true',
-        help='verify the committed image names the committed manifest; draw nothing',
-    )
     args = parser.parse_args()
 
     tag, url = manifest_url(args.manifest)
-
-    if args.check:
-        current = drawn_url(args.out)
-        if current != url:
-            print(
-                f'::error::{args.out.name} points at {current}, but the manifest '
-                f'({tag}) points at {url}',
-                file=sys.stderr,
-            )
-            return 1
-        print(f'qr: {args.out.name} and {tag} agree')
-        return 0
-
     draw(tag, url, args.out)
     print(f'qr: {args.out.name} -> {url}')
     return 0
