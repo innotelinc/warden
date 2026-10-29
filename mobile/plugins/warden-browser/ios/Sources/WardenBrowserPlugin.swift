@@ -54,7 +54,10 @@ public class WardenBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        call.setKeepAlive(true)
+        // iOS keeps a call alive with a property; Android spells the same thing
+        // as a setter. The capture resolves minutes after this returns, so the
+        // bridge has to hold the call until then.
+        call.keepAlive = true
         var settled = false
         let finish: (String?) -> Void = { text in
             guard !settled else { return }
