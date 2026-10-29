@@ -148,18 +148,30 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      # The organization id turns this job on; the token is what makes it work.
-      # Set without the other it used to fail inside the action with a 401 that
-      # named nothing, leaving a draft nobody could explain. Checking here says
-      # what is missing, and the release stays a draft until both exist.
-      - name: Require the API token
+      # The organization id turns this job on; the other four values make it
+      # work. Any one of them missing used to surface as whatever the action
+      # said about it — a 401, a 404 on a slug — after the build had already
+      # run, and each round trip through a release is half an hour. All of them
+      # are checked here at once, by name, and the release stays a draft.
+      - name: Check the SignPath configuration
         shell: pwsh
         env:
           TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          ORGANIZATION: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          CONFIGURATION: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
         run: |
-          if (-not $env:TOKEN) {
-            throw 'SIGNPATH_API_TOKEN is not set, so this tag cannot be signed and the release stays a draft. Add the secret (Settings -> Secrets and variables -> Actions) or clear SIGNPATH_ORGANIZATION_ID to publish unsigned builds again.'
+          $missing = @()
+          if (-not $env:TOKEN) { $missing += 'secret SIGNPATH_API_TOKEN' }
+          if (-not $env:ORGANIZATION) { $missing += 'variable SIGNPATH_ORGANIZATION_ID' }
+          if (-not $env:PROJECT) { $missing += 'variable SIGNPATH_PROJECT_SLUG' }
+          if (-not $env:POLICY) { $missing += 'variable SIGNPATH_SIGNING_POLICY_SLUG' }
+          if (-not $env:CONFIGURATION) { $missing += 'variable SIGNPATH_ARTIFACT_CONFIGURATION_SLUG' }
+          if ($missing.Count -gt 0) {
+            throw "This tag cannot be signed and the release stays a draft. Missing: $($missing -join ', '). Add them under Settings -> Secrets and variables -> Actions, or clear SIGNPATH_ORGANIZATION_ID to publish unsigned builds again."
           }
+          Write-Host 'SignPath configuration: complete'
 
       # For the metadata step below. The build output is not needed: the
       # installer comes from the signing request, and its hashes are taken from
