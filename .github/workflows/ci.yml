@@ -98,6 +98,12 @@ jobs:
       # The mode is read from the index, which is what a clone checks out.
       - name: Hook scripts are executable
         run: bash scripts/check-hook-modes.sh
+      # A pattern whose dot is escaped twice still runs — it matches a literal
+      # backslash instead of the text it meant, so the step passes for the wrong
+      # reason. Nothing in the YAML shows the difference; this check exists
+      # because that happened here, in the landing greps above.
+      - name: Workflow grep patterns
+        run: node scripts/check-workflow-patterns.mjs
 
   landing:
     name: Landing page sanity
