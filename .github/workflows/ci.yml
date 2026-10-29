@@ -101,8 +101,11 @@ jobs:
       # A pattern whose dot is escaped twice still runs — it matches a literal
       # backslash instead of the text it meant, so the step passes for the wrong
       # reason. Nothing in the YAML shows the difference; this check exists
-      # because that happened here, in the landing greps above.
-      - name: Workflow grep patterns
+      # because that happened here, in the landing checks above.
+      # It covers the workflows and every tracked shell script and hook, because
+      # both are shell: a guard pattern escaped twice never fires, so a rule it
+      # implements silently stops applying while commits land green.
+      - name: Escaped grep patterns
         run: node scripts/check-workflow-patterns.mjs
 
   landing:
