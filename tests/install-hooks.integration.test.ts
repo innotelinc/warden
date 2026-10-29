@@ -210,4 +210,38 @@ describe('install-hooks against a throwaway repository', () => {
     expect(clean.status).toBe(0)
     expect(git(['rev-parse', 'HEAD'])).not.toBe(seed)
   })
+
+  it('blocks attribution added to a staged file, not just the message', () => {
+    if (!posix) return // the hooks are bash; git for windows is a different surface
+    dir = makeRepo()
+    expect(install().status).toBe(0)
+
+    // The message stays clean throughout, so any refusal can only come from the
+    // staged diff -- the half commit-msg cannot see. That is what pre-commit is
+    // for: a credit line reaching a README or a source comment.
+    const notes = join(dir, 'notes.md')
+    const seed = git(['rev-parse', 'HEAD'])
+    // Composed for the same reason as the provider key above: the guard scans
+    // added lines, so the literal here would block this very commit.
+    const trailer = ['Co-Authored-By', 'Someone Else <else@example.com>'].join(': ')
+
+    writeFileSync(notes, `# Notes\n\nSee the operator runbook.\n${trailer}\n`)
+    git(['add', 'notes.md'])
+
+    const blocked = commit('probe: document the runbook\n')
+    expect(blocked.status).not.toBe(0)
+    expect(blocked.stderr).toContain('commit blocked')
+    // The trailer rule names what it found: a credit line in the diff.
+    expect(blocked.stderr).toContain('bad trailer')
+    // Nothing landed: the guard runs before the commit object is written.
+    expect(git(['rev-parse', 'HEAD'])).toBe(seed)
+
+    // Same file, same message, no attribution line -- the commit goes through.
+    writeFileSync(notes, '# Notes\n\nSee the operator runbook.\n')
+    git(['add', 'notes.md'])
+
+    const clean = commit('probe: document the runbook\n')
+    expect(clean.status).toBe(0)
+    expect(git(['rev-parse', 'HEAD'])).not.toBe(seed)
+  })
 })
