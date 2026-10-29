@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, cpSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -50,6 +50,20 @@ function makeRepo(): string {
 
 function install(options: RunOptions = {}) {
   return run(process.execPath, [join(dir, 'scripts', 'install-hooks.mjs')], options)
+}
+
+/** Does the scanner exist here? The secret gate fails open without it. */
+function hasPython(): boolean {
+  return run('python3', ['--version'], { cwd: repoRoot }).status === 0
+}
+
+/** Commit through the installed hooks, so a failure means a hook refused. */
+function commit(message: string) {
+  return run(
+    'git',
+    ['-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '--allow-empty', '-F', '-'],
+    { input: message }
+  )
 }
 
 function hooksPath(where = dir): string | null {
@@ -139,18 +153,61 @@ describe('install-hooks against a throwaway repository', () => {
     dir = makeRepo()
     expect(install().status).toBe(0)
 
-    const commit = (message: string) =>
-      run(
-        'git',
-        ['-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '--allow-empty', '-F', '-'],
-        { input: message }
-      )
-
     const blocked = commit('probe\n\nCo-Authored-By: Nope <n@example.com>\n')
     expect(blocked.status).not.toBe(0)
     expect(blocked.stderr).toContain('guard:')
 
     const allowed = commit('probe: a clean subject\n')
     expect(allowed.status).toBe(0)
+  })
+
+  it('installs a secret gate that blocks a credential-shaped line', () => {
+    if (!posix) return // the hooks are bash; git for windows is a different surface
+    if (!hasPython()) return // the gate warns and skips when the scanner is absent
+    dir = makeRepo()
+    expect(install().status).toBe(0)
+
+    // Deliberately not under tests/: the scanner relaxes the literal rule there,
+    // and this has to exercise the same path a real commit takes.
+    const config = join(dir, 'operator.conf')
+    const seed = git(['rev-parse', 'HEAD'])
+
+    // Assembled at run time rather than written out in full: the scanner does
+    // not exempt tests from its shape rules, so the literal here would block
+    // this very commit. That is the gate working -- the fix belongs in the
+    // fixture, not in a weaker rule.
+    const providerKey = ['AKIA', 'IOSFODNN7EXAMPLE'].join('')
+
+    writeFileSync(config, `AWS_ACCESS_KEY=${providerKey}\n`)
+    git(['add', 'operator.conf'])
+
+    const shaped = commit('probe: stage a provider key\n')
+    expect(shaped.status).not.toBe(0)
+    expect(shaped.stderr).toContain('secret-scan')
+    expect(shaped.stderr).toContain('aws-access-key')
+    // The finding is reported as a rule and a masked value, never the secret.
+    expect(shaped.stderr).not.toContain(providerKey)
+    // And nothing landed: the gate runs before the commit is written.
+    expect(git(['rev-parse', 'HEAD'])).toBe(seed)
+
+    // The other half of the scanner, through the same plumbing: a literal
+    // assigned to a sensitive name, which no shape rule would catch.
+    writeFileSync(config, 'ADMIN_PASS = "hunter2hunter2"\n')
+    git(['add', 'operator.conf'])
+
+    const assigned = commit('probe: stage a literal secret\n')
+    expect(assigned.status).not.toBe(0)
+    expect(assigned.stderr).toContain('literal-secret')
+    expect(assigned.stderr).toContain('ADMIN_PASS')
+    expect(git(['rev-parse', 'HEAD'])).toBe(seed)
+
+    // Remove the credential and the same commit goes through, so the gate is
+    // blocking the finding rather than committing in general.
+    rmSync(config)
+    git(['add', '-A'])
+
+    const clean = commit('probe: config without credentials\n')
+    expect(clean.status).toBe(0)
+    expect(git(['rev-parse', 'HEAD'])).not.toBe(seed)
   })
 })
