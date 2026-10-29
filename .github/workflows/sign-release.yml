@@ -23,6 +23,13 @@ name: Build and sign release
 # latest.yml from the signed file and drops the block maps the unsigned build
 # produced. Without that, the published manifest would describe a file that no
 # longer exists and every self-update would fail its hash check.
+#
+# The build job rehearses that sequence before it publishes anything. The signed
+# path cannot be exercised until an account exists, so scripts/rehearse-signing.mjs
+# runs the shipped *Check the signatures*, *Refresh the update metadata* and
+# *Publish the installers* steps against a self-signed copy of the installer it
+# just built. A regression there fails the tag while there is still no release
+# to repair, instead of surfacing on the first armed one.
 
 on:
   push:
@@ -83,6 +90,29 @@ jobs:
         run: npm run dist:ci
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # Everything below only runs for real once SignPath is armed, and every
+      # attempt at reaching that point costs a build plus a tag. So the step
+      # text that will run then is run now, against a self-signed copy of the
+      # installer just built: scripts/rehearse-signing.mjs reads *Check the
+      # signatures*, *Refresh the update metadata* and *Publish the installers*
+      # out of this file and executes them with `gh` replaced by a stub that
+      # keeps a fake release on disk. A regression — a draft that is never
+      # reopened, a block map that survives, a manifest left describing the
+      # unsigned bytes — fails here, where no release exists yet, rather than on
+      # the first armed tag after an hour of builds.
+      #
+      # It signs a copy in a temp directory and never writes to release/, which
+      # the next step uploads. One external dependency: the RFC 3161 timestamp
+      # comes from DigiCert, so if the only failing check is "timestamped",
+      # re-run the job instead of changing the workflow.
+      - name: Rehearse the signed-release path
+        shell: pwsh
+        run: |
+          node scripts/rehearse-signing.mjs
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The signed-release path is broken, so nothing was published and this tag has no release. Fix the step named in the rehearsal output and run the job again.'
+          }
 
       - name: Publish the installers
         # A tag is the release request. dist:ci builds with --publish never, so

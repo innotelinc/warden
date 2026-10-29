@@ -385,7 +385,7 @@ What is already in this repo:
 | [`.github/workflows/sign-release.yml`](.github/workflows/sign-release.yml) | Builds both installers on `windows-latest`, uploads them as one artifact, submits the signing request, checks the returned signatures are valid *and* timestamped, then attaches them to the release. |
 | [`signing/artifact-configuration.xml`](signing/artifact-configuration.xml) | Tells SignPath which files inside the uploaded ZIP to Authenticode-sign, under SignPath's own schema (`…/artifact-configuration/v1`), and constrains them to the `WARDEN` product name the installers carry. |
 | [`scripts/refresh-update-metadata.mjs`](scripts/refresh-update-metadata.mjs) | Rewrites `latest.yml` for the signed installer, because signing changes the hash the updater checks. |
-| [`scripts/rehearse-signing.mjs`](scripts/rehearse-signing.mjs) | Runs the workflow's own signing steps locally against a self-signed installer, so the draft gate and the metadata rewrite are proven before an account exists. |
+| [`scripts/rehearse-signing.mjs`](scripts/rehearse-signing.mjs) | Runs the workflow's own signing steps against a self-signed installer. The build job runs it before it publishes anything, so a regression fails the tag. |
 | [`scripts/sign-build.ps1`](scripts/sign-build.ps1) | The local fallback described below. |
 
 To switch it on:
@@ -404,6 +404,12 @@ replaces them with the signed copies, re-derives `latest.yml` from the bytes tha
 block maps the unsigned build produced, checks each signature is valid *and* timestamped, and only
 then publishes the release. A re-run of the workflow takes an already-published release back to
 draft before it uploads, so repeating a tag can never put an unsigned installer on the live link.
+
+The build job runs that rehearsal on every build, immediately before *Publish the installers*. The
+guarantees below are therefore checked on the tag itself rather than only by hand: a regression in
+those steps fails the job while nothing has been uploaded and no release exists yet, instead of
+surfacing on the first armed tag after an hour of packaging. Its one external dependency is the
+DigiCert timestamp, so if the only failing check is "timestamped", re-run the job.
 
 While the application is pending, `node scripts/rehearse-signing.mjs` (after `npm run dist:ci`) signs a copy
 of the real installer with a self-signed certificate and runs the shipped *Check the signatures*,
