@@ -18,7 +18,9 @@ name: Mobile (iOS)
 # mobile/package.json and stops at the archive unless it is asked for something:
 # `upload_to_testflight` publishes, `export_signed_ipa` exports an ad hoc ipa
 # for a hand-installed build and notifies nobody. Ticking neither exports
-# nothing and sends nothing.
+# nothing and sends nothing. A run that uploads then asks App Store Connect, in
+# a loop, whether the build left processing and reached a TestFlight group with
+# a tester in it — and fails when it never does.
 # Without the App Store Connect key the job still archives — unsigned, for
 # inspection — instead of failing on empty credentials.
 
@@ -349,6 +351,29 @@ jobs:
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "${FIREBASE_TESTER_GROUPS:-testers}" \
             --release-notes "WARDEN ${VERSION} — build ${GITHUB_RUN_NUMBER}"
+
+      # "Upload succeeded" is not "a tester can install it". App Store Connect
+      # processes an upload for 5-15 minutes, can still throw it out, and then
+      # hands it to nobody until a TestFlight group that has testers in it holds
+      # it. Every earlier release ended the moment Xcode's upload printed, and
+      # the question of whether the build was ever testable was left to whoever
+      # opened the TestFlight page. This asks Apple, in a loop, and fails the tag
+      # when the build never gets there — a release that reports success while
+      # nothing is installable is the failure worth catching.
+      - name: Wait for TestFlight to publish the build
+        if: steps.upload.outputs.value == 'true'
+        # The loop gives up on its own after 45 minutes; the step timeout is the
+        # backstop for a hung API call, not the deadline.
+        timeout-minutes: 55
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/ios-build-status.py" \
+            --build-number "${GITHUB_RUN_NUMBER}" \
+            --wait-minutes 45 \
+            --await-testers
 
       # An unsigned archive has no .ipa; keep the archive for inspection instead.
       # `always()` so a failed export still leaves the archive behind: the export

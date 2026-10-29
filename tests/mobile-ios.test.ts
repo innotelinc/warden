@@ -308,3 +308,47 @@ describe('iOS ad hoc profile check', () => {
     expect(script).toContain('ios-register-device.yml')
   })
 })
+
+
+/**
+ * 'Upload succeeded' is the last thing Xcode says, and it is not the last thing
+ * that has to happen: App Store Connect processes the build and then hands it to
+ * nobody until a TestFlight group with testers in it holds it. Every release
+ * before this one went green at the upload and left that question unanswered, so
+ * the gate lives in the job that uploads — after the upload, and before the
+ * artifact upload that ends the job, or it gates nothing.
+ */
+describe('iOS TestFlight gate', () => {
+  const workflow = read('.github/workflows/mobile-ios.yml');
+  const script = read('scripts/ios-build-status.py');
+
+  it('waits for the build to reach a tester after uploading it', () => {
+    expect(workflow).toContain('--await-testers');
+    expect(workflow).toContain('--wait-minutes 45');
+    expect(workflow.indexOf('Wait for TestFlight to publish the build')).toBeGreaterThan(
+      workflow.indexOf('name: Export ipa')
+    );
+    expect(workflow.indexOf('Wait for TestFlight to publish the build')).toBeLessThan(
+      workflow.indexOf('uses: actions/upload-artifact@v4')
+    );
+  });
+
+  /** Asking whether a build is installable should not require cutting a tag. */
+  it('is reachable on its own from the status workflow', () => {
+    expect(read('.github/workflows/ios-build-status.yml')).toContain('args+=(--await-testers)');
+  });
+
+  /** A manual sideload run uploads nothing, so it has nothing to wait for. */
+  it('runs only when the build was uploaded', () => {
+    const step = workflow.slice(workflow.indexOf('Wait for TestFlight to publish the build'));
+    expect(step.slice(0, step.indexOf('run: |'))).toContain("steps.upload.outputs.value == 'true'");
+  });
+
+  it('tells the three ways a build fails to become installable apart', () => {
+    expect(script).toContain('no TestFlight group exists');
+    expect(script).toContain('no TestFlight group holds build');
+    expect(script).toContain('no tester belongs to that group');
+    expect(script).toContain('::error::');
+    expect(script).toContain('return 4');
+  });
+});

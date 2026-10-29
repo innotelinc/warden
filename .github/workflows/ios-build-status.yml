@@ -35,6 +35,13 @@ on:
         description: Add the reported build to this TestFlight group (must be VALID)
         type: string
         default: ''
+      # The same check Mobile (iOS) makes after an upload, run on demand — the
+      # release job's step refuses to go green until this passes, so it should be
+      # possible to ask the question without cutting a tag.
+      await_testers:
+        description: Wait until a TestFlight group with a tester holds the build (the release gate)
+        type: boolean
+        default: false
       submission:
         description: Report what the current App Store version still needs before submitting
         type: boolean
@@ -77,6 +84,7 @@ jobs:
           BUILD_NUMBER: ${{ inputs.build_number }}
           GROUPS: ${{ inputs.groups }}
           ADD_TO_GROUP: ${{ inputs.add_build_to_group }}
+          AWAIT_TESTERS: ${{ inputs.await_testers }}
           SUBMISSION: ${{ inputs.submission }}
         run: |
           args=(--wait-minutes "${WAIT_MINUTES:-0}")
@@ -88,6 +96,9 @@ jobs:
           fi
           if [ -n "${ADD_TO_GROUP:-}" ]; then
             args+=(--add-build-to "$ADD_TO_GROUP")
+          fi
+          if [ "${AWAIT_TESTERS:-false}" = "true" ]; then
+            args+=(--await-testers)
           fi
           if [ -n "${BUILD_VERSION:-}" ]; then
             args+=(--build-version "$BUILD_VERSION")

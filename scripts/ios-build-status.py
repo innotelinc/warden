@@ -21,10 +21,17 @@ distribution": when it is set, an upload joins the group on its own.
     ... python3 scripts/ios-build-status.py --build-number 10 --groups
     ... python3 scripts/ios-build-status.py --build-number 10 --add-build-to 'Internal'
 
+`--await-testers` is the release gate the iOS build calls after its upload. It
+waits for the build to leave PROCESSING and then for a TestFlight group that has
+somebody in it to hold it, printing what is missing every minute, and fails when
+the wait runs out. A tag that reports success while no tester can install the
+build is exactly the failure the gate exists to catch.
+
 The token is signed here with `openssl`, so the runner installs nothing.
 
 Exit status: 0 everything looked fine, 1 the API call or configuration failed,
-2 a build ended up FAILED or INVALID, 3 still processing when the wait ran out.
+2 a build ended up FAILED or INVALID, 3 still processing when the wait ran out,
+4 the build was VALID but never reached a tester.
 """
 
 from __future__ import annotations
@@ -264,6 +271,10 @@ def beta_groups(bearer: str, app: str) -> list[dict]:
                 "name": attributes.get("name") or "?",
                 "internal": bool(attributes.get("isInternalGroup")),
                 "all_builds": bool(attributes.get("hasAccessToAllBuilds")),
+                # Which builds, not just their numbers: whether *this* upload is
+                # in a group is asked by id, because two builds can share a
+                # number on different marketing versions.
+                "build_ids": [item["id"] for item in assigned],
                 "builds": sorted(
                     (numbered.get(item["id"], "?") for item in assigned),
                     key=lambda value: (len(value), value),
@@ -327,6 +338,78 @@ def assign_to_group(groups: list[dict], name: str, build: dict, bearer: str) -> 
         {"data": [{"type": "builds", "id": build["id"]}]},
     )
     print(f"Added {build['marketing']} ({build['number']}) to {group['name']}.")
+
+
+def note(text: str) -> None:
+    """One line in the run's summary page, where a release is read afterwards."""
+    target = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not target:
+        return
+    with open(target, "a", encoding="utf-8") as summary:
+        summary.write(text + "\n")
+
+
+def availability(bearer: str, app: str, build: dict) -> tuple[bool, str]:
+    """Whether a tester can install this build yet, and what stands in the way.
+
+    A VALID build is only *processed*. It reaches a phone when a TestFlight group
+    holds it and that group has somebody in it — a group with no testers accepts
+    the build and emails nobody, which looks the same as success everywhere the
+    release job could see. So the answer comes from the API, and the reason it
+    is not ready is spelled out rather than reduced to "not available".
+    """
+    groups = beta_groups(bearer, app)
+    if not groups:
+        return False, (
+            "no TestFlight group exists, so no build can be installed — "
+            "TestFlight -> Internal Testing -> + creates one"
+        )
+
+    holding = [group for group in groups if group["all_builds"] or build["id"] in group["build_ids"]]
+    if not holding:
+        names = ", ".join(group["name"] for group in groups)
+        automatic = ", ".join(group["name"] for group in groups if group["all_builds"])
+        delivery = (
+            f"only {automatic} takes builds automatically"
+            if automatic
+            else "every one of them takes builds by hand"
+        )
+        return False, (
+            f"no TestFlight group holds build {build['number']} (groups: {names}; {delivery}). "
+            "Add it under TestFlight -> Add Builds, tick Enable automatic distribution on one "
+            "group, or run this with --add-build-to"
+        )
+
+    reached = []
+    for group in holding:
+        people = testers(bearer, group["id"])
+        if people:
+            reached.append(f"{group['name']} ({len(people)} tester{'s' if len(people) != 1 else ''})")
+    if not reached:
+        names = ", ".join(group["name"] for group in holding)
+        return False, (
+            f"build {build['number']} is in {names}, but no tester belongs to that group — "
+            "nobody is emailed and the TestFlight app lists nothing for them"
+        )
+
+    return True, "in " + ", ".join(reached)
+
+
+def await_testers(bearer: str, app: str, build: dict, deadline: float) -> int:
+    """Block until the build is installable, or fail saying why it never was."""
+    label = f"{build['marketing']} ({build['number']})"
+    while True:
+        ready, detail = availability(bearer, app, build)
+        if ready:
+            print(f"\n{label} is available to testers: {detail}")
+            note(f"{label} is available to testers {detail}.")
+            return 0
+        if time.monotonic() >= deadline:
+            print(f"\n::error::{label} is {build['state']} but never became installable: {detail}.")
+            note(f"{label} never reached a tester: {detail}.")
+            return 4
+        print(f"\n{label} is {build['state']} but not installable yet — {detail}.\nChecking again in 60s…")
+        time.sleep(60)
 
 
 def select_target(rows: list[dict], build_number: str) -> dict | None:
@@ -546,6 +629,11 @@ def main() -> int:
         default="",
         help="add the reported build to this TestFlight group (needs a VALID build)",
     )
+    parser.add_argument(
+        "--await-testers",
+        action="store_true",
+        help="after processing, wait until a TestFlight group with a tester holds the build",
+    )
     args = parser.parse_args()
 
     key_id = os.environ.get("APP_STORE_CONNECT_KEY_ID", "").strip()
@@ -610,6 +698,17 @@ def main() -> int:
             "checking again in 60s…\n"
         )
         time.sleep(60)
+
+    # The release gate: the build finished processing, but that is not the same
+    # as a tester being able to install it.
+    if args.await_testers:
+        if target is None:
+            raise SystemExit("no build to follow — pass --build-number and --wait-minutes")
+        summarise(rows, args.wait_minutes)
+        if target["state"] in ("FAILED", "INVALID"):
+            print(f"\n{target['marketing']} ({target['number']}) is {target['state']}; nothing can install it.")
+            return 2
+        return await_testers(bearer, app, target, deadline)
 
     # A VALID build is only installable once a TestFlight group holds it, so the
     # group is where the answer to "can a tester see it yet" actually lives.

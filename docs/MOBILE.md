@@ -399,6 +399,14 @@ the testers in it — the difference between "Apple accepted the build" and
 "somebody can install it". `add_build_to_group` does the *Add Builds* step from
 the command line, and refuses unless the build is `VALID`.
 
+The release job does not stop at the upload any more: after the export it runs
+the same script with `--await-testers` and polls App Store Connect until the
+build leaves processing **and** a TestFlight group that has testers in it holds
+it. Processing takes 5–15 minutes; the step waits up to 45 and then fails the
+tag, naming what was missing — no group holds the build, or the group that does
+has nobody in it. A green release no tester can install is worse than a red one,
+so this is a failure rather than a warning.
+
 `submission=true` answers the other question — what App Store Connect still
 wants before the version can be sent to review:
 
