@@ -135,6 +135,12 @@ dragged into the console by hand.
    keystore configured*. If it does, `ANDROID_KEYSTORE_BASE64` did not decode —
    usually a byte-order mark or a truncated copy.
 
+   The Gradle distribution, the resolved dependencies and the local build cache
+   are cached between runs, under a key that only changes when the wrapper or a
+   build script does. A runner starts with an empty `~/.gradle`, so without that
+   cache every release re-downloaded `gradle-8.13-all.zip` and the whole
+   dependency set before compiling anything.
+
 4. **The app must already exist in Play Console, with one release uploaded by
    hand.** The API uploads a bundle to an existing package and cannot create
    the app record, so an automated first upload fails with `Package not found`.

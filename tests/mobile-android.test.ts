@@ -343,3 +343,37 @@ describe('Firebase CLI', () => {
     }
   })
 })
+
+/**
+ * A runner starts with an empty ~/.gradle, so without a cache every release
+ * downloaded the Gradle distribution and every dependency again — 123 s of the
+ * Android job that produced nothing new. The three paths are cached together
+ * because they belong together: the wrapper's download, the resolved
+ * dependencies, and the local build cache that `org.gradle.caching` writes to.
+ */
+describe('Gradle cache', () => {
+  const workflow = read('.github/workflows/mobile-android.yml')
+
+  it('restores the distribution, the dependencies and the build cache', () => {
+    for (const path of [
+      '~/.gradle/wrapper/dists',
+      '~/.gradle/caches/modules-2',
+      '~/.gradle/caches/build-cache-1',
+    ]) {
+      expect(workflow).toContain(path)
+    }
+    expect(workflow).toContain('restore-keys: |')
+    expect(workflow).toContain("hashFiles('mobile/android/gradle/wrapper/gradle-wrapper.properties'")
+  })
+
+  it('restores before Gradle runs', () => {
+    const cache = workflow.indexOf('name: Cache Gradle')
+    expect(cache).toBeGreaterThan(-1)
+    expect(cache).toBeLessThan(workflow.indexOf('./gradlew "${args[@]}"'))
+  })
+
+  /** The cache path above is only written to when the build cache is enabled. */
+  it('turns the build cache on in the project', () => {
+    expect(read('mobile/android/gradle.properties')).toContain('org.gradle.caching=true')
+  })
+})
