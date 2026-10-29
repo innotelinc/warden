@@ -523,6 +523,13 @@ iOS an ad hoc ipa signed for each registered device — so a tester gets an invi
 a release list. Store listing text, the data-safety answers and the roadmap are in
 [docs/MOBILE.md](docs/MOBILE.md) and `mobile/store/`.
 
+**Android needs no store.** Every tag attaches the signed APK to the release page as
+`WARDEN-android.apk`, so `https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk`
+is one permanent link: open it in the phone's browser, allow installs from the browser once, install.
+That is the whole free distribution route — no Play account, no review, no $25 registration — and the
+APK is signed with the same upload key a Play release would use, so configuring Play later changes
+nothing on a phone that already has it.
+
 ---
 
 ## Keyboard

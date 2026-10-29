@@ -32,6 +32,19 @@ const manifests = [
 ]
 
 describe('lockfiles', () => {
+  /**
+   * Nothing above can tell whether a tarball exists; only an install can. The
+   * mobile lockfile was broken for a whole release because the only `npm ci` in
+   * CI installed the root one, so the failure surfaced in the mobile jobs after
+   * the tag was already pushed.
+   */
+  it('installs both lockfiles on every push, not only on a tag', () => {
+    const ci = read('.github/workflows/ci.yml')
+    expect(ci).toMatch(/^\s*push:/m)
+    expect(ci).toContain('run: npm ci')
+    expect(ci).toMatch(/working-directory: mobile\s*\n\s*run: npm ci/)
+  })
+
   for (const { lock: lockPath, pkg: pkgPath } of manifests) {
     const lock = JSON.parse(read(lockPath)) as Lock
     const pkg = JSON.parse(read(pkgPath)) as { version: string }

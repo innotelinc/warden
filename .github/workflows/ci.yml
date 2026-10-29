@@ -34,6 +34,15 @@ jobs:
       # node-pty, so the native build has to run here rather than be skipped.
       - name: Install
         run: npm ci
+      # The mobile shell has its own lockfile and nothing installed it until a
+      # tag did. A version bump that rewrote a transitive dependency's version
+      # here left a tarball that does not exist: every check in this job passed,
+      # and both mobile jobs then died at `npm ci` on a release whose installers
+      # had already been published. No test can tell a lockfile names a version
+      # that exists — only the install can, and it belongs here, on the push.
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
       - name: Typecheck
         run: npm run typecheck
       - name: Unit tests
@@ -69,6 +78,11 @@ jobs:
           grep -qi '<title>' "$f" || { echo "::error::landing has no <title>"; exit 1; }
           grep -qi 'og:title' "$f" || { echo "::error::landing has no og:title"; exit 1; }
           grep -qi 'data:image/svg+xml' "$f" || { echo "::error::landing has no inline SVG favicon"; exit 1; }
+          # Android ships as an APK on the release page, never through a store,
+          # so the stable link is the whole download route and must stay on it.
+          grep -q 'releases/latest/download/WARDEN-android.apk' "$f" || {
+            echo "::error::landing has no Android APK download link"; exit 1
+          }
           echo "landing: ok"
 
   scripts:

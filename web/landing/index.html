@@ -241,6 +241,7 @@
         </p>
         <div class="cta">
           <a class="btn primary" href="https://github.com/innotelinc/warden/releases/latest">Download for Windows</a>
+          <a class="btn" href="https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk">Download for Android (.apk)</a>
           <a class="btn" href="https://github.com/innotelinc/warden#readme">Read the source</a>
           <a class="btn" href="#privacy">Privacy model</a>
         </div>
@@ -459,6 +460,7 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
         <dl class="kv">
           <dt>Installer</dt><dd><b>NSIS, per-user.</b> Silent with <code>/S</code>; uninstall entry in HKCU with <code>InstallLocation</code>.</dd>
           <dt>Portable</dt><dd><b>Single exe.</b> Extracts to temp, keeps its own profile, leaves no installed state.</dd>
+          <dt>Android</dt><dd><b>Signed APK, installed straight from the browser.</b> No Play account, no review, no fee — the link above is the same one after every tag, and the app updates over the build that is already installed. The download route is the release page: <code>releases/latest/download/WARDEN-android.apk</code>.</dd>
           <dt>Profile</dt><dd><b>%APPDATA%\WARDEN</b> — settings, history, bookmarks. No cookie jar, ever.</dd>
           <dt>Signing</dt><dd>Built unsigned today. Signed free through SignPath Foundation's open-source programme once the project is approved; a self-signed path exists for fleets that deploy their own root.</dd>
           <dt>Fleet tooling</dt><dd>PowerShell install/detect/uninstall script, an Intune <code>win32LobApp</code> definition, and a Graph app creator.</dd>
