@@ -36,11 +36,18 @@ function git(args: string[], options: RunOptions = {}): string {
   return (result.stdout ?? '').trim()
 }
 
-/** A temp repo holding the real hooks and scripts, committed as they are. */
-function makeRepo(): string {
+/**
+ * A temp repo holding the real hooks and scripts, committed as they are.
+ *
+ * `files` are written before that seed commit and therefore land while no hook
+ * is installed -- the only way a fixture can hold text the guard would refuse
+ * today, which is what the added-lines case needs.
+ */
+function makeRepo(files: Record<string, string> = {}): string {
   const created = mkdtempSync(join(tmpdir(), 'warden-hooks-'))
   cpSync(join(repoRoot, '.githooks'), join(created, '.githooks'), { recursive: true })
   cpSync(join(repoRoot, 'scripts'), join(created, 'scripts'), { recursive: true })
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(created, name), content)
   const identity = ['-c', 'user.email=t@example.com', '-c', 'user.name=T']
   git(['init', '-q'], { cwd: created })
   git([...identity, 'add', '.'], { cwd: created })
@@ -243,5 +250,40 @@ describe('install-hooks against a throwaway repository', () => {
     const clean = commit('probe: document the runbook\n')
     expect(clean.status).toBe(0)
     expect(git(['rev-parse', 'HEAD'])).not.toBe(seed)
+  })
+
+  it('scans only the added lines, so existing text never re-trips the guard', () => {
+    if (!posix) return // the hooks are bash; git for windows is a different surface
+    // Committed before the hooks exist, which is how such a line can be in a
+    // repository at all: the guard judges what a commit introduces, not what is
+    // already in history.
+    const trailer = ['Co-Authored-By', 'Someone Else <else@example.com>'].join(': ')
+    dir = makeRepo({ 'legacy.md': `# Legacy notes\n\n${trailer}\n` })
+    expect(install().status).toBe(0)
+
+    const seed = git(['rev-parse', 'HEAD'])
+    // Edit a different line: the trailer survives as unchanged context, and
+    // `-U0` never puts it in the staged diff.
+    writeFileSync(join(dir, 'legacy.md'), `# Legacy notes, revised\n\n${trailer}\n`)
+    git(['add', 'legacy.md'])
+
+    const edited = commit('probe: revise the legacy notes\n')
+    expect(edited.status).toBe(0)
+    expect(git(['rev-parse', 'HEAD'])).not.toBe(seed)
+    // Still in the file, untouched: grandfathered rather than quietly stripped.
+    expect(git(['show', 'HEAD:legacy.md'])).toContain(trailer)
+
+    // The scope is the added line, not the file. Rewriting that same line makes
+    // it a new line, and that is blocked -- otherwise "only added lines" would
+    // just mean "this file is exempt now".
+    const advanced = git(['rev-parse', 'HEAD'])
+    const rewritten = ['Co-Authored-By', 'Somebody Else <somebody@example.com>'].join(': ')
+    writeFileSync(join(dir, 'legacy.md'), `# Legacy notes, revised\n\n${rewritten}\n`)
+    git(['add', 'legacy.md'])
+
+    const blocked = commit('probe: rewrite the credit line\n')
+    expect(blocked.status).not.toBe(0)
+    expect(blocked.stderr).toContain('bad trailer')
+    expect(git(['rev-parse', 'HEAD'])).toBe(advanced)
   })
 })
