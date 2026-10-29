@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">WARDEN</string>
-    <string name="title_activity_main">WARDEN</string>
+    <string name="app_name">WARDEN Mobile</string>
+    <string name="title_activity_main">WARDEN Mobile</string>
     <string name="package_name">us.innotel.warden</string>
     <string name="custom_url_scheme">us.innotel.warden</string>
 </resources>

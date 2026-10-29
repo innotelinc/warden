@@ -6,7 +6,9 @@ import type { CapacitorConfig } from '@capacitor/cli'
  */
 const config: CapacitorConfig = {
   appId: 'us.innotel.warden',
-  appName: 'WARDEN',
+  // The store name. The identifier is what a release is bound to, so only the
+  // display name changes here: Mobile is the same app, named for what it is.
+  appName: 'WARDEN Mobile',
   webDir: 'dist',
   // The shell is local. Anything a user opens leaves through the platform's
   // browser surface (Custom Tabs / SFSafariViewController), not an embedded

@@ -1,9 +1,9 @@
 {
   "packageId": "us.innotel.warden",
   "defaultLanguage": "en-US",
-  "title": "WARDEN — private browser",
-  "shortDescription": "Privacy-first browsing for admins: no account, no telemetry, no sensors.",
-  "fullDescription": "WARDEN is a privacy-first browser and operator console for security and network administrators.\n\nThis mobile build is the secure entry point: it opens pages in the system browser (Chrome Custom Tabs), stores nothing of its own about what you read, ships no analytics, crash or advertising SDKs, and tells you what the session's posture actually is instead of showing a green shield and hoping.\n\nWHAT IT DOES\n• Nothing stored: no browsing history, no profile, no identifiers and no account — the app keeps only its own preferences.\n• System browser: pages open in Chrome Custom Tabs, which the app cannot read or script, so a page never shares a session with the app's interface.\n• No telemetry: no analytics SDK, no crash reporter, no tracking identifiers, no ad SDKs.\n• No sensor access: the app never requests camera or microphone.\n• 38 KB of UI, no bundled trackers, no in-app purchases.\n\nThe desktop WARDEN (Windows) adds request-level ad and tracker blocking, a PTY shell, mail, messaging and site deconstruction. The mobile app is the companion entry point while the embedded engine lands; the plan is public in the repository.\n\nWHO IT IS FOR\nSecurity administrators and network administrators who want a browser that refuses by default and explains its refusals. No account required, no configuration to start.\n\nPRIVACY POLICY\nhttps://innotelinc.github.io/warden/privacy.html",
+  "title": "WARDEN Mobile",
+  "shortDescription": "Private browser with ad blocking for admins: no account, no telemetry.",
+  "fullDescription": "WARDEN Mobile is a privacy-first browser for security and network administrators, and the mobile companion to WARDEN for Windows.\n\nIt is a browser, not a launcher: pages render in the app's own web view with WARDEN's address bar, back, forward, reload and progress line, and requests to known ad and tracker hosts are refused before they leave the app. The empty slot a blocked ad leaves behind is removed so the page closes up.\n\nWHAT IT DOES\n• Real browser surface: the page and its chrome belong to the app, not to a browser app you did not choose.\n• Ad and tracker blocking: ad and tracker hosts are blocked at the request level, and a cosmetic pass removes the containers a blocked ad leaves behind.\n• Session wiped: cookies, web storage and cache are cleared when the browser closes. No history, no profile, no account — the app keeps only its own preferences.\n• No third-party cookies: a page keeps its own session cookie so a login still works; nothing follows the reader between sites.\n• No telemetry: no analytics SDK, no crash reporter, no tracking identifiers, no ad SDKs.\n• No sensor access: the app never requests camera or microphone.\n\nNOT IN THIS BUILD\nDNS over HTTPS, per-tab isolation and the desktop build's operator surfaces (shell, mail, messaging, site deconstruction) are planned in the public repository and are not here yet. The app says so on its own screen rather than implying otherwise.\n\nWHO IT IS FOR\nSecurity administrators and network administrators who want a browser that refuses by default and explains its refusals. No account required, no configuration to start.\n\nPRIVACY POLICY\nhttps://innotelinc.github.io/warden/privacy.html",
   "category": "TOOLS",
   "contactEmail": "dhunter@innotel.us",
   "contactWebsite": "https://github.com/innotelinc/warden",
@@ -22,7 +22,11 @@
   "graphics": {
     "icon": "icon-512.png",
     "featureGraphic": "feature-graphic-1024x500.png",
-    "phoneScreenshots": ["phone-1.png", "phone-2.png", "phone-3.png"]
+    "phoneScreenshots": [
+      "phone-1.png",
+      "phone-2.png",
+      "phone-3.png"
+    ]
   },
   "releaseTrack": "internal → closed → production",
   "notes": "Upload the signed .aab produced by .github/workflows/mobile-android.yml. First release also needs the Play Console data-safety form filled from dataSafety above and the content-rating questionnaire answered as described."

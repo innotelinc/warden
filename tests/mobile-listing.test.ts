@@ -72,16 +72,21 @@ describe('iOS store listing', () => {
 
   /** Review notes are read by a person deciding whether this is a wrapper. */
   it('tells the reviewer how to test and what the app actually is', () => {
-    expect(listing.reviewNotes).toContain('SFSafariViewController')
+    // The surface is the app's own WKWebView with its own chrome — saying
+    // SFSafariViewController here would describe a previous build.
+    expect(listing.reviewNotes).toContain('WKWebView')
+    expect(listing.reviewNotes).not.toContain('SFSafariViewController')
     expect(listing.reviewNotes).toMatch(/example\.com/)
     expect(listing.reviewNotes).toMatch(/No sign-in/i)
     expect(listing.reviewNotes).toMatch(/unrestricted web access/i)
+    // A reviewer is told how to see the blocking work, not just told it exists.
+    expect(listing.reviewNotes).toMatch(/ad requests are refused/i)
   })
 
   it('does not promise app-bound-domain breaks it cannot keep', () => {
     // The listing may describe what ships; the roadmap belongs in a sentence
-    // that says it is not here yet.
-    expect(listing.description).toMatch(/does not block ads or trackers/i)
+    // that says it is not here yet. Blocking ships; DNS encryption does not.
+    expect(listing.description).toMatch(/does not encrypt DNS/i)
   })
 })
 
@@ -90,15 +95,18 @@ describe('claims the mobile build cannot back up', () => {
     /encrypted DNS/i,
     /DNS-over-HTTPS/i,
     /DoH is enforced/i,
-    /blocks? (ads|trackers|advertisements) (and|&) (trackers|ads)/i,
+    /tabs are isolated/i,
   ]
 
   /**
-   * There is no DNS profile in the app and no request filtering — Phase 2 of
-   * docs/MOBILE.md. Saying otherwise to a reviewer, or to a user on the first
-   * screen, is the one kind of marketing this project should not do.
+   * Request filtering and the cosmetic pass do ship now, on both platforms, so
+   * they are no longer on this list. What does not ship is DNS encryption: there
+   * is no DNS profile in the app. Saying otherwise to a reviewer, or to a user
+   * on the first screen, is the one kind of marketing this project should not do.
+   * (The copy is allowed to say it does *not* isolate tabs — that is the honest
+   * half of the same rule, so only positive claims are forbidden.)
    */
-  it('never claims DNS encryption or tracker blocking', () => {
+  it('never claims DNS encryption or tab isolation', () => {
     for (const pattern of forbidden) {
       expect(shell).not.toMatch(pattern)
     }
@@ -115,14 +123,19 @@ describe('claims the mobile build cannot back up', () => {
   })
 
   /** What the posture screen says has to match what the code does. */
-  it('keeps the posture screen to things the shell does', () => {
+  it('keeps the posture screen to things the app does', () => {
     const posture = read('mobile/src/App.tsx')
-    // The shell is its own browser surface now, and it says so; the two claims
-    // that were false in an earlier build must not come back in any form.
-    expect(posture).toContain('A real address bar')
-    expect(posture).toContain('Nothing on disk')
-    expect(posture).not.toMatch(/DoH is enforced|Encrypted DNS/i)
+    // Each of these maps to something in the native surfaces: a WebView the app
+    // presents, request blocking in shouldInterceptRequest / WKContentRuleList,
+    // the cosmetic pass, third-party cookies off, and the teardown that clears
+    // cookies, storage and cache when the surface closes.
+    expect(posture).toContain('A real engine')
+    expect(posture).toContain('Ad and tracker blocking')
+    expect(posture).toContain('The slot goes too')
+    expect(posture).toContain('No third-party cookies')
+    expect(posture).toContain('Session wiped')
     expect(posture).toContain('No telemetry')
-    expect(posture).toContain('Sensors')
+    // Claims the app cannot back still must not appear.
+    expect(posture).not.toMatch(/DoH is enforced|Encrypted DNS|per-tab isolation/i)
   })
 })

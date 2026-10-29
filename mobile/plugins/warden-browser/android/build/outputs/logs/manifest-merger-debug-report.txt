@@ -1,0 +1,36 @@
+-- Merging decision tree log ---
+manifest
+ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:2:1-24:12
+INJECTED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:2:1-24:12
+	package
+		INJECTED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml
+	xmlns:android
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:2:11-69
+application
+ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:4:5-23:19
+activity#us.innotel.warden.browser.WardenBrowserActivity
+ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:14:9-22:58
+	android:label
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:19:13-42
+	android:launchMode
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:20:13-43
+	android:hardwareAccelerated
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:18:13-47
+	android:windowSoftInputMode
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:22:13-55
+	android:exported
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:17:13-37
+	android:configChanges
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:16:13-140
+	android:theme
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:21:13-75
+	android:name
+		ADDED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml:15:13-50
+uses-sdk
+INJECTED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml
+INJECTED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from C:\Users\Darnel\.freebuff\worktrees\0cffcecc\ea6e22ed59e77196a65e824e978241c5b7d93f55d2ab325e\mobile\plugins\warden-browser\android\src\main\AndroidManifest.xml

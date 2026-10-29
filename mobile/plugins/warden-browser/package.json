@@ -1,14 +1,18 @@
 {
   "name": "warden-browser",
   "version": "0.2.15",
-  "description": "WARDEN's in-app browser surface for iOS",
+  "description": "WARDEN's in-app browser surface for Android and iOS",
   "private": true,
   "main": "src/index.js",
   "files": [
+    "android",
     "ios",
     "src"
   ],
   "capacitor": {
+    "android": {
+      "src": "android"
+    },
     "ios": {
       "src": "ios"
     }

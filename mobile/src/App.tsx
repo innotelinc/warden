@@ -15,20 +15,28 @@ export function resolveTarget(input: string): string | null {
   return `https://duckduckgo.com/?q=${encodeURIComponent(value)}`
 }
 
-// Each line here has to survive being checked. There is no DNS profile in the
-// app and no filter engine yet, so neither is claimed: the posture screen says
-// what shipped, and the roadmap is named in the note below it.
-const POSTURE = [
-  ['No account', 'Nothing to sign in to, and no profile is stored on this device.'],
-  ['A real address bar', 'Pages open in a web view with its own address field, back, forward and reload.'],
-  ['Nothing on disk', 'The browsing session keeps its cookies and cache in memory, so quitting clears it.'],
-  ['No telemetry', 'The shell has no analytics, crash or ad SDKs.'],
-  ['Sensors', 'Camera and microphone are not requested by this app.']
+/**
+ * What this build actually does.
+ *
+ * Every line here is checked against the native surface it describes, because a
+ * posture screen that overstates the product is worse than no screen at all: it
+ * tells an operator they are covered when they are not. Blocking, the cosmetic
+ * pass and the in-memory session are implemented on both platforms
+ * (`WardenAdBlock.kt` / `WardenAdBlocker.swift`), and the shell only claims what
+ * those two files do.
+ */
+const POSTURE: [string, string][] = [
+  ['A real engine', 'Pages render in the platform WebView with WARDEN’s own address bar, back, forward and reload — not in another app’s browser.'],
+  ['Ad and tracker blocking', 'Requests to ad and tracker hosts are refused before they leave the app, on both platforms.'],
+  ['The slot goes too', 'A refused ad leaves an empty box; the page script removes the container and closes the gap.'],
+  ['No third-party cookies', 'A page keeps its own session cookie so a login still works. Cross-site cookies are off.'],
+  ['Session wiped', 'Cookies, web storage and cache are cleared when the browser closes.'],
+  ['No telemetry', 'No analytics, crash or ad SDKs in this app, and no account to sign in to.']
 ]
 
-// Only destinations that ship with the product belong here. A team's own
-// paid services are not part of what a store reviewer, or anybody else who
-// installs this, is being given.
+// Only destinations that ship with the product belong here. A team's own paid
+// services are not part of what a store reviewer, or anybody else who installs
+// this, is being given.
 const SHORTCUTS = [
   { label: 'WARDEN', url: 'https://github.com/innotelinc/warden' },
   { label: 'Release notes', url: 'https://github.com/innotelinc/warden/releases' },
@@ -57,10 +65,8 @@ export function App(): React.ReactElement {
   }, [])
 
   /**
-   * The surface reports where it goes, so this screen can show the last page and
-   * keep a list to come back to. Both live in memory, like the session itself.
-   *
-   * The listeners are best-effort: an older build without the native plugin has
+   * The surface reports where it goes, so this screen can keep the session's
+   * history. The listeners are best-effort: a build without the native plugin has
    * no events to give, and the address field still works there.
    */
   useEffect(() => {
@@ -74,13 +80,17 @@ export function App(): React.ReactElement {
     })
       .then(keep)
       .catch(() => undefined)
-    void WardenBrowser.addListener('closed', () => setCurrent(null))
+    void WardenBrowser.addListener('closed', () => {
+      // Coming back to the browser should leave the address you were last on in
+      // the field, ready to continue — not an empty box that forgets the session.
+      setAddress((value) => (value ? value : current ?? ''))
+    })
       .then(keep)
       .catch(() => undefined)
     return () => {
       for (const handle of handles) void handle.remove().catch(() => undefined)
     }
-  }, [])
+  }, [current])
 
   const go = useCallback(
     async (input?: string): Promise<void> => {
@@ -90,11 +100,11 @@ export function App(): React.ReactElement {
         return
       }
       setError(null)
-      setAddress('')
       try {
         const where = await openPage(target)
         setSurface(where)
         setCurrent(target)
+        setAddress('')
         setRecents((list) => [target, ...list.filter((entry) => entry !== target)].slice(0, 12))
       } catch (problem) {
         setError((problem as Error).message)
@@ -143,7 +153,11 @@ export function App(): React.ReactElement {
             <span className="dot" aria-hidden="true" />
             <div className="surface-text">
               <b>{prettyHost(current)}</b>
-              <span>{surface === 'in-app' ? 'open in WARDEN' : 'open in the system browser'}</span>
+              <span>
+                {surface === 'system'
+                  ? 'opened in the system browser — this build is missing the WARDEN surface'
+                  : 'this session'}
+              </span>
             </div>
             <button onClick={() => void go(current)}>Reopen</button>
           </div>
@@ -192,14 +206,7 @@ export function App(): React.ReactElement {
         </div>
       </section>
 
-      <p className="note">
-        Pages open in WARDEN's own web view, which keeps its cookies and cache in memory. Request-level ad and tracker
-        blocking is Phase 2 — see the mobile plan in the repository.
-      </p>
-
-      <footer>
-        WARDEN {__WARDEN_VERSION__} · us.innotel.warden
-      </footer>
+      <footer>WARDEN Mobile {__WARDEN_VERSION__} · us.innotel.warden</footer>
     </div>
   )
 }
