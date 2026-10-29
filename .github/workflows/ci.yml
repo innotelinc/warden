@@ -48,6 +48,33 @@ jobs:
       - name: Unit tests
         run: npm test
 
+  # The hook installer writes a git setting and repairs a POSIX mode, so the
+  # Linux job above is where the execute-bit cases run. Windows is the other
+  # half of that story and the one an operator actually meets: the installer
+  # has a win32 branch that records no mode at all, and it runs from `prepare`
+  # on every `npm ci`. Without this job a Windows-only break in it would first
+  # show up on someone's laptop.
+  hooks-windows:
+    name: Hook installer (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          # The version the desktop package declares in `engines`.
+          node-version: '24'
+          cache: npm
+      # `npm ci` runs the `prepare` script, which is the installer under test:
+      # if it cannot run on Windows, this step fails first and says so.
+      - name: Install
+        run: npm ci
+      # The bash-only cases skip themselves on win32, so what this runs is the
+      # installer itself: the setting it writes, the `core.hooksPath` it refuses
+      # to replace, the opt-out, and a directory that is not a checkout.
+      # A cold Windows runner starts each child process slowly, hence the timeout.
+      - name: Installer integration tests
+        run: npx vitest run tests/install-hooks.integration.test.ts --testTimeout=40000
+
   structure:
     name: Repository structure
     runs-on: ubuntu-latest
@@ -63,7 +90,7 @@ jobs:
       - name: .gitignore covers .env
         run: |
           set -euo pipefail
-          grep -q '^\.env' .gitignore || { echo "::error::.gitignore does not list .env"; exit 1; }
+          grep -q '^\\.env' .gitignore || { echo "::error::.gitignore does not list .env"; exit 1; }
           echo ".gitignore: ok"
       # Git skips a hook that is not executable and says nothing about it, so a
       # mode lost on the way in (the GitHub file API cannot record one) turns
@@ -117,10 +144,10 @@ jobs:
           # from the GitHub API: 60 unauthenticated requests an hour is a budget
           # one office behind a NAT can spend, and a browser-only caption is the
           # first thing to go blank when it does.
-          if grep -q 'api\.github\.com' "$f"; then
+          if grep -q 'api\\.github\\.com' "$f"; then
             echo "::error::landing calls the GitHub API; it must read release.json"; exit 1
           fi
-          grep -q 'release\.json' "$f" || { echo "::error::landing does not read release.json"; exit 1; }
+          grep -q 'release\\.json' "$f" || { echo "::error::landing does not read release.json"; exit 1; }
           node -e '
             const r = require("./web/landing/release.json");
             for (const key of ["version", "tag", "publishedAt", "page", "windows", "android"]) {
