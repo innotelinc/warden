@@ -1,14 +1,14 @@
 {
-  "version": "0.2.18",
-  "tag": "v0.2.18",
-  "publishedAt": "2026-10-29T07:44:51Z",
-  "page": "https://github.com/innotelinc/warden/releases/tag/v0.2.18",
+  "version": "0.2.20",
+  "tag": "v0.2.20",
+  "publishedAt": "2026-10-29T19:41:30Z",
+  "page": "https://github.com/innotelinc/warden/releases/tag/v0.2.20",
   "windows": {
-    "installer": "https://github.com/innotelinc/warden/releases/download/v0.2.18/WARDEN-Setup-0.2.18.exe",
-    "portable": "https://github.com/innotelinc/warden/releases/download/v0.2.18/WARDEN-Portable-0.2.18.exe"
+    "installer": "https://github.com/innotelinc/warden/releases/download/v0.2.20/WARDEN-Setup-0.2.20.exe",
+    "portable": "https://github.com/innotelinc/warden/releases/download/v0.2.20/WARDEN-Portable-0.2.20.exe"
   },
   "android": {
-    "apk": "https://github.com/innotelinc/warden/releases/download/v0.2.18/WARDEN-android.apk",
-    "bytes": 3319096
+    "apk": "https://github.com/innotelinc/warden/releases/download/v0.2.20/WARDEN-android.apk",
+    "bytes": 3319091
   }
 }
