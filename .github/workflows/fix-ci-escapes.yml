@@ -1,0 +1,74 @@
+name: Fix ci.yml escapes
+
+# Temporary. ci.yml written through the contents API arrived with three grep
+# patterns escaped twice — the mistake the escaped-pattern check exists to
+# catch, made by hand-transcribing a file too large to send twice. This
+# collapses the doubled backslashes, refuses to commit unless the result
+# hashes to the file that was tested, and removes itself in the same commit.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Collapse the doubled escapes
+        shell: bash
+        env:
+          EXPECTED_BLOB: adbd80516b3f9f677a3352212dd69d74bd951eae
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          path = pathlib.Path(".github/workflows/ci.yml")
+          text = path.read_text(encoding="utf-8")
+          fixed = text.replace("\\\\", "\\")
+          if fixed == text:
+              sys.exit("no doubled backslash found: nothing to fix")
+          path.write_text(fixed, encoding="utf-8")
+
+          actual = subprocess.run(
+              ["git", "hash-object", str(path)],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.strip()
+          expected = os.environ["EXPECTED_BLOB"]
+          if actual != expected:
+              subprocess.run(["git", "checkout", "--", str(path)], check=True)
+              sys.exit(f"ci.yml hashed {actual}, expected {expected}: not committed")
+          print(f"ci.yml blob matches {actual}")
+          PY
+
+      - name: Commit to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "WARDEN ci"
+          git config user.email "noreply@github.com"
+          {
+            echo "Undo the doubled backslashes in ci.yml"
+            echo
+            echo "The file was written through the contents API, which needed the"
+            echo "backslashes escaped for JSON, and three grep patterns kept both"
+            echo "copies. The escaped-pattern check catches exactly this, so the"
+            echo "workflow that wrote it could not have passed its own job."
+          } > /tmp/message.txt
+          git rm -q .github/workflows/fix-ci-escapes.yml
+          git add .github/workflows/ci.yml
+          git commit -F /tmp/message.txt
+          git push origin HEAD:main
+          git log --oneline -1
