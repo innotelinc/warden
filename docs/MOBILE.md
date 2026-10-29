@@ -269,7 +269,9 @@ behave exactly as they did.
    `FIREBASE_TESTER_GROUPS`.
 5. Run **Mobile (Android)** without ticking `dry_run`, or push a `v*` tag: the
    signed APK is distributed to the group. A dry run builds and stops, because
-   `dry_run` means "do not publish".
+   `dry_run` means "do not publish". iOS works the same way through
+   `upload_to_testflight`: a tag publishes, and a manual run publishes only when
+   that box is ticked, so the two boxes mean the same thing on both platforms.
 
 **This repository is already registered**, so the steps above are only needed
 for a fork: project `warden-innotel`, Android app
@@ -333,8 +335,11 @@ with `web/landing/privacy.html` as the policy URL.
    of 0.2.4 is accepted.
 4. A tag push archives with automatic signing, exports with
    `destination=upload` and lands in **TestFlight**; no `altool` or Transporter
-   step exists any more. A manual run exports a signed `.ipa` and attaches it to
-   the `warden-ios` artifact unless `upload_to_testflight` is ticked.
+   step exists any more. A manual run **stops at the archive** unless
+   `upload_to_testflight` is ticked: the `warden-ios` artifact holds the
+   `.xcarchive` to inspect, and nothing is exported, uploaded to TestFlight or
+   sent to testers. The box is the single decision — the export, the ad hoc
+   export, the profile check and the App Distribution publish all follow it.
 5. Put the build in front of a phone. A `VALID` build reaches nobody until a
    **TestFlight group** holds it and an **internal tester** sits in that group,
    so: Apps → WARDEN → TestFlight → Internal Testing → a group (create one with

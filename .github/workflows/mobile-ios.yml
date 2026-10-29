@@ -13,9 +13,11 @@ name: Mobile (iOS)
 # only for those, and an App Manager key archives and then fails the export with
 # "Cloud signing permission error". A Team Key's role is fixed once generated.
 #
-# A push of a v* tag builds that tag's version and uploads it to TestFlight. A
-# manual run builds the version in mobile/package.json and only uploads when the
-# `upload_to_testflight` box is ticked, so a dry run never publishes.
+# A push of a v* tag builds that tag's version, uploads it to TestFlight and
+# hands it to App Distribution. A manual run builds the version in
+# mobile/package.json and, unless the `upload_to_testflight` box is ticked, stops
+# at the archive: it exports nothing, uploads nothing, and sends nothing to
+# anyone's inbox.
 # Without the App Store Connect key the job still archives — unsigned, for
 # inspection — instead of failing on empty credentials.
 
@@ -141,20 +143,25 @@ jobs:
           echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "WARDEN ${VERSION} (${GITHUB_RUN_NUMBER})"
 
-      - name: Decide whether to upload
+      # One decision for the whole publishing half of the job: the store export,
+      # the ad hoc export, the profile check and the App Distribution publish all
+      # read this output. They used to be gated on their own configuration, which
+      # meant a manual run that asked for nothing still exported an ad hoc ipa and
+      # emailed it to the tester group.
+      - name: Decide whether to publish
         id: upload
         env:
           REQUESTED: ${{ github.event_name == 'push' || inputs.upload_to_testflight }}
         run: |
           if [ -z "${ASC_KEY_ID:-}" ]; then
             echo "value=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No App Store Connect key configured — archiving unsigned, skipping the .ipa and TestFlight."
+            echo "::notice::No App Store Connect key configured — archiving unsigned for inspection; nothing is exported or published."
           elif [ "${REQUESTED}" = "true" ]; then
             echo "value=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Build will be uploaded to TestFlight."
+            echo "::notice::Build will be uploaded to TestFlight and App Distribution."
           else
             echo "value=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Upload not requested — exporting a signed .ipa for manual upload."
+            echo "::notice::Upload not requested — the run stops at the archive. Tick upload_to_testflight to upload this build."
           fi
 
       - name: Install
@@ -211,14 +218,16 @@ jobs:
 
       # `destination=upload` hands the build to App Store Connect from the same
       # export Xcode already does, so TestFlight needs no altool/Transporter step.
+      # It only runs when the build is being uploaded: an export is signing and
+      # network on top of the archive, and a manual run that asked for nothing
+      # should not pay for either.
       - name: Export ipa
-        if: env.ASC_KEY_ID != ''
+        if: steps.upload.outputs.value == 'true'
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           VERSION: ${{ steps.version.outputs.version }}
-          DESTINATION: ${{ steps.upload.outputs.value == 'true' && 'upload' || 'export' }}
         working-directory: mobile/ios/App
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
@@ -229,7 +238,7 @@ jobs:
             <key>signingStyle</key><string>automatic</string>
             <key>teamID</key><string>$TEAM_ID</string>
             <key>uploadSymbols</key><true/>
-            <key>destination</key><string>$DESTINATION</string>
+            <key>destination</key><string>upload</string>
           </dict></plist>
           EOF
           xcodebuild -exportArchive \
@@ -247,7 +256,7 @@ jobs:
       # directory is the success case, not a failure — this step going red after
       # a successful upload is how a green run looks like a broken one.
       - name: Name the build
-        if: env.ASC_KEY_ID != ''
+        if: steps.upload.outputs.value == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -265,9 +274,10 @@ jobs:
       # disk because `destination=upload` sends it straight to TestFlight. So this
       # is a second export of the same archive with a different method, run only
       # once an iOS app id is configured — before that there is no profile to
-      # make, because no device is registered.
+      # make, because no device is registered — and only when this run is
+      # uploading, so a manual build nobody asked to publish notifies nobody.
       - name: Export an ad hoc ipa
-        if: env.FIREBASE_IOS_APP_ID != '' && env.ASC_KEY_ID != ''
+        if: env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true'
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -301,7 +311,7 @@ jobs:
       # back out of the ipa that is about to be uploaded and compared with the
       # devices the account has. It runs before the upload for that reason.
       - name: Check the ad hoc profile names the registered devices
-        if: env.FIREBASE_IOS_APP_ID != '' && env.ASC_KEY_ID != ''
+        if: env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true'
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -310,7 +320,7 @@ jobs:
         run: python3 "$GITHUB_WORKSPACE/scripts/verify-adhoc-profile.py" "$RUNNER_TEMP/adhoc/WARDEN-${VERSION}.ipa"
 
       - name: Publish to Firebase App Distribution
-        if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.ASC_KEY_ID != ''
+        if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && steps.upload.outputs.value == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |

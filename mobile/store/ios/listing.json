@@ -41,5 +41,5 @@
     },
     "note": "Both sizes are required because TARGETED_DEVICE_FAMILY is \"1,2\". They must be captured from the running build on a device or simulator; nothing in this repository can produce them."
   },
-  "notes": "Push a v* tag: .github/workflows/mobile-ios.yml archives, exports and uploads the build to TestFlight. Manual runs export a signed .ipa unless upload_to_testflight is ticked. Check processing with the 'iOS build status' workflow. Fill App Privacy as 'Data Not Collected' — App/PrivacyInfo.xcprivacy says the same inside the bundle. Answer 'Unrestricted Web Access: Yes' for the 16+ rating."
+  "notes": "Push a v* tag: .github/workflows/mobile-ios.yml archives, exports and uploads the build to TestFlight. Manual runs stop at the archive unless upload_to_testflight is ticked. Check processing with the 'iOS build status' workflow. Fill App Privacy as 'Data Not Collected' — App/PrivacyInfo.xcprivacy says the same inside the bundle. Answer 'Unrestricted Web Access: Yes' for the 16+ rating."
 }

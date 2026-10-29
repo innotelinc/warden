@@ -188,11 +188,50 @@ describe('iOS App Distribution', () => {
   })
 
   it('stays inert until an iOS app id is configured', () => {
-    expect(workflow).toContain("if: env.FIREBASE_IOS_APP_ID != '' && env.ASC_KEY_ID != ''")
     expect(workflow).toContain(
-      "if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.ASC_KEY_ID != ''"
+      "if: env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true'"
+    )
+    expect(workflow).toContain(
+      "if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && steps.upload.outputs.value == 'true'"
     )
     expect(workflow).toContain('appdistribution:distribute')
+  })
+})
+
+/**
+ * A manual run is how the archive is checked after an Xcode or SDK change. It
+ * used to archive, export an ad hoc ipa and email it to the tester group as
+ * well, whether or not an upload was asked for — so "does it still compile"
+ * spent a build number on TestFlight and interrupted every tester. The tick box
+ * is the whole decision now, and it covers the store export too.
+ */
+describe('iOS manual runs', () => {
+  const workflow = read('.github/workflows/mobile-ios.yml')
+
+  /** The `if:` that belongs to a named step. */
+  const gate = (step: string): string =>
+    workflow
+      .slice(workflow.indexOf(`- name: ${step}`))
+      .split('\n')
+      .find((line) => line.trimStart().startsWith('if:')) ?? ''
+
+  it('stops at the archive until upload_to_testflight is ticked', () => {
+    expect(workflow).toContain(
+      "REQUESTED: ${{ github.event_name == 'push' || inputs.upload_to_testflight }}"
+    )
+    for (const step of [
+      'Export ipa',
+      'Export an ad hoc ipa',
+      'Check the ad hoc profile names the registered devices',
+      'Publish to Firebase App Distribution',
+    ]) {
+      expect(gate(step), step).toContain("steps.upload.outputs.value == 'true'")
+    }
+  })
+
+  it('no longer writes an ipa that nobody asked to upload', () => {
+    expect(workflow).not.toContain("'upload' || 'export'")
+    expect(workflow).toContain('<key>destination</key><string>upload</string>')
   })
 })
 
