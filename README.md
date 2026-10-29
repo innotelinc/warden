@@ -530,6 +530,14 @@ That is the whole free distribution route — no Play account, no review, no $25
 APK is signed with the same upload key a Play release would use, so configuring Play later changes
 nothing on a phone that already has it.
 
+The landing page names the release it is offering and pins both download buttons to that tag, from
+`web/landing/release.json` — a file the Pages deploy regenerates with
+`scripts/landing-release-json.mjs` each time a release job finishes. It is generated rather than typed
+in, and it is served from the site itself: a caption filled by a browser call to api.github.com would
+be spending a 60-an-hour budget the visitor's whole network shares. The generator only ever names a
+release that carries all three artifacts, so a tag whose APK is still uploading cannot become the
+version the page advertises.
+
 ---
 
 ## Keyboard

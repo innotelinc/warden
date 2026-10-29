@@ -255,8 +255,8 @@
           private surfaces in a Capacitor shell.
         </p>
         <div class="cta">
-          <a class="btn primary" href="https://github.com/innotelinc/warden/releases/latest">Download for Windows</a>
-          <a class="btn" href="https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk">Download for Android (.apk)</a>
+          <a class="btn primary" data-download="windows" href="https://github.com/innotelinc/warden/releases/latest">Download for Windows</a>
+          <a class="btn" data-download="android" href="https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk">Download for Android (.apk)</a>
           <a class="btn" href="https://github.com/innotelinc/warden#readme">Read the source</a>
           <a class="btn" href="#privacy">Privacy model</a>
         </div>
@@ -487,12 +487,15 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
       </div>
 
       <div class="android-card">
+        <!-- The image is fixed the moment it is drawn, so it carries the rolling
+             link. The button beside it is pinned to the release named below, and
+             the two agree except across the seconds a new tag is being uploaded. -->
         <img class="qr" src="android-apk-qr.svg" alt="QR code that opens the WARDEN Android APK download" width="128" height="128" loading="lazy">
         <div>
           <div class="android-k">Android · signed APK</div>
           <p>
             Point the phone's camera at the code, or open
-            <a href="https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk">releases/latest/download/WARDEN-android.apk</a>.
+            <a data-download="android" data-download-path href="https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk">releases/latest/download/WARDEN-android.apk</a>.
             It installs straight from the browser — no Play account, no review, no fee — and the next
             release replaces it in place.
           </p>
@@ -515,77 +518,55 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
 </footer>
 
 <script>
-  // This page is static and Pages republishes on a push, not on a tag, so a
-  // hard-coded version would advertise an old build from the moment the next
-  // release is cut. One request to the repository's own API keeps the captions
-  // honest; offline or rate-limited they stay "on GitHub" rather than claiming
-  // a version they cannot see. The download links are permanent, so only the
-  // captions depend on this.
+  // The release this page advertises is a file on this origin — release.json,
+  // written when the site is deployed from the artifacts a release actually
+  // carries (scripts/landing-release-json.mjs). One small same-origin request,
+  // no rate limit, and no third party anywhere in the download path.
   //
-  // The unauthenticated API allows 60 requests an hour, counted per address,
-  // which an office behind one NAT can spend in a minute of reloading. So the
-  // answer is kept in the browser — shared by every tab, so ten reloads cost one
-  // request — and reused for half an hour. A release cut inside that window
-  // shows the previous build until the entry expires; that bounded lag is the
-  // price of not going blind as soon as the limit runs out. A failed lookup is
-  // remembered for a few minutes as well, so an exhausted address does not
-  // retry on every load and keep itself exhausted.
+  // Two things come out of it: the caption names the build, and both buttons are
+  // pinned to that tag. Pinned, not "latest": the installers and the APK are
+  // uploaded by two different workflows minutes apart, so a rolling link can
+  // hand one visitor the new installer and an older APK from the same page.
+  // Without the file — offline, or a first deploy — the buttons keep the rolling
+  // links in the markup and the caption stays "on GitHub" rather than claiming
+  // a version it cannot see.
   (async () => {
     const labels = document.querySelectorAll('[data-release]');
+    const windows = document.querySelector('[data-download="windows"]');
+    const androids = document.querySelectorAll('[data-download="android"]');
     if (!labels.length) return;
 
-    const KEY = 'warden:release:latest';
-    const FRESH_FOR = 30 * 60 * 1000;
-    const HOLD_FAILURE_FOR = 5 * 60 * 1000;
-
-    const show = (text) => { for (const label of labels) label.textContent = text; };
-
-    const read = () => {
-      try {
-        const entry = JSON.parse(localStorage.getItem(KEY) || 'null');
-        return entry && typeof entry.at === 'number' ? entry : null;
-      } catch {
-        return null; // storage disabled, or something else wrote this key
-      }
-    };
-    const write = (text) => {
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), text: String(text || '') }));
-      } catch {
-        // Private mode: no cache, and the caption still resolves per load.
-      }
-    };
-
-    const cached = read();
-    if (cached) {
-      if (cached.text) {
-        // Shown before revalidating, so an expired entry never flashes neutral.
-        show(cached.text);
-        if (Date.now() - cached.at < FRESH_FOR) return;
-      } else if (Date.now() - cached.at < HOLD_FAILURE_FOR) {
-        return;
-      }
-    }
-
     try {
-      const res = await fetch('https://api.github.com/repos/innotelinc/warden/releases/latest', {
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!res.ok) throw new Error(String(res.status));
-      const { tag_name: tag, published_at: published } = await res.json();
-      if (!tag || !published) throw new Error('release is missing its tag or date');
-      // UTC, so the captions match the release page for every visitor instead
+      // no-cache, not no-store: the file is tiny, and someone who just read the
+      // caption should not be handed a copy from before the last release.
+      const res = await fetch('release.json', { cache: 'no-cache' });
+      if (!res.ok) return;
+      const release = await res.json();
+      if (!release || !release.tag || !release.publishedAt) return;
+      if (!release.android || !release.android.apk) return;
+      const published = new Date(release.publishedAt);
+      if (Number.isNaN(published.getTime())) return;
+
+      if (windows && release.page) windows.href = release.page;
+      for (const link of androids) {
+        link.href = release.android.apk;
+        // The card prints the URL beside the code, so it follows too — otherwise
+        // it would name a link the button no longer goes to.
+        if (link.hasAttribute('data-download-path')) {
+          link.textContent = `releases/download/${release.tag}/WARDEN-android.apk`;
+        }
+      }
+
+      // UTC, so the caption matches the release page for every visitor instead
       // of moving a day earlier west of Greenwich.
-      const when = new Date(published).toLocaleDateString('en-GB', {
+      const when = published.toLocaleDateString('en-GB', {
         day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
       });
-      const text = `${tag.replace(/^v/, '')} · ${when}`;
-      show(text);
-      write(text);
+      const version = release.version || String(release.tag).replace(/^v/, '');
+      for (const label of labels) label.textContent = `${version} · ${when}`;
     } catch {
-      // Offline or rate-limited: whatever already reads stays, and the miss is
-      // recorded so the next load does not spend another request on it.
-      write('');
+      // Offline, or the manifest has not been deployed yet: the rolling links
+      // and the neutral caption stand, and the page still downloads something.
     }
   })();
 </script>

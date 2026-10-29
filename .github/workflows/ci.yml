@@ -88,6 +88,24 @@ jobs:
           # pass every other check here.
           grep -q 'android-apk-qr.svg' "$f" || { echo "::error::landing has no QR code beside the APK"; exit 1; }
           [ -f web/landing/android-apk-qr.svg ] || { echo "::error::the QR image is missing from web/landing"; exit 1; }
+          # The version the page prints comes from a file this site serves, not
+          # from the GitHub API: 60 unauthenticated requests an hour is a budget
+          # one office behind a NAT can spend, and a browser-only caption is the
+          # first thing to go blank when it does.
+          if grep -q 'api\.github\.com' "$f"; then
+            echo "::error::landing calls the GitHub API; it must read release.json"; exit 1
+          fi
+          grep -q 'release\.json' "$f" || { echo "::error::landing does not read release.json"; exit 1; }
+          node -e '
+            const r = require("./web/landing/release.json");
+            for (const key of ["version", "tag", "publishedAt", "page", "windows", "android"]) {
+              if (!r[key]) { console.error(`::error::release.json has no ${key}`); process.exit(1); }
+            }
+            for (const key of ["installer", "portable"]) {
+              if (!r.windows[key]) { console.error(`::error::release.json has no windows.${key}`); process.exit(1); }
+            }
+            if (!r.android.apk) { console.error("::error::release.json has no android.apk"); process.exit(1); }
+          ' || exit 1
           echo "landing: ok"
 
   scripts:

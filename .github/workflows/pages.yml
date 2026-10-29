@@ -5,7 +5,14 @@
 # Requires Pages to be enabled once: repo Settings -> Pages -> Source:
 # "GitHub Actions" (this workflow also attempts to enable it automatically).
 # After that, every push to main that touches web/landing republishes.
-# workflow_dispatch works too.
+#
+# The deploy also writes web/landing/release.json, which is where the page gets
+# the version it prints and the tag its two download buttons are pinned to. The
+# file is generated here rather than committed by a release, because the assets
+# of one tag arrive from two workflows minutes apart: the desktop job publishes
+# the installers, the mobile job attaches the APK, and only after both is there
+# a release the page can link to as a whole. Regenerating on each of those runs
+# is what lets it settle on the tag only once every artifact exists.
 
 name: GitHub Pages
 
@@ -16,6 +23,18 @@ on:
     paths:
       - "web/landing/**"
       - ".github/workflows/pages.yml"
+  # A release created outside CI (by hand, in the web UI) still has to reach the
+  # page. Its artifacts are already attached by the time it is published, so the
+  # manifest picks it up on this event.
+  release:
+    types: [published]
+  # The two jobs that attach a tag's artifacts. Pages has to be republished after
+  # they finish, not when the tag is pushed: at tag time the release does not
+  # exist yet, so the manifest would describe the previous one for the rest of
+  # the day.
+  workflow_run:
+    workflows: ["Build and sign release", "Mobile (Android)"]
+    types: [completed]
   workflow_dispatch:
 
 # Cancel any in-flight publish for the same ref; a Pages deploy is atomic.
@@ -31,12 +50,35 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A failed release run has nothing new to describe; publishing anyway would
+    # only rebuild the same page. The next successful run picks up the tag.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # Authenticated on the runner, which is what keeps this off the 60-an-hour
+      # budget a browser would be spending.
+      - name: Write the release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # The generator prints the tag it chose, so this step is the record of
+          # what the deploy advertised.
+          if node scripts/landing-release-json.mjs --out web/landing/release.json; then
+            echo "manifest: written"
+          else
+            # Nothing complete to describe — a tag whose APK has not landed, or a
+            # failed API call. The copy in the repository is deployed instead, so
+            # the page keeps advertising a release that really has every asset.
+            echo "::warning::release.json was not regenerated; deploying the committed copy"
+          fi
 
       - name: Configure Pages
         uses: actions/configure-pages@v6

@@ -1,0 +1,14 @@
+{
+  "version": "0.2.15",
+  "tag": "v0.2.15",
+  "publishedAt": "2026-10-29T03:53:39Z",
+  "page": "https://github.com/innotelinc/warden/releases/tag/v0.2.15",
+  "windows": {
+    "installer": "https://github.com/innotelinc/warden/releases/download/v0.2.15/WARDEN-Setup-0.2.15.exe",
+    "portable": "https://github.com/innotelinc/warden/releases/download/v0.2.15/WARDEN-Portable-0.2.15.exe"
+  },
+  "android": {
+    "apk": "https://github.com/innotelinc/warden/releases/download/v0.2.15/WARDEN-android.apk",
+    "bytes": 3301286
+  }
+}
