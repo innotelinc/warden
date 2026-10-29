@@ -65,6 +65,12 @@ jobs:
           set -euo pipefail
           grep -q '^\.env' .gitignore || { echo "::error::.gitignore does not list .env"; exit 1; }
           echo ".gitignore: ok"
+      # Git skips a hook that is not executable and says nothing about it, so a
+      # mode lost on the way in (the GitHub file API cannot record one) turns
+      # the attribution guard and the secret scan off for every fresh clone.
+      # The mode is read from the index, which is what a clone checks out.
+      - name: Hook scripts are executable
+        run: bash scripts/check-hook-modes.sh
 
   landing:
     name: Landing page sanity

@@ -33,6 +33,21 @@ WARDEN_SKIP_HOOKS=1 npm install   # one install without them
   hooks`) treats the same condition as an error.
 - Skips quietly outside a Git checkout (tarball, Docker build context, installed dependency).
 
+## The execute bit is checked in CI
+
+Git skips a hook that is not executable and reports nothing, so a mode lost on the way into the
+repository quietly disables the guard everywhere. [`scripts/check-hook-modes.sh`](../scripts/check-hook-modes.sh)
+runs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) and fails when a tracked file under
+`.githooks` is not `100755` in the index — the index, because that is what a clone checks out, while
+a local `chmod` in the working tree would hide the problem. It needs no runtime beyond git:
+
+```bash
+bash scripts/check-hook-modes.sh
+```
+
+The repair it prints is `git update-index --chmod=+x <file>`, which records the mode in the tree
+without touching the file's content.
+
 ## CI is the backstop, not the first line
 
 [`.github/workflows/attribution-guard.yml`](../.github/workflows/attribution-guard.yml) and the
