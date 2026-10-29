@@ -18,6 +18,11 @@ name: Build and sign release
 #
 # Install the SignPath GitHub App on the repository as well: it supplies the
 # origin metadata SignPath verifies before signing.
+#
+# Signing changes the installer's bytes, so the sign job also re-derives
+# latest.yml from the signed file and drops the block maps the unsigned build
+# produced. Without that, the published manifest would describe a file that no
+# longer exists and every self-update would fail its hash check.
 
 on:
   push:
@@ -110,6 +115,13 @@ jobs:
             } else {
               gh release create $env:TAG --title $title --generate-notes
             }
+          } elseif ($env:SIGNPATH) {
+            # The draft above only covers a first build. A re-run, or a tag moved
+            # onto a fix, finds the release already published — and uploading
+            # here would put these unsigned exes on the live download link,
+            # which is the one thing enabling SignPath is supposed to stop. It
+            # goes back to draft; the sign job publishes it again.
+            gh release edit $env:TAG --draft
           }
           gh release upload $env:TAG $assets.FullName --clobber
 
@@ -134,8 +146,29 @@ jobs:
     # failure, and the unsigned artifacts above are still available.
     if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
+      # The organization id turns this job on; the token is what makes it work.
+      # Set without the other it used to fail inside the action with a 401 that
+      # named nothing, leaving a draft nobody could explain. Checking here says
+      # what is missing, and the release stays a draft until both exist.
+      - name: Require the API token
+        shell: pwsh
+        env:
+          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if (-not $env:TOKEN) {
+            throw 'SIGNPATH_API_TOKEN is not set, so this tag cannot be signed and the release stays a draft. Add the secret (Settings -> Secrets and variables -> Actions) or clear SIGNPATH_ORGANIZATION_ID to publish unsigned builds again.'
+          }
+
+      # For the metadata step below. The build output is not needed: the
+      # installer comes from the signing request, and its hashes are taken from
+      # the file SignPath hands back.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Sign with SignPath Foundation
         uses: signpath/github-action-submit-signing-request@v3
         with:
@@ -146,6 +179,10 @@ jobs:
           artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
           github-artifact-id: ${{ needs.build.outputs.artifact-id }}
           wait-for-completion: true
+          # The action defaults to ten minutes. A signing policy that waits for
+          # a human approval is slower than that, and the release would sit as
+          # a draft with the reason buried in the action log.
+          wait-for-completion-timeout-in-seconds: 1800
           output-artifact-directory: signed
 
       - name: Check the signatures
@@ -180,6 +217,37 @@ jobs:
           gh release view $env:TAG *> $null
           if ($LASTEXITCODE -ne 0) { gh release create $env:TAG --draft --title "WARDEN $($env:TAG -replace '^v','')" --generate-notes }
           gh release upload $env:TAG signed/*.exe --clobber
+
+      # latest.yml was written from the unsigned installers, so its sha512
+      # describes a file that is no longer on the release: an installed WARDEN
+      # downloads the signed exe, hashes it and refuses the update, and the
+      # failure looks like a corrupt download rather than a stale manifest. The
+      # block maps are worse — they index the unsigned bytes, so a differential
+      # update built from them fails its own checksum mid-patch. Both are
+      # re-derived here: the hash from what shipped, and no block map at all,
+      # which makes electron-updater fetch the whole installer instead.
+      - name: Refresh the update metadata
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          New-Item -ItemType Directory -Force -Path meta | Out-Null
+          gh release download $env:TAG --pattern latest.yml --dir meta --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'the release has no latest.yml to correct' }
+
+          $setup = Get-ChildItem signed/WARDEN-Setup-*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $setup) { throw 'SignPath returned no installer to hash' }
+          node scripts/refresh-update-metadata.mjs --latest meta/latest.yml --exe $setup.FullName --out meta/latest.yml
+          if ($LASTEXITCODE -ne 0) { throw 'could not rewrite latest.yml for the signed installer' }
+          gh release upload $env:TAG meta/latest.yml --clobber
+
+          $stale = @(gh release view $env:TAG --json assets --jq '.assets[].name' | Where-Object { $_ -like '*.blockmap' })
+          foreach ($name in $stale) {
+            gh release delete-asset $env:TAG $name --yes
+            Write-Host "removed stale differential map: $name"
+          }
 
       - name: Publish the signed release
         # The build job leaves a draft when SignPath is configured, so nothing

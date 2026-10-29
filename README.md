@@ -383,7 +383,8 @@ What is already in this repo:
 | Path | Purpose |
 | --- | --- |
 | [`.github/workflows/sign-release.yml`](.github/workflows/sign-release.yml) | Builds both installers on `windows-latest`, uploads them as one artifact, submits the signing request, checks the returned signatures are valid *and* timestamped, then attaches them to the release. |
-| [`signing/artifact-configuration.xml`](signing/artifact-configuration.xml) | Tells SignPath which files inside the uploaded ZIP to Authenticode-sign. |
+| [`signing/artifact-configuration.xml`](signing/artifact-configuration.xml) | Tells SignPath which files inside the uploaded ZIP to Authenticode-sign, under SignPath's own schema (`…/artifact-configuration/v1`), and constrains them to the `WARDEN` product name the installers carry. |
+| [`scripts/refresh-update-metadata.mjs`](scripts/refresh-update-metadata.mjs) | Rewrites `latest.yml` for the signed installer, because signing changes the hash the updater checks. |
 | [`scripts/sign-build.ps1`](scripts/sign-build.ps1) | The local fallback described below. |
 
 To switch it on:
@@ -394,7 +395,17 @@ To switch it on:
 4. Add repository secret `SIGNPATH_API_TOKEN` and repository variables `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`, `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` (Settings → Secrets and variables → Actions).
 5. Push a `v*` tag, or run *Build and sign release* from the Actions tab. The workflow fails loudly if a signature comes back invalid or without a timestamp.
 
-Until that approval lands, the installers stay unsigned and SmartScreen keeps warning. Nothing in the build is blocked on it.
+The four variables are what arm the `sign` job — `SIGNPATH_ORGANIZATION_ID` is the switch — and the
+secret is what lets it run; with the id set and the token missing the job stops immediately and says
+which one is absent, rather than failing inside the action and leaving an unexplained draft. Once
+armed, a tag publishes nothing unsigned: the build uploads its two exes to a **draft**, the sign job
+replaces them with the signed copies, re-derives `latest.yml` from the bytes that ship, drops the
+block maps the unsigned build produced, checks each signature is valid *and* timestamped, and only
+then publishes the release. A re-run of the workflow takes an already-published release back to
+draft before it uploads, so repeating a tag can never put an unsigned installer on the live link.
+
+Until that approval lands, the installers stay unsigned and SmartScreen keeps warning. Nothing in
+the build is blocked on it.
 
 **Self-signed — free, not publicly trusted.** [`scripts/sign-build.ps1`](scripts/sign-build.ps1) creates a code-signing certificate in the current user's store, exports it to `%USERPROFILE%\.warden-signing` (owner-only ACL), and signs everything in `release/` with an RFC 3161 timestamp:
 
@@ -473,6 +484,13 @@ update, and without the blockmap every update is a full download. Builds are uns
 SmartScreen may warn once per release and `electron-updater` accepts the installer on the
 content hash rather than a publisher signature — decide deliberately before pointing a fleet at
 `latest`.
+
+**A signed release has no block map and a different hash.** Signing rewrites the installer after
+`latest.yml` was written, so the manifest is regenerated from the signed file — otherwise every
+client would download the exe, compare it with the hash of the unsigned one and report a corrupt
+download. The block map indexes the unsigned bytes too, and a delta assembled from it fails its own
+checksum, so it is removed rather than left to produce a broken patch: a signed release updates by
+downloading the whole installer.
 
 **The installed 0.1.0 build has no updater**, so it cannot pick 0.2.18 up on its own: install 0.2.18
 once by hand (or through Intune), and every release after that is automatic.

@@ -8,17 +8,32 @@
   (Project → Artifact Configurations) and use the resulting slug in the
   SIGNPATH_ARTIFACT_CONFIGURATION_SLUG repository variable.
 
+  The namespace is the schema SignPath validates against, and it is versioned:
+  `http://signpath.io/artifact-configuration/v1`, not the bare
+  `http://signpath.io/artifact-configuration`. An artifact configuration that
+  fails validation is rejected when it is created, so the bare form never
+  reaches a signing request — but a copy kept in the repository is what someone
+  pastes months later, and it has to be the file that works.
+
+  product-name is a constraint, not a label: SignPath signs the installer only
+  if its embedded version resource says WARDEN, which is what electron-builder
+  writes from `productName` in electron-builder.yml. The SignPath Foundation
+  terms require signed binaries to carry enforced metadata attributes, and this
+  is the one that cannot be faked by building something else and calling it
+  WARDEN. If the product name ever changes, this file has to change with it or
+  the signing request is refused.
+
   Only the two shipped installers are signed. The payload executable inside the
   NSIS installer keeps whatever signature it was built with; signing it as well
   requires signing win-unpacked\WARDEN.exe before packaging, which SignPath
   cannot do from a single archived artifact.
 -->
-<artifact-configuration xmlns="http://signpath.io/artifact-configuration">
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <zip-file>
-    <pe-file path="WARDEN-Setup-*.exe">
+    <pe-file path="WARDEN-Setup-*.exe" product-name="WARDEN">
       <authenticode-sign hash-algorithm="sha256" description="WARDEN installer" />
     </pe-file>
-    <pe-file path="WARDEN-Portable-*.exe">
+    <pe-file path="WARDEN-Portable-*.exe" product-name="WARDEN">
       <authenticode-sign hash-algorithm="sha256" description="WARDEN portable" />
     </pe-file>
   </zip-file>
