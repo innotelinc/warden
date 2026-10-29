@@ -385,6 +385,7 @@ What is already in this repo:
 | [`.github/workflows/sign-release.yml`](.github/workflows/sign-release.yml) | Builds both installers on `windows-latest`, uploads them as one artifact, submits the signing request, checks the returned signatures are valid *and* timestamped, then attaches them to the release. |
 | [`signing/artifact-configuration.xml`](signing/artifact-configuration.xml) | Tells SignPath which files inside the uploaded ZIP to Authenticode-sign, under SignPath's own schema (`…/artifact-configuration/v1`), and constrains them to the `WARDEN` product name the installers carry. |
 | [`scripts/refresh-update-metadata.mjs`](scripts/refresh-update-metadata.mjs) | Rewrites `latest.yml` for the signed installer, because signing changes the hash the updater checks. |
+| [`scripts/rehearse-signing.mjs`](scripts/rehearse-signing.mjs) | Runs the workflow's own signing steps locally against a self-signed installer, so the draft gate and the metadata rewrite are proven before an account exists. |
 | [`scripts/sign-build.ps1`](scripts/sign-build.ps1) | The local fallback described below. |
 
 To switch it on:
@@ -403,6 +404,16 @@ replaces them with the signed copies, re-derives `latest.yml` from the bytes tha
 block maps the unsigned build produced, checks each signature is valid *and* timestamped, and only
 then publishes the release. A re-run of the workflow takes an already-published release back to
 draft before it uploads, so repeating a tag can never put an unsigned installer on the live link.
+
+While the application is pending, `node scripts/rehearse-signing.mjs` (after `npm run dist:ci`) signs a copy
+of the real installer with a self-signed certificate and runs the shipped *Check the signatures*,
+*Refresh the update metadata* and *Publish the installers* steps out of the workflow, with `gh`
+replaced by a stub that keeps a fake release on disk. It proves the metadata is re-derived from the
+signed bytes, the block maps are dropped, and a re-run takes a published release back to draft
+before uploading — then reads the step text, so deleting the draft line from the workflow makes it
+fail. It cannot prove SignPath returns a *valid* signature: a self-signed certificate is untrusted
+here, so the check is expected to reject these files, and that rejection is itself one of the
+assertions.
 
 Until that approval lands, the installers stay unsigned and SmartScreen keeps warning. Nothing in
 the build is blocked on it.
