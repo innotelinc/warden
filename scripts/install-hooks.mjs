@@ -17,6 +17,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { planHookMode } from './hook-mode-plan.mjs'
 
 const HOOKS_DIR = '.githooks'
 // guard-lib is sourced by both hooks, so a checkout missing it would install
@@ -88,17 +89,29 @@ function recordedMode(relative) {
 // clean. Restoring one the repository records as 100644 would put a mode
 // change in every status report from then on, so that fix is staged instead —
 // one deliberate commit, and the file stops reading as modified for good.
+// The decision itself is pure and lives in hook-mode-plan.mjs.
 const stagedFixes = []
-if (process.platform !== 'win32') {
-  for (const name of EXECUTABLE) {
-    const relative = `${HOOKS_DIR}/${name}`
-    const file = join(hooksPath, name)
+for (const name of EXECUTABLE) {
+  const relative = `${HOOKS_DIR}/${name}`
+  const file = join(hooksPath, name)
+  let executable = false
+  try {
+    executable = (statSync(file).mode & 0o111) === 0o111
+  } catch (error) {
+    stop(`warning: could not inspect ${relative} — ${error.message}`)
+  }
+
+  const { action } = planHookMode({ platform: process.platform, executable, recordedMode: recordedMode(relative) })
+  if (action === 'none') continue
+
+  if (action === 'chmod' || action === 'chmod+stage') {
     try {
-      if ((statSync(file).mode & 0o111) !== 0o111) chmodSync(file, 0o755)
+      chmodSync(file, 0o755)
     } catch (error) {
       stop(`warning: could not make ${relative} executable — ${error.message}`)
     }
-    if (recordedMode(relative) !== '100644') continue
+  }
+  if (action === 'stage' || action === 'chmod+stage') {
     try {
       git(['update-index', '--chmod=+x', relative])
       stagedFixes.push(relative)
