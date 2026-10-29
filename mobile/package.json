@@ -1,7 +1,7 @@
 {
   "name": "warden-mobile",
   "private": true,
-  "version": "0.2.12",
+  "version": "0.2.13",
   "description": "WARDEN for Android and iOS — store-ready Capacitor shell",
   "scripts": {
     "dev": "vite",
