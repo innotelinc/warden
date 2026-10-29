@@ -155,6 +155,40 @@ def app_id(bearer: str) -> str:
     return data[0]["id"]
 
 
+def apps(bearer: str) -> list[dict]:
+    """Every app record in the account.
+
+    A bundle id is only meaningful against an app record, and nothing in this
+    repository can say which records exist — an identifier somebody saw in the
+    portal may belong to another app entirely, or to an app whose code is in
+    another repository. Asking Apple settles it.
+    """
+    payload = get("/v1/apps", bearer, {"fields[apps]": "name,bundleId,sku", "limit": "200"})
+    rows = []
+    for row in payload.get("data") or []:
+        attributes = row.get("attributes") or {}
+        rows.append(
+            {
+                "bundle": attributes.get("bundleId") or "?",
+                "name": attributes.get("name") or "?",
+                "sku": attributes.get("sku") or "",
+            }
+        )
+    return rows
+
+
+def list_apps(bearer: str) -> int:
+    rows = apps(bearer)
+    if not rows:
+        print("this App Store Connect account holds no app records at all.")
+        return 0
+    width = max(len(row["bundle"]) for row in rows)
+    print(f"{len(rows)} app record(s) in App Store Connect:\n")
+    for row in sorted(rows, key=lambda r: r["bundle"]):
+        print(f"{row['bundle'].ljust(width)}  {row['name']}  (sku {row['sku'] or '-'})")
+    return 0
+
+
 def builds(bearer: str, app: str, limit: int) -> list[dict]:
     """The most recent builds, newest first, with the marketing version attached."""
     payload = get(
@@ -680,6 +714,11 @@ def main() -> int:
         action="store_true",
         help="after processing, wait until a TestFlight group with a tester holds the build",
     )
+    parser.add_argument(
+        "--apps",
+        action="store_true",
+        help="list every app record in the account and exit",
+    )
     args = parser.parse_args()
 
     key_id = os.environ.get("APP_STORE_CONNECT_KEY_ID", "").strip()
@@ -703,6 +742,10 @@ def main() -> int:
         raise SystemExit(f"no key at {key_path}")
 
     bearer = token(key_id, issuer_id, key_path)
+
+    if args.apps:
+        return list_apps(bearer)
+
     app = app_id(bearer)
 
     if args.submission:

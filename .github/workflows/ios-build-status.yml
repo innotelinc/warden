@@ -46,6 +46,13 @@ on:
         description: Report what the current App Store version still needs before submitting
         type: boolean
         default: false
+      # Which app a build lands in is decided by a bundle id, and the account can
+      # hold records for apps whose code lives elsewhere. This prints them all, so
+      # an identifier seen in the portal can be traced to a repository.
+      apps:
+        description: List every app record in the account (which bundle ids exist) and exit
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -86,8 +93,12 @@ jobs:
           ADD_TO_GROUP: ${{ inputs.add_build_to_group }}
           AWAIT_TESTERS: ${{ inputs.await_testers }}
           SUBMISSION: ${{ inputs.submission }}
+          APPS: ${{ inputs.apps }}
         run: |
           args=(--wait-minutes "${WAIT_MINUTES:-0}")
+          if [ "${APPS:-false}" = "true" ]; then
+            args+=(--apps)
+          fi
           if [ "${SUBMISSION:-false}" = "true" ]; then
             args+=(--submission)
           fi
