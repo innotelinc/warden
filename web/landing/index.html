@@ -208,7 +208,10 @@
   .android-card p { margin: 8px 0 0; color: var(--ink-soft); font-size: 14.2px; max-width: 64ch; }
   .android-k { font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); }
   .android-card a { color: var(--mint); }
-  .android-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+  /* The caption under each download. Both are filled from the same lookup. */
+  .release-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+  .cta-meta { margin: 14px 0 0; }
+  .cta-meta .k { color: var(--ink-soft); }
   @media (max-width: 620px) { .android-card { flex-direction: column; align-items: flex-start; } }
   .kv dd { margin: 0; color: var(--ink-soft); }
   .kv dd b { color: var(--ink); }
@@ -257,6 +260,9 @@
           <a class="btn" href="https://github.com/innotelinc/warden#readme">Read the source</a>
           <a class="btn" href="#privacy">Privacy model</a>
         </div>
+        <p class="release-meta cta-meta">
+          <span class="k">Windows installer</span> · latest build <span data-release>on GitHub</span>
+        </p>
       </div>
       <div class="hero-mark">
         <img src="warden-icon.png" alt="WARDEN shield icon" width="256" height="256">
@@ -490,7 +496,7 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
             It installs straight from the browser — no Play account, no review, no fee — and the next
             release replaces it in place.
           </p>
-          <p class="android-meta">Latest build: <span data-release>on GitHub</span></p>
+          <p class="release-meta">Latest build: <span data-release>on GitHub</span></p>
         </div>
       </div>
     </div>
@@ -511,28 +517,75 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
 <script>
   // This page is static and Pages republishes on a push, not on a tag, so a
   // hard-coded version would advertise an old build from the moment the next
-  // release is cut. One request to the repository's own API keeps the label
-  // honest; offline or rate-limited it stays "on GitHub" rather than claiming a
-  // version it cannot see. The Android link itself is permanent, so only the
-  // caption depends on this.
+  // release is cut. One request to the repository's own API keeps the captions
+  // honest; offline or rate-limited they stay "on GitHub" rather than claiming
+  // a version they cannot see. The download links are permanent, so only the
+  // captions depend on this.
+  //
+  // The unauthenticated API allows 60 requests an hour, counted per address,
+  // which an office behind one NAT can spend in a minute of reloading. So the
+  // answer is kept in the browser — shared by every tab, so ten reloads cost one
+  // request — and reused for half an hour. A release cut inside that window
+  // shows the previous build until the entry expires; that bounded lag is the
+  // price of not going blind as soon as the limit runs out. A failed lookup is
+  // remembered for a few minutes as well, so an exhausted address does not
+  // retry on every load and keep itself exhausted.
   (async () => {
-    const label = document.querySelector('[data-release]');
-    if (!label) return;
+    const labels = document.querySelectorAll('[data-release]');
+    if (!labels.length) return;
+
+    const KEY = 'warden:release:latest';
+    const FRESH_FOR = 30 * 60 * 1000;
+    const HOLD_FAILURE_FOR = 5 * 60 * 1000;
+
+    const show = (text) => { for (const label of labels) label.textContent = text; };
+
+    const read = () => {
+      try {
+        const entry = JSON.parse(localStorage.getItem(KEY) || 'null');
+        return entry && typeof entry.at === 'number' ? entry : null;
+      } catch {
+        return null; // storage disabled, or something else wrote this key
+      }
+    };
+    const write = (text) => {
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), text: String(text || '') }));
+      } catch {
+        // Private mode: no cache, and the caption still resolves per load.
+      }
+    };
+
+    const cached = read();
+    if (cached) {
+      if (cached.text) {
+        // Shown before revalidating, so an expired entry never flashes neutral.
+        show(cached.text);
+        if (Date.now() - cached.at < FRESH_FOR) return;
+      } else if (Date.now() - cached.at < HOLD_FAILURE_FOR) {
+        return;
+      }
+    }
+
     try {
       const res = await fetch('https://api.github.com/repos/innotelinc/warden/releases/latest', {
         headers: { Accept: 'application/vnd.github+json' },
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(String(res.status));
       const { tag_name: tag, published_at: published } = await res.json();
-      if (!tag || !published) return;
-      // UTC, so the caption matches the release page for every visitor instead
+      if (!tag || !published) throw new Error('release is missing its tag or date');
+      // UTC, so the captions match the release page for every visitor instead
       // of moving a day earlier west of Greenwich.
       const when = new Date(published).toLocaleDateString('en-GB', {
         day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
       });
-      label.textContent = `${tag.replace(/^v/, '')} · ${when}`;
+      const text = `${tag.replace(/^v/, '')} · ${when}`;
+      show(text);
+      write(text);
     } catch {
-      // Offline: the neutral label stands.
+      // Offline or rate-limited: whatever already reads stays, and the miss is
+      // recorded so the next load does not spend another request on it.
+      write('');
     }
   })();
 </script>
