@@ -1,1 +1,0 @@
-us.innotel.warden.browser
