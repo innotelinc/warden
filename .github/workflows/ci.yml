@@ -47,6 +47,12 @@ jobs:
         run: npm run typecheck
       - name: Unit tests
         run: npm test
+      # The unit suite never opens a shell, so a dependency install script that
+      # npm skipped breaks no test: node-pty simply resolves to nothing and only
+      # a real spawn finds out. This runner has no Linux prebuild to fall back
+      # on, so the binding here came from the script that `allowScripts` covers.
+      - name: PTY smoke
+        run: npm run check:pty
 
   # The hook installer writes a git setting and repairs a POSIX mode, so the
   # Linux job above is where the execute-bit cases run. Windows is the other
@@ -74,6 +80,10 @@ jobs:
       # A cold Windows runner starts each child process slowly, hence the timeout.
       - name: Installer integration tests
         run: npx vitest run tests/install-hooks.integration.test.ts --testTimeout=40000
+      # ConPTY is the Windows path a skipped install script breaks first, and
+      # the packaged app's terminal is only as good as this spawn.
+      - name: PTY smoke
+        run: npm run check:pty
 
   structure:
     name: Repository structure
