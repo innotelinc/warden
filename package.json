@@ -1,7 +1,7 @@
 {
   "name": "warden",
   "productName": "WARDEN",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "Privacy-first operations browser for security and network administrators",
   "author": "WARDEN",
   "license": "MIT",
