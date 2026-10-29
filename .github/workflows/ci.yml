@@ -83,6 +83,11 @@ jobs:
           grep -q 'releases/latest/download/WARDEN-android.apk' "$f" || {
             echo "::error::landing has no Android APK download link"; exit 1
           }
+          # A phone reaches that link by camera, so the code beside it is part of
+          # the download, not decoration: a page that lost the image would still
+          # pass every other check here.
+          grep -q 'android-apk-qr.svg' "$f" || { echo "::error::landing has no QR code beside the APK"; exit 1; }
+          [ -f web/landing/android-apk-qr.svg ] || { echo "::error::the QR image is missing from web/landing"; exit 1; }
           echo "landing: ok"
 
   scripts:

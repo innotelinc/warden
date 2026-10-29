@@ -198,6 +198,18 @@
   pre .m { color: var(--mint); }
   .kv { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; font-size: 14.3px; }
   .kv dt { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; padding-top: 3px; }
+
+  /* The one download that is not a store: a phone opens this by camera. */
+  .android-card {
+    margin-top: 24px; display: flex; gap: 20px; align-items: center;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 18px 20px;
+  }
+  .android-card .qr { flex: none; width: 128px; height: 128px; border-radius: 10px; display: block; }
+  .android-card p { margin: 8px 0 0; color: var(--ink-soft); font-size: 14.2px; max-width: 64ch; }
+  .android-k { font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); }
+  .android-card a { color: var(--mint); }
+  .android-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+  @media (max-width: 620px) { .android-card { flex-direction: column; align-items: flex-start; } }
   .kv dd { margin: 0; color: var(--ink-soft); }
   .kv dd b { color: var(--ink); }
   @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
@@ -467,6 +479,20 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
           <dt>Tests</dt><dd>Unit coverage over the filter engine, cookie policy, clone writer, recon and popup policy; the smoke suite drives the real UI and the packaged binary.</dd>
         </dl>
       </div>
+
+      <div class="android-card">
+        <img class="qr" src="android-apk-qr.svg" alt="QR code that opens the WARDEN Android APK download" width="128" height="128" loading="lazy">
+        <div>
+          <div class="android-k">Android · signed APK</div>
+          <p>
+            Point the phone's camera at the code, or open
+            <a href="https://github.com/innotelinc/warden/releases/latest/download/WARDEN-android.apk">releases/latest/download/WARDEN-android.apk</a>.
+            It installs straight from the browser — no Play account, no review, no fee — and the next
+            release replaces it in place.
+          </p>
+          <p class="android-meta">Latest build: <span data-release>on GitHub</span></p>
+        </div>
+      </div>
     </div>
   </section>
 </main>
@@ -481,6 +507,35 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
     <a href="https://github.com/innotelinc/warden/issues">Issues</a>
   </div>
 </footer>
+
+<script>
+  // This page is static and Pages republishes on a push, not on a tag, so a
+  // hard-coded version would advertise an old build from the moment the next
+  // release is cut. One request to the repository's own API keeps the label
+  // honest; offline or rate-limited it stays "on GitHub" rather than claiming a
+  // version it cannot see. The Android link itself is permanent, so only the
+  // caption depends on this.
+  (async () => {
+    const label = document.querySelector('[data-release]');
+    if (!label) return;
+    try {
+      const res = await fetch('https://api.github.com/repos/innotelinc/warden/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+      if (!res.ok) return;
+      const { tag_name: tag, published_at: published } = await res.json();
+      if (!tag || !published) return;
+      // UTC, so the caption matches the release page for every visitor instead
+      // of moving a day earlier west of Greenwich.
+      const when = new Date(published).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+      });
+      label.textContent = `${tag.replace(/^v/, '')} · ${when}`;
+    } catch {
+      // Offline: the neutral label stands.
+    }
+  })();
+</script>
 
 </body>
 </html>
