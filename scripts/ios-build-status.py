@@ -23,15 +23,17 @@ distribution": when it is set, an upload joins the group on its own.
 
 `--await-testers` is the release gate the iOS build calls after its upload. It
 waits for the build to leave PROCESSING and then for a TestFlight group that has
-somebody in it to hold it, printing what is missing every minute, and fails when
-the wait runs out. A tag that reports success while no tester can install the
-build is exactly the failure the gate exists to catch.
+somebody in it to hold it. When no such group holds it, it adds the build to one
+that has testers and keeps polling, printing what is missing every minute. It
+fails only when that still has not landed by the deadline: a tag that reports
+success while no tester can install the build is exactly the failure the gate
+exists to catch.
 
 The token is signed here with `openssl`, so the runner installs nothing.
 
 Exit status: 0 everything looked fine, 1 the API call or configuration failed,
 2 a build ended up FAILED or INVALID, 3 still processing when the wait ran out,
-4 the build was VALID but never reached a tester.
+4 the build was VALID but still reached no tester.
 """
 
 from __future__ import annotations
@@ -217,7 +219,7 @@ def summarise(rows: list[dict], wait_minutes: int) -> None:
             summary.write(f"\nWaited up to {wait_minutes} minutes for processing to finish.\n")
 
 
-def post(path: str, bearer: str, payload: dict) -> None:
+def post(path: str, bearer: str, payload: dict, conflict_is_ok: bool = False) -> None:
     request = urllib.request.Request(
         API + path,
         data=json.dumps(payload).encode("utf-8"),
@@ -230,6 +232,11 @@ def post(path: str, bearer: str, payload: dict) -> None:
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", "replace")
         if error.code == 409:
+            # 409 is "already in that group, or not VALID yet". The release gate
+            # asks for the assignment itself, so a 409 means somebody or
+            # something got there first — the next poll decides, not this call.
+            if conflict_is_ok:
+                return
             raise SystemExit(
                 "App Store Connect refused the change (409): the build is already in "
                 "that group, or it is not VALID yet.\n" + body
@@ -323,19 +330,22 @@ def describe_groups(groups: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def assign_to_group(groups: list[dict], name: str, build: dict, bearer: str) -> None:
+def assign_to_group(
+    groups: list[dict], name: str, build: dict, bearer: str, conflict_is_ok: bool = False
+) -> None:
     wanted = [group for group in groups if group["name"].casefold() == name.casefold()]
     if not wanted:
         known = ", ".join(group["name"] for group in groups) or "none"
         raise SystemExit(f"no TestFlight group called {name!r}. Existing groups: {known}")
     group = wanted[0]
-    if group["all_builds"] or build["number"] in group["builds"]:
+    if group["all_builds"] or build["id"] in group["build_ids"]:
         print(f"{build['marketing']} ({build['number']}) is already in {group['name']}.")
         return
     post(
         f"/v1/betaGroups/{group['id']}/relationships/builds",
         bearer,
         {"data": [{"type": "builds", "id": build["id"]}]},
+        conflict_is_ok=conflict_is_ok,
     )
     print(f"Added {build['marketing']} ({build['number']}) to {group['name']}.")
 
@@ -349,61 +359,97 @@ def note(text: str) -> None:
         summary.write(text + "\n")
 
 
-def availability(bearer: str, app: str, build: dict) -> tuple[bool, str]:
-    """Whether a tester can install this build yet, and what stands in the way.
+def availability(bearer: str, app: str, build: dict) -> tuple[bool, str, dict | None]:
+    """Whether a tester can install this build, what stands in the way, and what
+    would fix it.
 
     A VALID build is only *processed*. It reaches a phone when a TestFlight group
     holds it and that group has somebody in it — a group with no testers accepts
     the build and emails nobody, which looks the same as success everywhere the
-    release job could see. So the answer comes from the API, and the reason it
-    is not ready is spelled out rather than reduced to "not available".
+    release job could see. So the answer comes from the API, and the third value
+    is the group to add the build to when adding it would help: a group that has
+    testers and does not hold it yet. None means waiting is the only option left,
+    or the account cannot be fixed from here at all.
     """
     groups = beta_groups(bearer, app)
     if not groups:
         return False, (
             "no TestFlight group exists, so no build can be installed — "
             "TestFlight -> Internal Testing -> + creates one"
-        )
+        ), None
+
+    for group in groups:
+        group["testers"] = testers(bearer, group["id"])
 
     holding = [group for group in groups if group["all_builds"] or build["id"] in group["build_ids"]]
-    if not holding:
-        names = ", ".join(group["name"] for group in groups)
-        automatic = ", ".join(group["name"] for group in groups if group["all_builds"])
-        delivery = (
-            f"only {automatic} takes builds automatically"
-            if automatic
-            else "every one of them takes builds by hand"
+    reached = [group for group in holding if group["testers"]]
+    if reached:
+        names = ", ".join(
+            f"{group['name']} ({len(group['testers'])} tester{'s' if len(group['testers']) != 1 else ''})"
+            for group in reached
         )
-        return False, (
-            f"no TestFlight group holds build {build['number']} (groups: {names}; {delivery}). "
-            "Add it under TestFlight -> Add Builds, tick Enable automatic distribution on one "
-            "group, or run this with --add-build-to"
-        )
+        return True, "in " + names, None
 
-    reached = []
-    for group in holding:
-        people = testers(bearer, group["id"])
-        if people:
-            reached.append(f"{group['name']} ({len(people)} tester{'s' if len(people) != 1 else ''})")
-    if not reached:
+    holding_ids = {group["id"] for group in holding}
+    candidates = [group for group in groups if group["testers"] and group["id"] not in holding_ids]
+    # Internal groups first, because they install without Beta App Review; then the
+    # widest audience; then the name, so the same account state always picks the
+    # same group and two runs cannot disagree about where a build went.
+    candidates.sort(key=lambda group: (not group["internal"], -len(group["testers"]), group["name"].casefold()))
+    if candidates:
+        best = candidates[0]
+        people = f"{len(best['testers'])} tester{'s' if len(best['testers']) != 1 else ''}"
+        if holding:
+            names = ", ".join(group["name"] for group in holding)
+            missing = f"{names} holds build {build['number']} but has no tester"
+        else:
+            missing = f"no TestFlight group holds build {build['number']}"
+        return False, f"{missing}, and {best['name']} has {people} but does not hold it", best
+
+    if holding:
         names = ", ".join(group["name"] for group in holding)
         return False, (
-            f"build {build['number']} is in {names}, but no tester belongs to that group — "
-            "nobody is emailed and the TestFlight app lists nothing for them"
-        )
+            f"build {build['number']} is in {names}, but no tester belongs to "
+            "any TestFlight group — nobody is emailed and the TestFlight app lists "
+            "nothing for them"
+        ), None
 
-    return True, "in " + ", ".join(reached)
+    names = ", ".join(group["name"] for group in groups)
+    return False, (
+        f"no TestFlight group holds build {build['number']} and no group has a tester "
+        f"(groups: {names}) — add a tester under App Store Connect -> TestFlight"
+    ), None
 
 
 def await_testers(bearer: str, app: str, build: dict, deadline: float) -> int:
-    """Block until the build is installable, or fail saying why it never was."""
+    """Block until the build is installable, adding it to a group if nobody holds it.
+
+    Failing is the last resort, not the first: a tag whose build App Store Connect
+    processed but nobody can install is a release that reached no one, and waiting
+    for a human to press *Add Builds* is exactly the gap this gate exists to close.
+    So when no group with a tester holds the build it adds it to one, says which,
+    and keeps polling. It exits non-zero only when that assignment never lands.
+    """
     label = f"{build['marketing']} ({build['number']})"
+    assigned: set[str] = set()
     while True:
-        ready, detail = availability(bearer, app, build)
+        ready, detail, candidate = availability(bearer, app, build)
         if ready:
             print(f"\n{label} is available to testers: {detail}")
             note(f"{label} is available to testers {detail}.")
             return 0
+
+        if candidate is not None and candidate["id"] not in assigned:
+            group = candidate["name"]
+            print(f"\n{label} is not installable: {detail}.\nAdding it to {group}.")
+            assign_to_group([candidate], group, build, bearer, conflict_is_ok=True)
+            assigned.add(candidate["id"])
+            note(f"{label} was added to {group}: no TestFlight group with a tester held it.")
+            # Straight back to the API: if the assignment landed, the next pass
+            # says so, and if it has not appeared yet this group is skipped and
+            # the loop waits like any other.
+            continue
+
         if time.monotonic() >= deadline:
             print(f"\n::error::{label} is {build['state']} but never became installable: {detail}.")
             note(f"{label} never reached a tester: {detail}.")

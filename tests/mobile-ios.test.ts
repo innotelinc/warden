@@ -344,10 +344,27 @@ describe('iOS TestFlight gate', () => {
     expect(step.slice(0, step.indexOf('run: |'))).toContain("steps.upload.outputs.value == 'true'");
   });
 
-  it('tells the three ways a build fails to become installable apart', () => {
+  /**
+   * A gate that only refuses leaves the tag red and the build still in nobody's
+   * TestFlight. The step owns the group choice instead: internal groups first
+   * (no Beta App Review), then the widest audience, so the same account state
+   * always yields the same group and no release is left for someone to finish by
+   * hand.
+   */
+  it('adds the build to a group that has testers before giving up', () => {
+    const gate = script.slice(script.indexOf('def await_testers'), script.indexOf('def select_target'));
+    expect(gate).toContain('assign_to_group');
+    expect(gate).toContain('conflict_is_ok=True');
+    expect(gate).toContain('continue');
+    // The assignment is an attempt, not a promise: the refusal stays.
+    expect(gate).toContain('return 4');
+    expect(script).toContain('not group["internal"]');
+  });
+
+  it('explains each way a build fails to become installable', () => {
     expect(script).toContain('no TestFlight group exists');
     expect(script).toContain('no TestFlight group holds build');
-    expect(script).toContain('no tester belongs to that group');
+    expect(script).toContain('no tester belongs to');
     expect(script).toContain('::error::');
     expect(script).toContain('return 4');
   });

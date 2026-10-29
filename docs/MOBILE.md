@@ -402,10 +402,12 @@ the command line, and refuses unless the build is `VALID`.
 The release job does not stop at the upload any more: after the export it runs
 the same script with `--await-testers` and polls App Store Connect until the
 build leaves processing **and** a TestFlight group that has testers in it holds
-it. Processing takes 5–15 minutes; the step waits up to 45 and then fails the
-tag, naming what was missing — no group holds the build, or the group that does
-has nobody in it. A green release no tester can install is worse than a red one,
-so this is a failure rather than a warning.
+it. If no such group holds it, the step adds the build to the best one it can
+find — internal groups first, then the widest audience — and keeps waiting, so a
+tag does not need anyone to press *Add Builds*. Processing takes 5–15 minutes;
+the step waits up to 45 and fails only when the build never becomes installable,
+naming what was missing. A green release no tester can install is worse than a
+red one, so the assignment is attempted before the failure.
 
 `submission=true` answers the other question — what App Store Connect still
 wants before the version can be sent to review:

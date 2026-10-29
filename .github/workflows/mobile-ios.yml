@@ -357,9 +357,10 @@ jobs:
       # hands it to nobody until a TestFlight group that has testers in it holds
       # it. Every earlier release ended the moment Xcode's upload printed, and
       # the question of whether the build was ever testable was left to whoever
-      # opened the TestFlight page. This asks Apple, in a loop, and fails the tag
-      # when the build never gets there — a release that reports success while
-      # nothing is installable is the failure worth catching.
+      # opened the TestFlight page. This asks Apple, in a loop: when no group that
+      # has testers holds the build, the step adds it to one itself and keeps
+      # waiting, so the only way it fails is an assignment that never lands — a
+      # release that reports success while nothing is installable.
       - name: Wait for TestFlight to publish the build
         if: steps.upload.outputs.value == 'true'
         # The loop gives up on its own after 45 minutes; the step timeout is the
