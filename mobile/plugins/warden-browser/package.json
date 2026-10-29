@@ -1,6 +1,6 @@
 {
   "name": "warden-browser",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "WARDEN's in-app browser surface for Android and iOS",
   "private": true,
   "main": "src/index.js",
