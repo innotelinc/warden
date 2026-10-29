@@ -254,7 +254,15 @@ describe('the native halves can capture and keep a service signed in', () => {
     expect(surface).toContain('webView.evaluateJavaScript(script)')
     expect(surface).toContain('onCapture')
     expect(plugin).toContain('CAPPluginMethod(name: "scry"')
-    expect(plugin).toContain('call.setKeepAlive(true)')
+    /**
+     * A property on iOS, a setter on Android. Writing Android's spelling here
+     * does not fail any typecheck in this repository — there is no Swift
+     * compiler on the machine that writes it — it fails the archive, which is a
+     * release. So the two spellings are pinned side by side.
+     */
+    expect(plugin).toContain('call.keepAlive = true')
+    expect(plugin).not.toContain('setKeepAlive')
+    expect(read(`${ANDROID}/WardenBrowserPlugin.java`)).toContain('call.setKeepAlive(true)')
   })
 
   /**
