@@ -100,7 +100,7 @@ jobs:
       - name: .gitignore covers .env
         run: |
           set -euo pipefail
-          grep -q '^\\.env' .gitignore || { echo "::error::.gitignore does not list .env"; exit 1; }
+          grep -q '^\.env' .gitignore || { echo "::error::.gitignore does not list .env"; exit 1; }
           echo ".gitignore: ok"
       # Git skips a hook that is not executable and says nothing about it, so a
       # mode lost on the way in (the GitHub file API cannot record one) turns
@@ -169,10 +169,10 @@ jobs:
           # from the GitHub API: 60 unauthenticated requests an hour is a budget
           # one office behind a NAT can spend, and a browser-only caption is the
           # first thing to go blank when it does.
-          if grep -q 'api\\.github\\.com' "$f"; then
+          if grep -q 'api\.github\.com' "$f"; then
             echo "::error::landing calls the GitHub API; it must read release.json"; exit 1
           fi
-          grep -q 'release\\.json' "$f" || { echo "::error::landing does not read release.json"; exit 1; }
+          grep -q 'release\.json' "$f" || { echo "::error::landing does not read release.json"; exit 1; }
           node -e '
             const r = require("./web/landing/release.json");
             for (const key of ["version", "tag", "publishedAt", "page", "windows", "android"]) {
