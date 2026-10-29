@@ -70,17 +70,46 @@ if (missing.length > 0) {
   stop(`warning: ${HOOKS_DIR}/ is incomplete (missing ${missing.join(', ')}) — guard not enabled`)
 }
 
+/**
+ * The mode git has recorded for a path — what a clone checks out — or null when
+ * the path is not tracked.
+ */
+function recordedMode(relative) {
+  const staged = gitOrNull(['ls-files', '--stage', '--', relative])
+  if (!staged) return null
+  return staged.split(/\s+/)[0] ?? null
+}
+
 // Git refuses to run a hook that is not executable on POSIX. Windows ignores
 // the bit entirely, so there is nothing to do there.
+//
+// The repair also has to leave `git status` alone. Restoring a bit the
+// repository records as 100755 makes the working tree match HEAD, which is
+// clean. Restoring one the repository records as 100644 would put a mode
+// change in every status report from then on, so that fix is staged instead —
+// one deliberate commit, and the file stops reading as modified for good.
+const stagedFixes = []
 if (process.platform !== 'win32') {
   for (const name of EXECUTABLE) {
+    const relative = `${HOOKS_DIR}/${name}`
     const file = join(hooksPath, name)
     try {
       if ((statSync(file).mode & 0o111) !== 0o111) chmodSync(file, 0o755)
     } catch (error) {
-      stop(`warning: could not make ${HOOKS_DIR}/${name} executable — ${error.message}`)
+      stop(`warning: could not make ${relative} executable — ${error.message}`)
+    }
+    if (recordedMode(relative) !== '100644') continue
+    try {
+      git(['update-index', '--chmod=+x', relative])
+      stagedFixes.push(relative)
+    } catch (error) {
+      stop(`warning: could not stage the mode fix for ${relative} — ${error.message}`)
     }
   }
+}
+if (stagedFixes.length > 0) {
+  warn(`the repository records ${stagedFixes.join(', ')} as non-executable; the fix is staged —`)
+  warn('  commit it with: git commit -m "Keep the repo hooks executable"')
 }
 
 const current = gitOrNull(['config', '--local', '--get', 'core.hooksPath'])

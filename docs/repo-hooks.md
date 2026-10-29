@@ -27,6 +27,10 @@ WARDEN_SKIP_HOOKS=1 npm install   # one install without them
 
 - Restores the execute bits on `commit-msg`, `pre-commit` and `secret-scan.sh` when a checkout or
   archive dropped them — Git refuses to run a hook that is not executable on POSIX.
+- Leaves `git status` alone while it does. When the repository records a hook as `100755`, the
+  restored bit matches what is committed and nothing shows as modified. When it records `100644`,
+  the fix is staged with `git update-index --chmod=+x` and printed, so it becomes one deliberate
+  commit instead of a mode change that trails every status report from then on.
 - Never touches global Git config, and never replaces a `core.hooksPath` someone deliberately
   pointed at a different directory; it says so and stops instead.
 - Warns rather than failing an install when a hook file is missing. The strict form (`npm run
