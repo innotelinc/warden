@@ -67,17 +67,25 @@ const release = (
 }
 
 /** Run the generator the way the deploy does, and report its exit status. */
-const generate = (releases: Release[], out: string): number => {
-  const dir = mkdtempSync(join(tmpdir(), 'warden-landing-'))
-  const input = join(dir, 'releases.json')
-  writeFileSync(input, JSON.stringify(releases))
+const runCli = (...args: string[]): number => {
   try {
-    execFileSync(process.execPath, [SCRIPT, '--input', input, '--out', out], { stdio: 'pipe' })
+    execFileSync(process.execPath, [SCRIPT, ...args], { stdio: 'pipe' })
     return 0
   } catch (error) {
     return (error as { status?: number }).status ?? 1
   }
 }
+
+/** Put a release listing where the generator expects a fixture, then run it. */
+const withFixture = (releases: Release[], ...args: string[]): number => {
+  const dir = mkdtempSync(join(tmpdir(), 'warden-landing-'))
+  const input = join(dir, 'releases.json')
+  writeFileSync(input, JSON.stringify(releases))
+  return runCli('--input', input, ...args)
+}
+
+const generate = (releases: Release[], out: string): number =>
+  withFixture(releases, '--out', out)
 
 const scratch = (): string => join(mkdtempSync(join(tmpdir(), 'warden-out-')), 'release.json')
 
@@ -163,6 +171,42 @@ describe('the release the landing page advertises', () => {
   })
 })
 
+/**
+ * The scheduled check is the only thing that can notice the committed fallback
+ * went stale: every other check compares the file with itself. Its three exit
+ * codes are the whole contract, so they are tested rather than assumed.
+ */
+describe('the staleness check', () => {
+  it('passes when the file already names the newest complete release', () => {
+    const out = scratch()
+    generate([release('v0.2.15', '2026-10-29T03:53:39Z')], out)
+    expect(withFixture([release('v0.2.15', '2026-10-29T03:53:39Z')], '--check', '--out', out)).toBe(0)
+  })
+
+  it('fails when a newer complete release exists', () => {
+    const out = scratch()
+    generate([release('v0.2.13', '2026-10-29T03:13:21Z')], out)
+    const status = withFixture(
+      [
+        release('v0.2.16', '2026-10-30T09:00:00Z'),
+        release('v0.2.13', '2026-10-29T03:13:21Z'),
+      ],
+      '--check',
+      '--out',
+      out
+    )
+    expect(status).toBe(1)
+    // A finding, not a repair: the check never writes.
+    expect(JSON.parse(readFileSync(out, 'utf8')).tag).toBe('v0.2.13')
+  })
+
+  it('reports an unreadable release list separately from a stale file', () => {
+    // 2, not 1: the scheduled workflow warns on this and fails on 1, because a
+    // GitHub wobble is not a stale site.
+    expect(runCli('--check', '--input', join(tmpdir(), 'no-such-listing.json'))).toBe(2)
+  })
+})
+
 describe('the committed manifest', () => {
   /**
    * This file is what gets deployed when the API cannot be reached, so it has to
@@ -214,5 +258,41 @@ describe('the landing page and its deploy', () => {
     expect(workflow).toContain('Build and sign release')
     expect(workflow).toContain('Mobile (Android)')
     expect(workflow).toContain(`github.event.workflow_run.conclusion == 'success'`)
+  })
+
+  /**
+   * The code a phone scans is drawn from the manifest, so it names the tag the
+   * buttons are pinned to. Without that, the page could advertise 0.2.15 in its
+   * caption and hand the phone 0.2.16 through the image — one page, two releases.
+   */
+  it('draws the QR from the manifest, so both name one tag', () => {
+    expect(read('.github/workflows/pages.yml')).toContain('scripts/landing-qr.py')
+
+    const manifest = JSON.parse(read(MANIFEST))
+    const svg = read('web/landing/android-apk-qr.svg')
+    const desc = /<desc>(.*?)<\/desc>/s.exec(svg)?.[1]?.trim()
+    expect(desc).toBe(manifest.android.apk)
+    expect(desc).toContain(`/download/${manifest.tag}/`)
+  })
+
+  /**
+   * The image is only correct against the manifest it was drawn from. If the
+   * drawing fails the deploy has to fall back to the pair committed together,
+   * not to a new manifest beside an old image.
+   */
+  it('keeps the image and the manifest a pair when drawing fails', () => {
+    const workflow = read('.github/workflows/pages.yml')
+    expect(workflow).toContain('git checkout -- web/landing/release.json')
+    // segno comes from a venv, because the runner's Python is externally managed.
+    expect(workflow).toContain('install --quiet segno')
+  })
+
+  it('checks the committed fallback on a schedule', () => {
+    const workflow = read('.github/workflows/release-manifest.yml')
+    expect(workflow).toContain('cron:')
+    expect(workflow).toContain('--check')
+    // The unreadable case must warn and pass; only drift fails the run.
+    expect(workflow).toContain('the release list could not be read')
+    expect(workflow).toContain('exit 1')
   })
 })

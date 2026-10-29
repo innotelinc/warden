@@ -487,9 +487,9 @@ npm run smoke:dist <span class="c"># drive the packaged binary, 32 checks</span>
       </div>
 
       <div class="android-card">
-        <!-- The image is fixed the moment it is drawn, so it carries the rolling
-             link. The button beside it is pinned to the release named below, and
-             the two agree except across the seconds a new tag is being uploaded. -->
+        <!-- Drawn from release.json when the site is built (scripts/landing-qr.py),
+             so this code and the button under it name the same tag. The committed
+             file is the last pair that was drawn together. -->
         <img class="qr" src="android-apk-qr.svg" alt="QR code that opens the WARDEN Android APK download" width="128" height="128" loading="lazy">
         <div>
           <div class="android-k">Android · signed APK</div>

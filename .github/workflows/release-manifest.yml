@@ -1,0 +1,56 @@
+# release-manifest.yml — notice when the committed release.json falls behind.
+#
+# The manifest is regenerated at deploy time, so a stale copy in the repository
+# does not by itself make the live page wrong. It makes the *fallback* wrong: when
+# a deploy cannot read the release list — a bad token, an API change, a release
+# job that published before its APK landed — the committed pair is what gets
+# served, and it would advertise a release that has since been replaced. Nothing
+# else in the pipeline can see that, because every other check compares the file
+# with itself.
+#
+# Deliberately daily rather than per-push: this answers "has the fallback drifted",
+# which cannot change faster than a release, and a per-push version would only
+# restate what the deploy already did.
+#
+# Exit codes come from the generator: 0 current, 1 behind, 2 could not read the
+# release list. Only 1 is a finding. A run that cannot reach GitHub warns and
+# passes, so a network wobble does not train everyone to ignore this workflow.
+
+name: Release manifest
+
+on:
+  schedule:
+    # 06:47 UTC, off the hour and clear of the attribution guard's own schedule.
+    - cron: '47 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  current:
+    name: release.json is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Compare with the newest complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          node scripts/landing-release-json.mjs --check --out web/landing/release.json
+          status=$?
+          case "$status" in
+            0) exit 0 ;;
+            2)
+              echo "::warning::the release list could not be read, so the manifest was not checked"
+              exit 0
+              ;;
+          esac
+          echo "::error::the committed release.json is behind the newest complete release; run 'node scripts/landing-release-json.mjs' and 'python3 scripts/landing-qr.py', then commit both"
+          exit 1

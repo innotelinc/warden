@@ -538,6 +538,13 @@ be spending a 60-an-hour budget the visitor's whole network shares. The generato
 release that carries all three artifacts, so a tag whose APK is still uploading cannot become the
 version the page advertises.
 
+The QR code beside the Android link is drawn from that same file by `scripts/landing-qr.py`, so the
+tag you read in the caption, the tag the button downloads and the URL inside the code are one release.
+If the drawing cannot run, the deploy reverts the manifest rather than ship a new caption beside an old
+image. A daily workflow (`release-manifest.yml`) compares the committed copy with the newest complete
+release, because that copy is what gets served when a deploy cannot reach GitHub — the one case where
+a stale file would otherwise go unnoticed.
+
 ---
 
 ## Keyboard

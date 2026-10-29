@@ -94,6 +94,12 @@ jobs:
           # pass every other check here.
           grep -q 'android-apk-qr.svg' "$f" || { echo "::error::landing has no QR code beside the APK"; exit 1; }
           [ -f web/landing/android-apk-qr.svg ] || { echo "::error::the QR image is missing from web/landing"; exit 1; }
+          # The image is drawn from the manifest, so the two have to name the same
+          # release. A code that points at another tag's APK is worse than no code:
+          # it looks like the same download and installs a different build.
+          python3 scripts/landing-qr.py --check || {
+            echo "::error::the QR image and release.json name different releases"; exit 1
+          }
           # The version the page prints comes from a file this site serves, not
           # from the GitHub API: 60 unauthenticated requests an hour is a budget
           # one office behind a NAT can spend, and a browser-only caption is the

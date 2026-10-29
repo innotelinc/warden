@@ -26,10 +26,19 @@
  *   --input <file>   read a release list from disk instead of the API (tests,
  *                    and reproducing a decision without spending a request)
  *   --out <file>     where to write; defaults to web/landing/release.json
+ *   --check          compare the file on disk with the newest complete release
+ *                    and change nothing (see the exit codes below)
  *
- * Exits non-zero when no complete release is found, and in that case writes
- * nothing: the copy already on disk stays, so a stale-but-real release keeps
- * being advertised instead of the file being emptied.
+ * Exit codes:
+ *   0  written, or (with --check) the file already names the newest release
+ *   1  no complete release found, or (with --check) the file is behind
+ *   2  with --check, the release list could not be read at all
+ *
+ * A run that finds no complete release writes nothing: the copy already on disk
+ * stays, so a stale-but-real release keeps being advertised instead of the file
+ * being emptied. The split between 1 and 2 exists for the scheduled check, which
+ * has to tell "the site is stale" (act) apart from "GitHub had a wobble"
+ * (retry tomorrow) — one is a real finding, the other is noise.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -135,8 +144,18 @@ const arg = (name, fallback = '') => {
 async function main() {
   const out = arg('out', DEFAULT_OUT)
   const input = arg('input')
+  const check = process.argv.includes('--check')
 
-  const releases = input ? JSON.parse(readFileSync(input, 'utf8')) : await fetchReleases()
+  let releases
+  try {
+    releases = input ? JSON.parse(readFileSync(input, 'utf8')) : await fetchReleases()
+  } catch (error) {
+    if (check) {
+      console.error(`could not read the release list: ${error.message}`)
+      return 2
+    }
+    throw error
+  }
   const manifest = pickRelease(releases)
 
   if (!manifest) {
@@ -145,7 +164,27 @@ async function main() {
       `no complete release in ${seen} listing(s); leaving ${out} as it is so the page keeps ` +
         'advertising the last release that had every artifact'
     )
-    process.exit(1)
+    return 1
+  }
+
+  if (check) {
+    const advertised = (() => {
+      try {
+        return JSON.parse(readFileSync(out, 'utf8')).tag || ''
+      } catch {
+        return ''
+      }
+    })()
+    if (advertised === manifest.tag) {
+      console.log(`${out} is current: ${manifest.tag}`)
+      return 0
+    }
+    console.error(
+      `${out} advertises ${advertised || 'nothing'}, but the newest complete release is ` +
+        `${manifest.tag} (${manifest.publishedAt}). Run \`node ` +
+        `scripts/landing-release-json.mjs\` and commit the result.`
+    )
+    return 1
   }
 
   // Compare before writing, so a redeploy that decides the same thing says so
@@ -159,21 +198,24 @@ async function main() {
   const text = `${JSON.stringify(manifest, null, 2)}\n`
   if (previous === text) {
     console.log(`release.json unchanged: ${manifest.tag} · ${manifest.publishedAt}`)
-    return
+    return 0
   }
   writeFileSync(out, text)
   console.log(
     `release.json: ${manifest.tag} · ${manifest.publishedAt} · ` +
       `apk ${manifest.android.bytes} bytes`
   )
+  return 0
 }
 
 // Importable for tests without running the CLI; the CLI runs when executed.
 // pathToFileURL, not string surgery: on Windows argv[1] is a drive path and a
 // hand-built file:// URL silently never matches, which ran nothing at all.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error(`release.json not written: ${error.message}`)
-    process.exit(1)
-  })
+  main()
+    .then((code) => process.exit(code ?? 0))
+    .catch((error) => {
+      console.error(`release.json not written: ${error.message}`)
+      process.exit(1)
+    })
 }

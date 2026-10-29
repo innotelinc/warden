@@ -64,20 +64,37 @@ jobs:
 
       # Authenticated on the runner, which is what keeps this off the 60-an-hour
       # budget a browser would be spending.
-      - name: Write the release manifest
+      #
+      # The manifest and the QR image are written together, and either both are
+      # new or neither is: the image encodes the APK URL from the manifest, so a
+      # page carrying a new manifest beside an old image would scan to one
+      # release and download the other. The revert below is what keeps them a
+      # pair when the drawing fails.
+      - name: Write the release manifest and its QR
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          # The generator prints the tag it chose, so this step is the record of
-          # what the deploy advertised.
-          if node scripts/landing-release-json.mjs --out web/landing/release.json; then
-            echo "manifest: written"
-          else
+          # segno draws the code. A venv, because the runner's Python is marked
+          # externally managed (PEP 668) and refuses a global install.
+          python3 -m venv "$RUNNER_TEMP/qr"
+          "$RUNNER_TEMP/qr/bin/pip" install --quiet segno || true
+          export PATH="$RUNNER_TEMP/qr/bin:$PATH"
+
+          if ! node scripts/landing-release-json.mjs --out web/landing/release.json; then
             # Nothing complete to describe — a tag whose APK has not landed, or a
-            # failed API call. The copy in the repository is deployed instead, so
-            # the page keeps advertising a release that really has every asset.
+            # failed API call. The committed pair is deployed instead, so the page
+            # keeps advertising a release that really has every asset.
             echo "::warning::release.json was not regenerated; deploying the committed copy"
+            exit 0
+          fi
+          echo "manifest: written"
+
+          if python3 scripts/landing-qr.py; then
+            echo "qr: written"
+          else
+            echo "::warning::the QR could not be redrawn; reverting the manifest so the image and the buttons name the same release"
+            git checkout -- web/landing/release.json
           fi
 
       - name: Configure Pages
