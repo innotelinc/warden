@@ -55,19 +55,32 @@ const results = []
 const record = (name, ok, detail) => results.push({ name, ok, detail })
 
 function run(command, argv, options = {}) {
+  const env = { ...process.env, ...options.env }
+  for (const name of options.unset ?? []) delete env[name]
   const result = spawnSync(command, argv, {
     cwd: options.cwd ?? ROOT,
     encoding: 'utf8',
-    env: { ...process.env, ...options.env },
+    env,
     windowsHide: true
   })
   return { code: result.status, out: `${result.stdout ?? ''}${result.stderr ?? ''}` }
 }
 
+/**
+ * Windows PowerShell finds its own modules — and with them the Cert: drive —
+ * through PSModulePath. Started from a PowerShell 7 session it inherits PS7's
+ * value, the certificate provider never registers, and the first Cert:\ path
+ * fails as DriveNotFoundException: a missing module reported as a missing
+ * certificate, from inside a script that only needed to list a store. CI runs
+ * this step under pwsh, so that inheritance is the normal case there, not an
+ * edge one. Dropping the variable lets the child rebuild its own default, which
+ * is what a plain console gets.
+ */
 const powershell = (script, env = {}, cwd = ROOT) =>
   run('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
     cwd,
-    env
+    env,
+    unset: ['PSModulePath']
   })
 
 /**

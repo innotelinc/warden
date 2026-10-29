@@ -15,10 +15,10 @@ import { fileURLToPath } from 'node:url'
  * workflows and the APK check are.
  */
 
-const lines = readFileSync(
-  fileURLToPath(new URL('../.github/workflows/sign-release.yml', import.meta.url)),
-  'utf8'
-).split(/\r?\n/)
+const read = (path: string): string =>
+  readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8')
+
+const lines = read('.github/workflows/sign-release.yml').split(/\r?\n/)
 
 const BUILD = 'Build installers'
 const GATE = 'Rehearse the signed-release path'
@@ -57,6 +57,17 @@ describe('signed-release gate', () => {
   it('runs the rehearsal script the repository ships', () => {
     expect(stepText(GATE)).toContain('node scripts/rehearse-signing.mjs')
     expect(existsSync(fileURLToPath(new URL('../scripts/rehearse-signing.mjs', import.meta.url)))).toBe(true)
+  })
+
+  /**
+   * The step runs under pwsh, and the Windows PowerShell child it starts would
+   * inherit PowerShell 7's PSModulePath. Windows PowerShell then cannot find its
+   * own modules, so it has no certificate provider: the first Cert:\ path fails
+   * as DriveNotFoundException and the gate fails on a certificate error that is
+   * really a module-path one. The first run of this gate failed exactly that way.
+   */
+  it('does not hand a PowerShell 7 module path to the signing shell', () => {
+    expect(read('scripts/rehearse-signing.mjs')).toContain("unset: ['PSModulePath']")
   })
 
   /**

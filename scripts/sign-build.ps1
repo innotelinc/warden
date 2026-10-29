@@ -56,6 +56,18 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+# The Cert: drive belongs to Microsoft.PowerShell.Security, which is located
+# through PSModulePath. Started from a PowerShell 7 session this process inherits
+# PS7's value, the provider never loads, and the first Get-ChildItem Cert:\ throws
+# DriveNotFound — a missing module reported as a missing certificate. Say which
+# one it is, rather than leaving that error in the middle of a signing run.
+if (-not (Test-Path Cert:\)) {
+  try { Import-Module Microsoft.PowerShell.Security -ErrorAction Stop } catch { }
+}
+if (-not (Test-Path Cert:\)) {
+  throw "No certificate provider: the Cert: drive is missing, so PSModulePath ('$env:PSModulePath') cannot see Windows PowerShell's own modules. Run this from a plain Windows PowerShell console, or clear PSModulePath for this process."
+}
+
 function Write-Step([string]$text) { Write-Host "== $text" -ForegroundColor Cyan }
 
 function Get-SigningCertificate {
