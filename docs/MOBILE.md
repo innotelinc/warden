@@ -335,11 +335,13 @@ with `web/landing/privacy.html` as the policy URL.
    of 0.2.4 is accepted.
 4. A tag push archives with automatic signing, exports with
    `destination=upload` and lands in **TestFlight**; no `altool` or Transporter
-   step exists any more. A manual run **stops at the archive** unless
-   `upload_to_testflight` is ticked: the `warden-ios` artifact holds the
-   `.xcarchive` to inspect, and nothing is exported, uploaded to TestFlight or
-   sent to testers. The box is the single decision — the export, the ad hoc
-   export, the profile check and the App Distribution publish all follow it.
+   step exists any more. A manual run **stops at the archive** unless it is
+   asked for something: `upload_to_testflight` publishes, `export_signed_ipa`
+   exports an ad hoc `.ipa` that installs on a registered phone and notifies
+   nobody, and ticking neither leaves the `.xcarchive` and nothing else. Those
+   two boxes are the whole decision — the store export, the ad hoc export, the
+   profile check and the App Distribution publish all follow them, so a manual
+   run can no longer mail a build to testers by accident.
 5. Put the build in front of a phone. A `VALID` build reaches nobody until a
    **TestFlight group** holds it and an **internal tester** sits in that group,
    so: Apps → WARDEN → TestFlight → Internal Testing → a group (create one with

@@ -15,9 +15,10 @@ name: Mobile (iOS)
 #
 # A push of a v* tag builds that tag's version, uploads it to TestFlight and
 # hands it to App Distribution. A manual run builds the version in
-# mobile/package.json and, unless the `upload_to_testflight` box is ticked, stops
-# at the archive: it exports nothing, uploads nothing, and sends nothing to
-# anyone's inbox.
+# mobile/package.json and stops at the archive unless it is asked for something:
+# `upload_to_testflight` publishes, `export_signed_ipa` exports an ad hoc ipa
+# for a hand-installed build and notifies nobody. Ticking neither exports
+# nothing and sends nothing.
 # Without the App Store Connect key the job still archives — unsigned, for
 # inspection — instead of failing on empty credentials.
 
@@ -26,6 +27,13 @@ on:
     inputs:
       upload_to_testflight:
         description: Upload the finished build to TestFlight
+        type: boolean
+        default: false
+      # The other half of a manual run: an ipa that installs on a registered
+      # phone, with no TestFlight build and no email to testers. This is the
+      # App Distribution export minus the distribution.
+      export_signed_ipa:
+        description: Export a signed ad hoc .ipa for sideloading (publishes nothing)
         type: boolean
         default: false
   push:
@@ -143,25 +151,35 @@ jobs:
           echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "WARDEN ${VERSION} (${GITHUB_RUN_NUMBER})"
 
-      # One decision for the whole publishing half of the job: the store export,
-      # the ad hoc export, the profile check and the App Distribution publish all
-      # read this output. They used to be gated on their own configuration, which
-      # meant a manual run that asked for nothing still exported an ad hoc ipa and
-      # emailed it to the tester group.
+      # One decision for everything after the archive: `value` uploads, `sideload`
+      # exports an ipa and stops. They are separate outputs because the two
+      # answers differ on what happens at the end — an upload reaches TestFlight
+      # and every tester's inbox, a sideload reaches an artifact and nobody else.
+      # Both are read by the steps below rather than each deciding for itself,
+      # which is how a run that asked for nothing once exported an ipa and mailed
+      # it to the tester group.
       - name: Decide whether to publish
         id: upload
         env:
           REQUESTED: ${{ github.event_name == 'push' || inputs.upload_to_testflight }}
+          SIDELOAD_REQUESTED: ${{ inputs.export_signed_ipa }}
         run: |
           if [ -z "${ASC_KEY_ID:-}" ]; then
             echo "value=false" >> "$GITHUB_OUTPUT"
+            echo "sideload=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No App Store Connect key configured — archiving unsigned for inspection; nothing is exported or published."
           elif [ "${REQUESTED}" = "true" ]; then
             echo "value=true" >> "$GITHUB_OUTPUT"
+            echo "sideload=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Build will be uploaded to TestFlight and App Distribution."
+          elif [ "${SIDELOAD_REQUESTED}" = "true" ]; then
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            echo "sideload=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Exporting a signed ad hoc .ipa for sideloading — nothing is uploaded to TestFlight and no tester is notified."
           else
             echo "value=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Upload not requested — the run stops at the archive. Tick upload_to_testflight to upload this build."
+            echo "sideload=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Nothing requested — the run stops at the archive. Tick upload_to_testflight to publish, or export_signed_ipa for a signed .ipa."
           fi
 
       - name: Install
@@ -275,9 +293,10 @@ jobs:
       # is a second export of the same archive with a different method, run only
       # once an iOS app id is configured — before that there is no profile to
       # make, because no device is registered — and only when this run is
-      # uploading, so a manual build nobody asked to publish notifies nobody.
+      # uploading or was asked for a sideload build, so a manual build nobody
+      # asked for notifies nobody.
       - name: Export an ad hoc ipa
-        if: env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true'
+        if: steps.upload.outputs.sideload == 'true' || (env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true')
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -311,7 +330,7 @@ jobs:
       # back out of the ipa that is about to be uploaded and compared with the
       # devices the account has. It runs before the upload for that reason.
       - name: Check the ad hoc profile names the registered devices
-        if: env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true'
+        if: steps.upload.outputs.sideload == 'true' || (env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true')
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

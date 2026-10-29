@@ -187,9 +187,9 @@ describe('iOS App Distribution', () => {
     expect(workflow).toContain('-exportOptionsPlist "$RUNNER_TEMP/AdHocOptions.plist"')
   })
 
-  it('stays inert until an iOS app id is configured', () => {
+  it('publishes only with an app id, a service account and an upload', () => {
     expect(workflow).toContain(
-      "if: env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true'"
+      "if: steps.upload.outputs.sideload == 'true' || (env.FIREBASE_IOS_APP_ID != '' && steps.upload.outputs.value == 'true')"
     )
     expect(workflow).toContain(
       "if: env.FIREBASE_IOS_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && steps.upload.outputs.value == 'true'"
@@ -232,6 +232,28 @@ describe('iOS manual runs', () => {
   it('no longer writes an ipa that nobody asked to upload', () => {
     expect(workflow).not.toContain("'upload' || 'export'")
     expect(workflow).toContain('<key>destination</key><string>upload</string>')
+  })
+
+  /**
+   * Checking a build on one's own phone is not a release. The ad hoc export is
+   * the only thing that produces an ipa a registered device will install, so it
+   * is offered on its own: no TestFlight upload, no App Distribution release, no
+   * email. The store export stays behind `value` because that one exists only to
+   * be uploaded.
+   */
+  it('exports a signed ipa for sideloading without telling anyone', () => {
+    expect(workflow).toMatch(
+      /export_signed_ipa:\s*\n\s*description: Export a signed ad hoc \.ipa for sideloading \(publishes nothing\)\s*\n\s*type: boolean\s*\n\s*default: false/
+    )
+    expect(workflow).toContain('SIDELOAD_REQUESTED: ${{ inputs.export_signed_ipa }}')
+
+    expect(gate('Export an ad hoc ipa')).toContain("steps.upload.outputs.sideload == 'true'")
+    expect(gate('Check the ad hoc profile names the registered devices')).toContain(
+      "steps.upload.outputs.sideload == 'true'"
+    )
+
+    expect(gate('Export ipa')).not.toContain('sideload')
+    expect(gate('Publish to Firebase App Distribution')).not.toContain('sideload')
   })
 })
 
