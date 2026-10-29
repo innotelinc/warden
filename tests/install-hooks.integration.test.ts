@@ -1,0 +1,156 @@
+import { spawnSync } from 'node:child_process'
+import { chmodSync, cpSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterEach, describe, expect, it } from 'vitest'
+
+// Exercises what the unit tests in hook-mode-plan.test.ts cannot: the real
+// `git config`, the real `update-index`, and the hooks themselves running on a
+// commit. Every case builds a throwaway repository in the OS temp directory, so
+// nothing touches the checkout this suite runs in.
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const posix = process.platform !== 'win32'
+
+let dir = ''
+
+interface RunOptions {
+  cwd?: string
+  input?: string
+  env?: Record<string, string>
+}
+
+function run(command: string, args: string[], options: RunOptions = {}) {
+  return spawnSync(command, args, {
+    cwd: options.cwd ?? dir,
+    encoding: 'utf8',
+    input: options.input,
+    env: { ...process.env, ...options.env },
+    timeout: 20000
+  })
+}
+
+function git(args: string[], options: RunOptions = {}): string {
+  const result = run('git', args, options)
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`)
+  return (result.stdout ?? '').trim()
+}
+
+/** A temp repo holding the real hooks and scripts, committed as they are. */
+function makeRepo(): string {
+  const created = mkdtempSync(join(tmpdir(), 'warden-hooks-'))
+  cpSync(join(repoRoot, '.githooks'), join(created, '.githooks'), { recursive: true })
+  cpSync(join(repoRoot, 'scripts'), join(created, 'scripts'), { recursive: true })
+  const identity = ['-c', 'user.email=t@example.com', '-c', 'user.name=T']
+  git(['init', '-q'], { cwd: created })
+  git([...identity, 'add', '.'], { cwd: created })
+  git([...identity, 'commit', '-q', '-m', 'seed'], { cwd: created })
+  return created
+}
+
+function install(options: RunOptions = {}) {
+  return run(process.execPath, [join(dir, 'scripts', 'install-hooks.mjs')], options)
+}
+
+function hooksPath(where = dir): string | null {
+  const result = run('git', ['config', '--local', '--get', 'core.hooksPath'], { cwd: where })
+  return result.status === 0 ? (result.stdout ?? '').trim() : null
+}
+
+/** The mode git has recorded for a path, as a clone would check it out. */
+function recordedMode(path: string): string {
+  return git(['ls-files', '--stage', '--', path]).split(/\s+/)[0] ?? ''
+}
+
+afterEach(() => {
+  if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 3 })
+  dir = ''
+})
+
+describe('install-hooks against a throwaway repository', () => {
+  it('enables the hooks and keeps the tree clean when the record is correct', () => {
+    dir = makeRepo()
+    // The archive case: git records 100755, the checkout lost the bit.
+    if (posix) chmodSync(join(dir, '.githooks', 'commit-msg'), 0o644)
+
+    const result = install()
+    expect(result.status).toBe(0)
+    expect(hooksPath()).toBe('.githooks')
+
+    if (posix) {
+      expect(statSync(join(dir, '.githooks', 'commit-msg')).mode & 0o111).toBe(0o111)
+      expect(git(['status', '--porcelain'])).toBe('')
+    }
+  })
+
+  it('stages the repair when the repository records the hook as a plain file', () => {
+    if (!posix) return // windows has no execute bit to record
+    dir = makeRepo()
+    const identity = ['-c', 'user.email=t@example.com', '-c', 'user.name=T']
+    git(['update-index', '--chmod=-x', '.githooks/commit-msg'])
+    git([...identity, 'commit', '-q', '-m', 'record it plain'])
+    chmodSync(join(dir, '.githooks', 'commit-msg'), 0o644)
+    expect(recordedMode('.githooks/commit-msg')).toBe('100644')
+
+    const result = install()
+    expect(result.status).toBe(0)
+    expect(result.stderr).toContain('the fix is staged')
+    expect(recordedMode('.githooks/commit-msg')).toBe('100755')
+
+    // Staged, not dangling: the change sits in the index and the working tree
+    // has nothing extra for `git status` to report.
+    const lines = git(['status', '--porcelain']).split('\n')
+    const line = lines.find((entry) => entry.includes('.githooks/commit-msg'))
+    expect(line?.slice(0, 2)).toBe('M ')
+  })
+
+  it('leaves a different core.hooksPath alone', () => {
+    dir = makeRepo()
+    git(['config', '--local', 'core.hooksPath', '.husky'])
+
+    const result = install()
+    expect(result.status).toBe(0)
+    expect(hooksPath()).toBe('.husky')
+    expect(result.stderr).toContain('core.hooksPath is set to ".husky"')
+  })
+
+  it('honours WARDEN_SKIP_HOOKS', () => {
+    dir = makeRepo()
+    const result = install({ env: { WARDEN_SKIP_HOOKS: '1' } })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('skipped')
+    expect(hooksPath()).toBeNull()
+  })
+
+  it('skips a directory that is not a git checkout', () => {
+    const plain = mkdtempSync(join(tmpdir(), 'warden-nogit-'))
+    try {
+      cpSync(join(repoRoot, 'scripts'), join(plain, 'scripts'), { recursive: true })
+      const result = run(process.execPath, [join(plain, 'scripts', 'install-hooks.mjs')], { cwd: plain })
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain('not a git checkout')
+    } finally {
+      rmSync(plain, { recursive: true, force: true, maxRetries: 3 })
+    }
+  })
+
+  it('installs hooks that actually block a foreign credit trailer', () => {
+    if (!posix) return // the hooks are bash; git for windows is a different surface
+    dir = makeRepo()
+    expect(install().status).toBe(0)
+
+    const commit = (message: string) =>
+      run(
+        'git',
+        ['-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '--allow-empty', '-F', '-'],
+        { input: message }
+      )
+
+    const blocked = commit('probe\n\nCo-Authored-By: Nope <n@example.com>\n')
+    expect(blocked.status).not.toBe(0)
+    expect(blocked.stderr).toContain('guard:')
+
+    const allowed = commit('probe: a clean subject\n')
+    expect(allowed.status).toBe(0)
+  })
+})
