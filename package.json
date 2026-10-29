@@ -22,6 +22,7 @@
     "verify:remote": "node scripts/remote-check.mjs",
     "icon": "node scripts/make-icon.mjs",
     "check:pty": "node scripts/check-pty.mjs",
+    "check:docs": "node scripts/check-doc-links.mjs",
     "hooks": "node scripts/install-hooks.mjs --strict",
     "prepare": "node scripts/install-hooks.mjs",
     "dist": "npm run build && electron-builder --win --publish never",
