@@ -41,13 +41,29 @@ import java.util.Locale;
  * out. The same shape the iOS surface presents, so the product behaves the same
  * on both platforms.
  *
- * <p>The session is discarded when the surface closes: cookies, web storage, form
- * data and cache are cleared in {@link #onDestroy()}. The cache is off entirely,
- * so what a page leaves behind lives only while this screen does.
+ * <p>Two kinds of session share this surface. A <b>private</b> one is the browser:
+ * the cache is off and cookies, web storage, form data and cache are cleared in
+ * {@link #onDestroy()}, so what a page leaves behind lives only while this screen
+ * does. A <b>service</b> one is the operator's chat and mail: it keeps cookies and
+ * cache, because a messaging app that asked you to log in again on every open
+ * would not be usable. Services are launched in their own process with their own
+ * WebView data directory ({@link WardenServicesActivity}), so the private
+ * surface's wipe cannot reach them.
+ *
+ * <p>Scry captures come through here too: the shell passes a script, this surface
+ * loads the page, evaluates it and hands the result back before closing.
  */
 public class WardenBrowserActivity extends Activity {
 
     public static final String EXTRA_URL = "us.innotel.warden.BROWSER_URL";
+    /** {@link #SESSION_PRIVATE} (default) or {@link #SESSION_SERVICE}. */
+    public static final String EXTRA_SESSION = "us.innotel.warden.BROWSER_SESSION";
+    /** Evaluate {@link #EXTRA_SCRIPT} once the page settles, then close. */
+    public static final String EXTRA_CAPTURE = "us.innotel.warden.BROWSER_CAPTURE";
+    public static final String EXTRA_SCRIPT = "us.innotel.warden.BROWSER_SCRIPT";
+
+    public static final String SESSION_PRIVATE = "private";
+    public static final String SESSION_SERVICE = "service";
 
     private static final String BACKGROUND = "#070a0d";
     private static final String SURFACE = "#101720";
@@ -63,6 +79,12 @@ public class WardenBrowserActivity extends Activity {
     private ProgressBar progress;
 
     private WebResourceResponse blockedResponse;
+
+    private boolean serviceSession;
+    private boolean captureOnly;
+    private String captureScript;
+    private boolean captured;
+
 
     /**
      * Where a typed string goes — the same rule the shell and iOS use: a bare
@@ -90,6 +112,19 @@ public class WardenBrowserActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        serviceSession = SESSION_SERVICE.equals(getIntent().getStringExtra(EXTRA_SESSION));
+        captureOnly = getIntent().getBooleanExtra(EXTRA_CAPTURE, false);
+        captureScript = getIntent().getStringExtra(EXTRA_SCRIPT);
+
+        // Resolved before anything is built: a call that carries no address — a
+        // store wipe in the service process, or a malformed launch — has nothing
+        // to show and should not pay for chrome it will never display.
+        String resolved = resolve(getIntent().getStringExtra(EXTRA_URL));
+        if (resolved == null) {
+            finish();
+            return;
+        }
+
         // targetSdk 35+ lays windows out edge to edge by default, which would put
         // the bar under the status bar. The chrome has to be reachable by thumb.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -108,11 +143,6 @@ public class WardenBrowserActivity extends Activity {
 
         setContentView(root);
 
-        String resolved = resolve(getIntent().getStringExtra(EXTRA_URL));
-        if (resolved == null) {
-            finish();
-            return;
-        }
         load(resolved);
     }
 
@@ -234,8 +264,10 @@ public class WardenBrowserActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        // No disk cache: the session is meant to die with this screen.
-        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        // No disk cache in a private session: it is meant to die with this
+        // screen. A service session is the opposite — a chat app re-downloading
+        // its whole client on every open is not a browser, it is a wait.
+        settings.setCacheMode(serviceSession ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_NO_CACHE);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
         settings.setSupportZoom(true);
@@ -297,6 +329,7 @@ public class WardenBrowserActivity extends Activity {
                 syncChrome(url);
                 // The cosmetic pass: the iframe is gone but its slot is not.
                 view.evaluateJavascript(WardenAdBlock.cosmeticScript(), null);
+                maybeCapture();
             }
 
             @Override
@@ -337,6 +370,31 @@ public class WardenBrowserActivity extends Activity {
         address.setText(url);
         address.clearFocus();
         webView.loadUrl(url);
+    }
+
+    /**
+     * Scry, on the page this surface is showing.
+     *
+     * <p>Runs the shell's capture script and hands the result back through the
+     * bridge. The short delay after {@code onPageFinished} is deliberate: a
+     * capture taken the instant the document settles misses the requests that a
+     * deferred script or a lazy image starts, and those are most of the third
+     * parties the report exists to name.
+     */
+    private void maybeCapture() {
+        if (!captureOnly || captured || captureScript == null || captureScript.isEmpty()) {
+            return;
+        }
+        captured = true;
+        webView.postDelayed(() -> {
+            if (webView == null) {
+                return;
+            }
+            webView.evaluateJavascript(captureScript, value -> {
+                WardenBrowserPlugin.deliverCapture(value);
+                finish();
+            });
+        }, 700);
     }
 
     private void syncChrome(String url) {
@@ -382,16 +440,7 @@ public class WardenBrowserActivity extends Activity {
     protected void onDestroy() {
         if (webView != null) {
             try {
-                CookieManager cookies = CookieManager.getInstance();
-                cookies.removeAllCookies(null);
-                cookies.flush();
-                WebStorage.getInstance().deleteAllData();
-                webView.clearCache(true);
-                webView.clearHistory();
-                webView.clearFormData();
-                webView.stopLoading();
-                webView.loadUrl("about:blank");
-                webView.destroy();
+                closeEngine();
             } catch (Exception error) {
                 // A teardown failure must not keep the screen alive.
             }
@@ -399,5 +448,29 @@ public class WardenBrowserActivity extends Activity {
         }
         WardenBrowserPlugin.emitClosed();
         super.onDestroy();
+    }
+
+    /**
+     * The session ends here — for a private one.
+     *
+     * <p>Cookies and web storage are the two places a page can leave something
+     * that outlives the screen, so both are cleared before the engine is torn
+     * down. A service session skips all of it: that is what makes a chat app
+     * still be logged in the next time it is opened, and it lives in its own
+     * process with its own data directory, so this wipe cannot reach it.
+     */
+    private void closeEngine() {
+        if (!serviceSession) {
+            CookieManager cookies = CookieManager.getInstance();
+            cookies.removeAllCookies(null);
+            cookies.flush();
+            WebStorage.getInstance().deleteAllData();
+            webView.clearCache(true);
+            webView.clearFormData();
+        }
+        webView.clearHistory();
+        webView.stopLoading();
+        webView.loadUrl("about:blank");
+        webView.destroy();
     }
 }

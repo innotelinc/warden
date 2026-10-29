@@ -84,10 +84,13 @@ describe('the browser surface', () => {
     expect(surface).toContain('WKWebView')
   })
 
-  it('keeps the session out of the filesystem', () => {
-    // The posture screen claims nothing is written to disk, so the data store
-    // has to be the in-memory one.
-    expect(read(SWIFT)).toContain('websiteDataStore = .nonPersistent()')
+  it('keeps the browser session out of the filesystem, and a service out of the browser', () => {
+    // The posture screen claims nothing is written to disk for a browsed page, so
+    // that store has to be the in-memory one. A chat or mail surface is the
+    // deliberate exception: it uses the persistent store so a sign-in survives,
+    // and the wipe on request is the only thing that clears it.
+    expect(read(SWIFT)).toContain('websiteDataStore = session == .service ? .default() : .nonPersistent()')
+    expect(read(SWIFT)).toContain('enum Session')
   })
 
   it('resolves a typed address the same way the shell does', () => {

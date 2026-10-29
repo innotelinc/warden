@@ -20,5 +20,23 @@
             android:launchMode="singleTop"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
+
+        <!--
+          Chat and mail surfaces: the same activity in a process of its own, so
+          the WebView keeps a second data directory. That is what lets a service
+          stay signed in while the private browser still wipes everything when it
+          closes — Android gives a process one cookie jar, so a second process is
+          the only way to have a second jar.
+        -->
+        <activity
+            android:name=".WardenServicesActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|navigation|locale"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:label="WARDEN Mobile"
+            android:launchMode="singleTop"
+            android:process=":services"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

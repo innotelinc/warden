@@ -11,10 +11,30 @@ import WebKit
  */
 final class WardenBrowserViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, UITextFieldDelegate {
 
+    /**
+     Two kinds of session on one surface.
+
+     A `.privateMode` surface is the browser: its data store is non-persistent, so
+     closing it ends the session exactly as the product claims. A `.service`
+     surface — a chat or mail web app — keeps the default store, because a
+     messaging app that asked for a login on every open would not be usable.
+     iOS gives each store its own cookie jar, so the private teardown cannot reach
+     a service's login.
+     */
+    enum Session {
+        case privateMode
+        case service
+    }
+
     var onEvent: ((String, [String: Any]) -> Void)?
     var onDismiss: (() -> Void)?
+    /// Scry's result, handed back as the JSON text the page produced.
+    var onCapture: ((String) -> Void)?
 
     private let startURL: URL
+    private let session: Session
+    private let captureScript: String?
+    private var captured = false
     private var webView: WKWebView!
     private let addressField = UITextField()
     private let backButton = UIButton(type: .system)
@@ -25,8 +45,10 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
     private let progress = UIProgressView(progressViewStyle: .bar)
     private var progressObservation: NSKeyValueObservation?
 
-    init(startURL: URL) {
+    init(startURL: URL, session: Session = .privateMode, captureScript: String? = nil) {
         self.startURL = startURL
+        self.session = session
+        self.captureScript = captureScript
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
     }
@@ -41,7 +63,7 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
         view.backgroundColor = UIColor(red: 0.027, green: 0.035, blue: 0.047, alpha: 1)
 
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = session == .service ? .default() : .nonPersistent()
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
@@ -173,7 +195,7 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
         if webView.isLoading { webView.stopLoading() } else { webView.reload() }
     }
 
-    @objc private func close() {
+    @objc func close() {
         dismiss(animated: true) { [weak self] in self?.onDismiss?() }
     }
 
@@ -211,6 +233,52 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         progress.isHidden = true
         syncChrome()
+        guard let script = captureScript, !captured else { return }
+        captured = true
+        // A capture taken the instant the document settles misses the requests
+        // a deferred script or a lazy image starts, and those are most of the
+        // third parties the report exists to name.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            self?.runCapture(script)
+        }
+    }
+
+    // MARK: - Scry
+
+    /**
+     Read the page as the page sees itself.
+
+     The script is the shell's (`mobile/src/operator/capture.ts`), so the report
+     is the same one the desktop builds from a debugger capture — this side only
+     has to evaluate it and hand the text back.
+     */
+    func capture(_ script: String, completion: @escaping (String?) -> Void) {
+        webView.evaluateJavaScript(script) { result, error in
+            if let text = result as? String {
+                completion(text)
+            } else {
+                completion(WardenBrowserViewController.failure(error?.localizedDescription ?? "The page could not be read"))
+            }
+        }
+    }
+
+    private func runCapture(_ script: String) {
+        capture(script) { [weak self] text in
+            guard let self else { return }
+            self.onCapture?(text ?? "{}")
+            // A surface opened to capture one page has done its job; the report
+            // is behind it and the operator should see it without a second tap.
+            self.close()
+        }
+    }
+
+    private static func failure(_ message: String) -> String {
+        let payload = ["error": message]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

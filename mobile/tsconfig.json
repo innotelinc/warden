@@ -9,7 +9,11 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["../src/shared/*"]
+    }
   },
-  "include": ["src", "capacitor.config.ts", "vite.config.ts"]
+  "include": ["src", "capacitor.config.ts", "vite.config.ts", "../src/shared"]
 }

@@ -35,11 +35,18 @@ exact credentials and buttons that only the account owner can supply.
 - Release pipelines for a signed `.aab` and an `.ipa`, plus store metadata and a
   public privacy policy.
 
+**Operator surfaces (see below):** **Scry** reads the page in front of you and
+reports its stack, third parties, trackers, forms and endpoints; **Services**
+opens Slack, Teams, WhatsApp and the rest in the same WARDEN surface with a
+session that survives; **Mail** does the same for a mail provider's web client.
+
 **Not in this release:** tabs (one session per surface), DoH via
 `NEDNSProxyProvider` on iOS and `VpnService` on Android (both need an
-entitlement and an App Review explanation), and the desktop's non-browser
-surfaces — shell, mail, messaging and Scry — which run in the Electron main
-process and have no mobile equivalent yet.
+entitlement and an App Review explanation), and two of the desktop's surfaces
+that need a protocol stack a phone build does not carry — the **shell** (a local
+PTY, or the system `ssh` client) and the **IMAP/SMTP mail client** with its fraud
+check. Genie, the desktop assistant, needs a gateway key the mobile build
+deliberately does not store.
 
 ## Layout
 
@@ -537,27 +544,29 @@ that does not exist is a 2.3 rejection.
 
 **Review notes have one job: explain what the app is before a reviewer decides
 it is a wrapper.** They are in the listing file and say, in order: no sign-in
-needed; how to test (type `example.com`, press return, the page opens full
-screen in the system browser view, dismiss it, no permission prompt appears);
-why it is not a repackaged website (no bundled site, no server, no account, its
-own address resolution, posture screen and quick destinations); and what is
-deliberately absent.
+needed; how to test (type `example.com`, press return, the page opens in WARDEN's
+own view with the app's address bar and controls, dismiss it, no permission
+prompt appears); why it is not a repackaged website (no bundled site, no server,
+no account, its own address resolution, posture screen, blocking and quick
+destinations); what the operator surfaces are (Scry's report, the service and
+mail clients in their own session); and what is deliberately absent.
 
 **Be honest about 4.2.** A browser is exactly the shape of app that guideline
 4.2 (minimum functionality) questions. Rendering in a `WKWebView` is the right
 answer for a browser, but the guideline is about what the app *does*, so the
 review notes have to name the blocking, the session posture and the chrome as
-the app's own work. Good
-review notes explain the product; they cannot supply functionality that is not
-there. The real answer is on the roadmap: `WKContentRuleList` blocking,
-per-tab isolation and DoH via `NEDNSProxyProvider`. Until that ships, treat
-rejection on 4.2 as a live possibility rather than a surprise.
+the app's own work — now three surfaces of it
+(the browser, Scry's report builder, and the service session) rather than one.
+Review notes explain the product; they cannot supply functionality that is not
+there, so the notes also say what is absent. Remaining roadmap: per-tab
+isolation and DoH via `NEDNSProxyProvider`. Treat rejection on 4.2 as a live
+possibility rather than a surprise, and answer it with the surfaces, not with
+copy.
 
-**Two claims the app must never make, because they are not true in this build:**
-that it encrypts DNS, and that it blocks trackers. The posture screen used to
-claim the first (there is no DNS profile in the app and no filter engine) and
-the listings used to claim both. `tests/mobile-listing.test.ts` fails if either
-comes back.
+**The claim the app must never make, because it is not true in this build:**
+that it encrypts DNS, or that tabs are isolated. There is no DNS profile in the
+app and no per-tab store. Blocking ships now, so it is no longer on that list —
+`tests/mobile-listing.test.ts` fails if a DNS claim comes back.
 
 **Export compliance** is answered in `Info.plist`
 (`ITSAppUsesNonExemptEncryption = false`), so selecting a build does not stop for
@@ -596,11 +605,79 @@ internal build exists and show the real UI rather than a mockup.
 
 ## Non-goals
 
-The mobile app is not a port of the desktop product. It runs the same *browser*
-with the same blocking lists, and it does not claim the desktop's non-browser
-surfaces: the shell, mail, messaging and Scry need an Electron main process and
-network protocols that have no equivalent inside a store app. The store listing
-says browser and blocking, which is what ships.
+The mobile app is not a port of the desktop process model. It runs the same
+*browser* with the same blocking lists, the same Scry report builder and the same
+service list, and it does not claim the parts of the desktop that need something
+a store app cannot have:
+
+- **The shell.** A local PTY needs a child process; the desktop's SSH route is the
+  system `ssh` client. Neither exists inside an app sandbox.
+- **The IMAP/SMTP client.** Porting it means a native IMAP stack on two platforms
+  plus a keychain for the credentials; until that exists, Mail is the provider's
+  web client in a service session, and the panel says so.
+- **Genie.** It posts to an OpenAI-compatible gateway with the owner's key. The
+  mobile build has no key store for it, and putting an API key in plain
+  preferences on a phone is not a trade this product should make.
+
+The store listing says browser and blocking, which is what ships.
+
+## Operator surfaces on a phone
+
+Scry, Services and Mail are peers of the browser, not settings behind it: the tab
+bar sits under the address bar, because an operator switching from reading a page
+to reading its stack should not have to go hunting.
+
+### Scry
+
+A phone has no Chrome debugger, so the capture runs **inside the page**:
+`mobile/src/operator/capture.ts` is a self-contained function that the native
+surface evaluates once the document settles, and `Function.prototype.toString`
+is what gets sent, so the script and its test are the same code. It collects the
+DOM, `document.cookie`, the Resource Timing entries (which give hosts, request
+kinds, sizes and XHR/fetch endpoints), the forms, and a sample of the design
+tokens.
+
+The report is then built by **`src/shared/scry-report.ts`**, the same builder the
+desktop runs over a debugger capture. That is the point of the move: a tracker
+host or a framework signature that lived twice would be right on one platform and
+quietly wrong on the other.
+
+Two honest differences from the desktop report, both stated in its notes:
+
+- **Response headers cannot be read from inside a page**, and the mobile engine
+does not hand them to the shell. `headersObserved: false` stops the report calling
+every security header missing; server software (nginx, Cloudflare) is therefore
+absent from a mobile report, and Scry on the desktop is where to read it.
+- **A blocked request never reaches the page**, so it cannot appear in the
+capture. The third-party and tracker lists are a lower bound — what got through —
+not a measurement of the site. The same caveat the desktop prints when it knows
+how many requests Bastion refused.
+
+### Services and Mail
+
+Both open the service's own web client in WARDEN's surface. What makes them
+usable is the session: a chat app that asked for a login on every open would not
+be.
+
+| | Browser | Service |
+|---|---|---|
+| iOS store | `.nonPersistent()` | `.default()` |
+| Android store | the main process's WebView directory | `app_webview_services`, in `:services` |
+| On close | cookies, web storage, form data and cache cleared | kept |
+| How it ends | closing the surface | **Sign out of every service** |
+
+Android needs the second **process**, not just a flag: `CookieManager` and
+`WebStorage` are per process, so a private page's teardown would otherwise sign
+the operator out of every chat app they had open. `WardenServicesActivity` runs
+with `android:process=":services"` and calls `WebView.setDataDirectorySuffix`
+before its first `WebView` exists. On API 27 and older there is no suffix, so the
+two sessions share one store and clearing the browser clears the services with
+it. iOS needs nothing extra: two data stores are two stores.
+
+Mail is the provider's web client, not the desktop program. The desktop talks
+IMAP and SMTP, analyses a message for fraud and renders sanitised HTML; none of
+those has a mobile path yet, and the panel says so rather than implying an IMAP
+client that is not there.
 
 ## The iOS browser surface
 

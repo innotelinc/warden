@@ -511,10 +511,19 @@ tool is available.
 ## Mobile (Android and iOS)
 
 Electron has no mobile runtime, so `mobile/` is a Capacitor shell over WARDEN's own React surfaces,
-rendered by the Android WebView and the iOS WKWebView; the platform engines do the filtering from
-`src/main/privacy/filter-engine.ts` on one side and a compiled `WKContentRuleList` on the other. The
-shell opens pages in the platform's private browser surface, keeps no cookie jar of its own, ships no
-analytics or ad SDK, and requests no camera or microphone.
+rendered by the Android WebView and the iOS WKWebView inside a browser surface the app presents
+itself — its own address bar, back, forward, reload and progress line, on both platforms. Ad and
+tracker requests are refused before they leave the app (`shouldInterceptRequest` on Android, a
+compiled `WKContentRuleList` on iOS) from one shared host list, and the empty slot a blocked ad
+leaves behind is removed with the page. A browsed page's cookies, web storage and cache are cleared
+when its surface closes; the operator surfaces — **Scry** (read the page's stack, third parties,
+trackers and forms, using the same report builder as the desktop), **Services** and **Mail** (chat and
+mail web clients in a session that survives) — are peers of the browser in the tab bar. No analytics
+or ad SDK, no account, no sensor access.
+
+The mobile app does not carry the desktop's shell, its IMAP client or Genie: those need a local PTY,
+a native mail stack, or a stored API key. [docs/MOBILE.md](docs/MOBILE.md) says what each one would
+take rather than implying it is there.
 
 `.github/workflows/mobile-android.yml` builds a signed `.aab` when the keystore secrets exist (an
 unsigned bundle otherwise), and `mobile-ios.yml` archives on a macOS runner, signed when an App Store
