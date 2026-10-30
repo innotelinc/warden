@@ -139,9 +139,8 @@ The recipe, in the order that avoids a half-applied edit:
    It is a few kilobytes, so it goes through the normal write path.
 2. Let the job commit **only the file it was dispatched to change**, then delete the workflow
    separately, from outside the job. A push made with the job's own token cannot add, change or
-   delete anything under `.github/workflows`: GitHub answers `refusing to allow a GitHub App to
-   create or update workflow ... without workflows permission` and refuses the entire push, so the
-   file edit is lost with it. An earlier attempt at this recipe had the job remove itself in the
+   delete anything under `.github/workflows`, and GitHub refuses the entire push when it tries, so
+   the file edit is lost with it. An earlier attempt at this recipe had the job remove itself in the
    same commit for a tidier history and landed nothing. Dispatch, verify the commit, then remove
    the workflow as an ordinary commit through the normal write path. History keeps an
    add/edit/remove triple; the tree ends with only the intended change.
@@ -149,6 +148,15 @@ The recipe, in the order that avoids a half-applied edit:
    scratch bare remote seeded from `main`. A block scalar whose content sits at column 0 makes the
    whole YAML invalid, and `yaml.safe_load` plus a dry run catch that in seconds rather than after
    a failed run.
+
+The refusal names the file the job was not allowed to touch:
+
+```text
+refusing to allow a GitHub App to create or update workflow `.github/workflows/land-edit.yml` without `workflows` permission
+```
+
+The path moves with the workflow being deleted; the rest of the line is what to search for when a
+push disappears with no explanation in the log.
 
 ### The blob-hash gate
 
