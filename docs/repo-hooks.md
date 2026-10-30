@@ -52,6 +52,76 @@ bash scripts/check-hook-modes.sh
 The repair it prints is `git update-index --chmod=+x <file>`, which records the mode in the tree
 without touching the file's content.
 
+## The manual's links and anchors are checked
+
+A relative link that points at nothing still renders as a link, so a broken one is invisible until
+someone clicks it. A stale fragment is quieter still: `[x](docs/gone.md#renamed-away)` opens a real
+file and lands the reader at the top of it, with nothing failing anywhere.
+[`scripts/doc-links.mjs`](../scripts/doc-links.mjs) is the rule and
+[`scripts/check-doc-links.mjs`](../scripts/check-doc-links.mjs) is the CLI; the `Documentation links`
+step in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs it on every push, and locally:
+
+```bash
+npm run check:docs      # exits 0, or names every broken link by file and line
+```
+
+The scope is `README.md` and every `*.md` under `docs/`, so a new document there is covered without
+being registered anywhere. Both kinds of rot are reported, and the two are counted separately:
+
+```text
+::error file=README.md,line=62::#land-by-hand is not a heading in README.md
+::error file=docs/stack.md,line=8::#blob-hash-gate is not a heading in docs/repo-hooks.md
+doc links: 0 unresolvable path(s), 2 stale anchor(s) — a reader finds these by clicking
+```
+
+### Why renaming a heading breaks the build
+
+An anchor is not stored in the repository — it is derived from the heading's text when GitHub renders
+the page. Renaming `## Land by hand` to `## Landing by hand` rewrites the URL from `#land-by-hand` to
+`#landing-by-hand`, and every link that used the old one now lands the reader at the top of the page.
+Nothing reports it: not the browser, not the renderer, not the push. This check is the only place the
+two names meet, which is why a heading is not free to reword.
+
+Slugs follow GitHub's rules, so the checker and the site agree on what a heading is called:
+
+| Heading in the source                      | The anchor a link must use                  |
+| ------------------------------------------ | ------------------------------------------- |
+| `## The execute bit is checked in CI`      | `#the-execute-bit-is-checked-in-ci`         |
+| `### The blob-hash gate`                   | `#the-blob-hash-gate`                       |
+| `## Notes (2026)`                          | `#notes-2026`                               |
+| `` ## `core.hooksPath` and clones ``       | `#corehookspath-and-clones`                 |
+| `## Mail, and **what** it refuses`         | `#mail-and-what-it-refuses`                 |
+| `## Landing a file the write path refuses` | `#landing-a-file-the-write-path-refuses`    |
+
+The rules behind those rows: the *rendered* text is used, so backticks, `**emphasis**`, HTML and a
+link's own target are gone before the slug is taken; punctuation is dropped while letters, marks,
+digits, `_` and `-` survive; spaces become hyphens; and the result is lowercased. A heading that
+repeats gets `-1`, then `-2`, with the first occurrence keeping the bare slug.
+
+Because the anchor is derived from the text, there is no alias to leave behind. Keeping an old link
+working means keeping the old wording, or updating every link that points at it. Adding a second
+heading with the old wording is not a repair: the first heading with that wording keeps the bare
+slug, so a dead link starts passing while landing the reader somewhere you did not mean.
+
+### What the anchor check abstains on
+
+- **A fragment on a non-Markdown target.** `../src/main/index.ts#L42` is a line range in GitHub's
+  viewer, not a heading, so no heading index would ever contain it.
+- **Setext headings**, the kind underlined with `---`. This repository uses none, and a rule that
+  guessed would read a horizontal rule as a title.
+- **Reference-style links**, anything with a scheme, and protocol-relative `//host` targets.
+- **Fenced blocks and inline code.** A path in a code sample is an illustration, not a claim that the
+  file exists.
+- **A target it cannot read.** No index is returned and the link is skipped rather than reported: a
+  check that guesses is worse than one that abstains.
+
+Matching is exact, case included. `#Known-Limits` fails even though the heading exists, because
+browsers match ids case-sensitively too — that link is dead for the reader as well, which is the
+whole point of using the same rule GitHub does rather than a looser one.
+
+The repair is always the same: change the link, then run `npm run check:docs`. If you deliberately
+renamed the heading, the failure names each document and line that still points at the old name.
+
 ## Landing a file the write path refuses
 
 Most edits to this repository go in through the GitHub contents API, which is fine until the file
