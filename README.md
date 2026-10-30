@@ -323,7 +323,7 @@ Requires Node 24+ (verified on 24.20.0). `node-pty` ships prebuilds for `win32-x
 
 ### Repo hooks
 
-`npm install` and `npm ci` run [`scripts/install-hooks.mjs`](scripts/install-hooks.mjs) through the `prepare` script, which points the clone at `.githooks` — so the attribution guard and the secret scan run before a commit is written, on a fresh clone, with no setup step to remember. It writes one clone-local setting (`core.hooksPath`), restores the hooks' execute bits when a checkout or archive dropped them, leaves global Git config alone, and refuses to replace a `core.hooksPath` pointed somewhere else on purpose. Details and the escape hatches (`npm run hooks`, `WARDEN_SKIP_HOOKS=1`) are in [docs/repo-hooks.md](docs/repo-hooks.md).
+`npm install` and `npm ci` run [`scripts/install-hooks.mjs`](scripts/install-hooks.mjs) through the `prepare` script, which points the clone at `.githooks` — so the attribution guard and the secret scan run before a commit is written, on a fresh clone, with no setup step to remember. It writes one clone-local setting (`core.hooksPath`), restores the hooks' execute bits when a checkout or archive dropped them, leaves global Git config alone, and refuses to replace a `core.hooksPath` pointed somewhere else on purpose. Details and the escape hatches (`npm run hooks`, `WARDEN_SKIP_HOOKS=1`) are in [docs/repo-hooks.md](docs/repo-hooks.md), which also covers the checks on the manual itself: a relative link, or a `#section` fragment naming a heading its target no longer has, fails CI — an anchor is derived from the heading's text, so renaming a heading means updating the links to it.
 
 ### Verification
 
