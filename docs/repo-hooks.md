@@ -137,8 +137,14 @@ The recipe, in the order that avoids a half-applied edit:
 
 1. Commit a `workflow_dispatch`-only workflow to `main` that edits the file, commits and pushes.
    It is a few kilobytes, so it goes through the normal write path.
-2. Have the job **delete itself in the same commit** as the file change, so the tree ends with only
-   the intended edit. History keeps an add/remove pair; the tree does not.
+2. Let the job commit **only the file it was dispatched to change**, then delete the workflow
+   separately, from outside the job. A push made with the job's own token cannot add, change or
+   delete anything under `.github/workflows`: GitHub answers `refusing to allow a GitHub App to
+   create or update workflow ... without workflows permission` and refuses the entire push, so the
+   file edit is lost with it. An earlier attempt at this recipe had the job remove itself in the
+   same commit for a tidier history and landed nothing. Dispatch, verify the commit, then remove
+   the workflow as an ordinary commit through the normal write path. History keeps an
+   add/edit/remove triple; the tree ends with only the intended change.
 3. Rehearse before dispatching: extract the workflow's own `run:` text and execute it against a
    scratch bare remote seeded from `main`. A block scalar whose content sits at column 0 makes the
    whole YAML invalid, and `yaml.safe_load` plus a dry run catch that in seconds rather than after
