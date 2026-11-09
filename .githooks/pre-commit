@@ -8,9 +8,9 @@
 # is rejected before the commit can be created. Policy: only Darnel Hunter
 # <dhunter@innotel.us> may ever be credited.
 #
-# Installed automatically: `npm install` (package.json "prepare") runs
-# scripts/install-hooks.mjs, which points this clone at this directory.
-# To enable or repair it by hand:  npm run hooks
+# Install (enables the guard locally):
+#     git config core.hooksPath .githooks
+# setup.sh on a fresh install already does this.
 # ═══════════════════════════════════════════════════════════
 set -uo pipefail
 
