@@ -503,7 +503,7 @@ source of truth; the limits are Apple's and a test enforces them.
 
 | Field | Value | Limit |
 |---|---|---|
-| Name | `WARDEN Mobile` | 30 |
+| Name | `WARDEN Mobile` — **taken by another account**; the record keeps its own store name | 30 |
 | Subtitle | `No account. No telemetry.` | 30 |
 | Primary language | English (U.S.) | — |
 | Bundle ID | `us.innotel.warden` | — |
