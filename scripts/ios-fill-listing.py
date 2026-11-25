@@ -20,6 +20,10 @@ It deliberately does not touch the review contact (a person's name, phone and
 email are not in this repository), the screenshots (which have to be captured
 from the running app) or What's New (optional for a first version).
 
+Apple reserves app names across every account, so the name is the one attribute
+here that the store can refuse. That refusal is printed and the rest of the
+listing is still written.
+
 Credentials are the same four repository secrets the iOS workflows use. The
 token and HTTP helpers are taken from scripts/ios-build-status.py, which is
 already exercised against the live API, rather than duplicated here — the
@@ -79,6 +83,27 @@ def patch(path: str, bearer: str, payload: dict) -> dict:
 
 def post(path: str, bearer: str, payload: dict) -> dict:
     return send("POST", path, bearer, payload)
+
+
+def try_patch(path: str, bearer: str, payload: dict) -> tuple[bool, str]:
+    """A PATCH whose refusal is an outcome to report rather than a crash. Only
+    the app name uses this: Apple reserves names across every account, so a
+    taken one is a fact about the store, not a bug in the write."""
+    request = urllib.request.Request(
+        API + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {bearer}",
+            "Content-Type": "application/json",
+        },
+        method="PATCH",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            response.read()
+            return True, ""
+    except urllib.error.HTTPError as error:
+        return False, error.read().decode("utf-8", "replace")
 
 
 def write_review_notes(bearer: str, version: dict, notes: str) -> str:
@@ -293,13 +318,15 @@ def main() -> int:
         raise SystemExit(f"the app information record has no {LOCALE} localization.")
 
     info_attributes = {
-        "name": copy["name"],
         "subtitle": copy["subtitle"],
         "privacyPolicyUrl": copy["privacyPolicyUrl"],
     }
     print("\napp information:")
     for key, value in info_attributes.items():
         print(f"  {key:16} {value}")
+    # Written on its own below: Apple can refuse a name another account holds,
+    # and that must not stop the rest of the listing from being written.
+    print(f"  {'name':16} {copy['name']}")
 
     utilities = category_id(bearer, "UTILITIES")
     print(f"  primary category {utilities}")
@@ -357,6 +384,31 @@ def main() -> int:
         },
     )
     print("wrote app information")
+
+    name_ok, name_detail = try_patch(
+        f"/v1/appInfoLocalizations/{info_localization['id']}",
+        bearer,
+        {
+            "data": {
+                "type": "appInfoLocalizations",
+                "id": info_localization["id"],
+                "attributes": {"name": copy["name"]},
+            }
+        },
+    )
+    if name_ok:
+        print(f"set the app name to {copy['name']}")
+    elif "already being used" in name_detail:
+        # Apple reserves app names across every account and releases one only
+        # through a trademark claim, so retrying cannot help. The screenshots,
+        # review notes and build are independent of the name.
+        print(
+            f"app name {copy['name']!r} is already in use on another App Store Connect "
+            "account, so the record keeps its current name. Apple releases a taken "
+            "name only through a trademark claim; otherwise pick a variant."
+        )
+    else:
+        raise SystemExit(f"App Store Connect refused the app name: {name_detail}")
 
     app_info_id = (asc.get(f"/v1/apps/{app}/appInfos", bearer, {"limit": "5"}).get("data") or [{}])[0]["id"]
     patch(
