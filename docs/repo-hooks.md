@@ -122,6 +122,32 @@ whole point of using the same rule GitHub does rather than a looser one.
 The repair is always the same: change the link, then run `npm run check:docs`. If you deliberately
 renamed the heading, the failure names each document and line that still points at the old name.
 
+## A push is checked against the branch it names
+
+A push is addressed by the commit that leaves, not by the branch in the argument. Tooling that sends
+`HEAD` and labels the destination with whatever name it was given reports success while another
+branch's commits land on that name — which happened twice here: `mobile-store-name` was pushed while
+`HEAD` was the desktop-shell branch, so the remote carried the shell's three commits, a pull request
+opened for the wrong diff, and the store-name change was only on a branch nobody had pushed.
+
+So a push is finished when the remote ref has been compared, not when the push returns:
+
+```bash
+npm run check:push -- <branch>
+npm run check:push -- <branch> --remote upstream   # a remote other than origin
+```
+
+[`scripts/check-push.mjs`](../scripts/check-push.mjs) compares two things and nothing else: `HEAD`
+must be the tip of the branch named, and the remote ref must be that same commit. It fails when the
+branch has no local ref, when `HEAD` is elsewhere (a push sends `HEAD`, so a different branch would
+have left), when the remote has no ref of that name, or when the hashes differ — printing both, so
+the divergence is named rather than guessed at.
+
+The push's own success line is not the check: a non-fast-forward is refused, but the right name
+carrying the wrong commit is not a disagreement git can see. The same holds for a pull request: open
+it only after the check passes, and read the head branch and file list it shows instead of assuming
+they match the work.
+
 ## Landing a file the write path refuses
 
 Most edits to this repository go in through the GitHub contents API, which is fine until the file
