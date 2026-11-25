@@ -56,7 +56,7 @@ jobs:
     steps:
       # The checkout opens the job because the gate below is a local action, and
       # a local action only resolves once the repository is on disk.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The checks run on every push (ci.yml), so the commit a tag points at has
       # been verified already, or is being verified right now. Waiting for that
@@ -71,7 +71,7 @@ jobs:
         with:
           token: ${{ github.token }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -206,8 +206,8 @@ jobs:
       # For the metadata step below. The build output is not needed: the
       # installer comes from the signing request, and its hashes are taken from
       # the file SignPath hands back.
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
 
