@@ -87,7 +87,7 @@ jobs:
       run:
         working-directory: mobile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A tag is a release request, and the checks for that commit ran on the
       # push. Waiting for them here means a tag on a red commit never reaches
@@ -369,7 +369,7 @@ jobs:
     steps:
       # The check is a script in this repository; nothing else here needs the
       # source.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         with:
