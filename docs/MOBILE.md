@@ -503,7 +503,7 @@ source of truth; the limits are Apple's and a test enforces them.
 
 | Field | Value | Limit |
 |---|---|---|
-| Name | `WARDEN Mobile` — **taken by another account**; the record keeps its own store name | 30 |
+| Name | `WARDEN Privacy Browser` — matches the name the App Store record already holds. `WARDEN Mobile` is taken by another account and Apple reserves names across accounts | 30 |
 | Subtitle | `No account. No telemetry.` | 30 |
 | Primary language | English (U.S.) | — |
 | Bundle ID | `us.innotel.warden` | — |
