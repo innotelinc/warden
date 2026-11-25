@@ -9,15 +9,16 @@ this pushes the same strings through the API instead.
 
 It sets, on the newest iOS version page of the app:
 
-  * subtitle, description, keywords, promotional text, support and marketing URL
-  * the privacy policy URL on the app information record
+  * description, keywords, promotional text, support and marketing URL
+  * the app name, the subtitle and the privacy policy URL on the app
+    information record
   * the primary category
   * the age rating's unrestricted-web-access answer
+  * the review notes, on the version's App Review information
 
-It deliberately does not touch the app name, the review contact (a person's
-name, phone and email are not in this repository), the screenshots (which have
-to be captured from the running app) or What's New (optional for a first
-version).
+It deliberately does not touch the review contact (a person's name, phone and
+email are not in this repository), the screenshots (which have to be captured
+from the running app) or What's New (optional for a first version).
 
 Credentials are the same four repository secrets the iOS workflows use. The
 token and HTTP helpers are taken from scripts/ios-build-status.py, which is
@@ -53,7 +54,7 @@ API = asc.API
 LOCALE = "en-US"
 
 
-def patch(path: str, bearer: str, payload: dict) -> dict:
+def send(method: str, path: str, bearer: str, payload: dict) -> dict:
     request = urllib.request.Request(
         API + path,
         data=json.dumps(payload).encode("utf-8"),
@@ -61,7 +62,7 @@ def patch(path: str, bearer: str, payload: dict) -> dict:
             "Authorization": f"Bearer {bearer}",
             "Content-Type": "application/json",
         },
-        method="PATCH",
+        method=method,
     )
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
@@ -70,6 +71,52 @@ def patch(path: str, bearer: str, payload: dict) -> dict:
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")
         raise SystemExit(f"App Store Connect returned {error.code} for {path}:\n{detail}")
+
+
+def patch(path: str, bearer: str, payload: dict) -> dict:
+    return send("PATCH", path, bearer, payload)
+
+
+def post(path: str, bearer: str, payload: dict) -> dict:
+    return send("POST", path, bearer, payload)
+
+
+def write_review_notes(bearer: str, version: dict, notes: str) -> str:
+    """App Review reads the notes off the version's App Review information
+    record, which App Store Connect creates empty with the version. It is
+    patched when it exists and created when it does not, so a version page that
+    has never held review information still ends up with them."""
+    detail = version.get("review") or {}
+    attributes = {"notes": notes}
+    if detail.get("id"):
+        patch(
+            f"/v1/appStoreReviewDetails/{detail['id']}",
+            bearer,
+            {
+                "data": {
+                    "type": "appStoreReviewDetails",
+                    "id": detail["id"],
+                    "attributes": attributes,
+                }
+            },
+        )
+        return "updated"
+    post(
+        "/v1/appStoreReviewDetails",
+        bearer,
+        {
+            "data": {
+                "type": "appStoreReviewDetails",
+                "attributes": attributes,
+                "relationships": {
+                    "appStoreVersion": {
+                        "data": {"type": "appStoreVersions", "id": version["id"]}
+                    }
+                },
+            }
+        },
+    )
+    return "created"
 
 
 def version_locale(bearer: str, version: dict) -> dict:
@@ -246,6 +293,7 @@ def main() -> int:
         raise SystemExit(f"the app information record has no {LOCALE} localization.")
 
     info_attributes = {
+        "name": copy["name"],
         "subtitle": copy["subtitle"],
         "privacyPolicyUrl": copy["privacyPolicyUrl"],
     }
@@ -264,6 +312,9 @@ def main() -> int:
         "Unrestricted Web Access = yes (16+)"
     )
 
+    notes = copy["reviewNotes"]
+    print(f"  review notes     {len(notes)} chars, {len(notes.splitlines())} lines")
+
     attached: dict | None = None
     if args.attach_build:
         candidates = asc.builds(bearer, app, 50)
@@ -280,6 +331,7 @@ def main() -> int:
         print(f"\nattach {attached['marketing']} ({attached['number']}) to version {version['version']}")
 
     if dry_run:
+        print("\nreview notes:\n" + "\n".join("  | " + line for line in notes.splitlines()))
         print("\nage rating questionnaire:")
         for attribute, value in sorted(rating_answers(rating).items()):
             print(f"  {attribute:45} {value!r}")
@@ -332,6 +384,9 @@ def main() -> int:
         f"answered the age rating questionnaire ({len(answers)} answers, "
         "unrestricted web access yes)"
     )
+
+    action = write_review_notes(bearer, version, notes)
+    print(f"{action} the review notes ({len(notes)} chars)")
 
     if attached is not None:
         patch(
