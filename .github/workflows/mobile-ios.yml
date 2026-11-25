@@ -67,7 +67,7 @@ jobs:
       run:
         working-directory: mobile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A tag is a release request, and the checks for that commit ran on the
       # push. Waiting for them here means a tag on a red commit reaches neither
