@@ -99,6 +99,16 @@ describe('the browser surface', () => {
     expect(surface).toContain('duckduckgo.com/?q=')
   })
 
+  it('remembers the download destination it gave WebKit', () => {
+    // `WKDownload` has no `fileURL` — a download reports its progress, never
+    // where the file went, and the only place that URL exists is the answer the
+    // delegate gave — so it has to be kept until the transfer finishes.
+    const surface = read(SWIFT)
+    expect(surface).not.toContain('progress.fileURL')
+    expect(surface).toContain('downloadTargets[ObjectIdentifier(download)] = target')
+    expect(surface).toContain('downloadTargets.removeValue(forKey: ObjectIdentifier(download))')
+  })
+
   it('hands an unknown scheme to the system rather than dropping it', () => {
     const surface = read(SWIFT)
     expect(surface).toContain('UIApplication.shared.open(url')

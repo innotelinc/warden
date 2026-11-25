@@ -33,8 +33,10 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
 
     var onEvent: ((String, [String: Any]) -> Void)?
     var onDismiss: (() -> Void)?
-    /// Scry's result, handed back as the JSON text the page produced.
-    var onCapture: ((String) -> Void)?
+    /// Scry's result, handed back as the JSON text the page produced — or nil
+    /// when there was no page to read, which the bridge reports as an empty
+    /// report rather than as a capture that failed.
+    var onCapture: ((String?) -> Void)?
 
     /// Six is where a phone stops being a phone: past this the tab sheet is
     /// longer than the page it covers.
@@ -418,7 +420,7 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
         WKWebsiteDataStore.nonPersistent().removeData(
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
             modifiedSince: .distantPast,
-            completionHandler: nil
+            completionHandler: {}
         )
     }
 
@@ -473,7 +475,7 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
             }
         })
 
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
         presentSheet(sheet)
     }
 
@@ -544,7 +546,7 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
                 self.closeTab(at: self.active)
             })
         }
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
         presentSheet(sheet)
     }
 
@@ -564,7 +566,7 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
             guard let self = self, let term = alert?.textFields?.first?.text, !term.isEmpty else { return }
             self.find(term, backwards: true)
         })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
         present(alert, animated: true)
     }
 
@@ -612,6 +614,15 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
 
     // MARK: - Downloads
 
+    /// Where each live download was told to write.
+    ///
+    /// `WKDownload` hands the destination to WebKit and never reports it back:
+    /// there is no `fileURL` on a download, so the only record of where the file
+    /// landed is the answer this delegate gave. Keyed by the download because
+    /// several can be in flight at once, and removed when it finishes so the
+    /// dictionary does not grow for the life of the surface.
+    private var downloadTargets: [ObjectIdentifier: URL] = [:]
+
     func webView(
         _ webView: WKWebView,
         navigationAction: WKNavigationAction,
@@ -635,11 +646,12 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
         if FileManager.default.fileExists(atPath: target.path) {
             target = directory.appendingPathComponent("\(Int(Date().timeIntervalSince1970))-\(name)")
         }
+        downloadTargets[ObjectIdentifier(download)] = target
         completionHandler(target)
     }
 
     func downloadDidFinish(_ download: WKDownload) {
-        guard let url = download.progress.fileURL else { return }
+        guard let url = downloadTargets.removeValue(forKey: ObjectIdentifier(download)) else { return }
         DispatchQueue.main.async { [weak self] in
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
             if let popover = activity.popoverPresentationController, let self = self {
@@ -715,7 +727,7 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
     private func runCapture(_ script: String) {
         capture(script) { [weak self] text in
             guard let self = self else { return }
-            self.onCapture?(text ?? "{}")
+            self.onCapture?(text)
             // A surface opened to capture one page has done its job; the report
             // is behind it and the operator should see it without a second tap.
             self.close()
@@ -813,8 +825,11 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
            ["http", "https"].contains(scheme), url.host != nil {
             return url
         }
+        // A raw string, so the backslashes reach the regex engine as written:
+        // an escaped `\.` is a dot, and `\d` is a digit — `\\.` and `\\d`
+        // would match a literal backslash and never a host at all.
         let hostLike = value.range(
-            of: #"^[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}(:\d+)?(/.*)?$"#,
+            of: #"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(:\d+)?(/.*)?$"#,
             options: .regularExpression
         ) != nil
         if hostLike { return URL(string: "https://" + value) }

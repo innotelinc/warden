@@ -742,11 +742,6 @@ Documents directory through `WKDownloadDelegate` and straight to the share sheet
 The three scripts — fingerprint, cookie lock, reader — are strings in
 `WardenEngine.swift`, so the policy they implement is readable in one place.
 
-**Android is one surface behind.** Its browser activity still renders one page
-with the same blocking rules and the same teardown, and has no tabs or shield
-sheet; `siteRules()` returns nothing there, and Policy says no site has an
-exception rather than pretending it read a list it could not.
-
 The plugin is a `file:` dependency of `mobile/package.json`, so `npx cap sync ios`
 writes the pod into `Podfile` and the class into `packageClassList` on its own —
 do not hand-write either, or CocoaPods sees the pod twice. `npm ci` must therefore
