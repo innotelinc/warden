@@ -126,6 +126,11 @@ CONTENT_QUESTIONS = {
 CAPABILITY_QUESTIONS = {
     "advertising",
     "ageAssurance",
+    # Added to the questionnaire on 16 November 2026 (App Store Connect API
+    # 4.6.1), both booleans. WARDEN declares neither: the browser shares no
+    # real-world location with anyone and has no dating or companion features.
+    "datingAndRelationships",
+    "sharedLocation",
     "gambling",
     "healthOrWellnessTopics",
     "lootBox",
