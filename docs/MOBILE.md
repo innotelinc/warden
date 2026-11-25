@@ -519,7 +519,11 @@ on older OS versions), and every comparable browser is rated the same — Chrome
 Firefox and DuckDuckGo are all 16+ in the US store. Answer everything else
 None, and *Made for Kids* No. New submissions also require the social-media
 questions added in September 2026; a browser displaying websites is not a
-social feature, so answer No to those.
+social feature, so answer No to those. Two more were added on 16 November 2026
+and must be declared on any update: **Shared Location** and **Dating and
+Relationships**, both No here — WARDEN shares no real-world location with anyone
+and has no dating or companion features. `scripts/ios-fill-listing.py` answers
+both, so a listing run leaves no question blank.
 
 **App Privacy** — *Data Not Collected*. That is real: the app stores no history,
 profile or identifiers of its own, ships no analytics or ad SDK, and the browser
