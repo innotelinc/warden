@@ -21,11 +21,21 @@ import { Browser } from '@capacitor/browser'
  * is not registered — an older build — a page still opens, in the system browser,
  * and the caller is told which of the two happened so the UI can say so.
  */
+/** A per-site switch, as the browser's shield sheet left it. */
+export interface SiteRule {
+  host: string
+  blocking: boolean
+  cookies: boolean
+}
+
 export interface WardenBrowserPlugin {
   open(options: { url: string }): Promise<void>
   openService(options: { url: string }): Promise<void>
   scry(options: { url: string; script: string }): Promise<{ capture?: string }>
   clearServiceData(): Promise<void>
+  /** Absent on a surface that has no per-site policy — Android's, for now. */
+  siteRules(): Promise<{ rules?: SiteRule[] }>
+  forgetSiteRules(): Promise<void>
   addListener(
     event: 'navigated',
     listener: (data: { url: string; title: string }) => void
@@ -75,6 +85,32 @@ export async function scryPage(url: string, script: string): Promise<string> {
 export async function clearServiceData(): Promise<boolean> {
   try {
     await WardenBrowser.clearServiceData()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The per-site rules in force, for Policy to state.
+ *
+ * Empty rather than thrown when the surface has none: an older build, or the
+ * Android surface, has no per-site policy to report, and a screen that says
+ * "none" is true for both.
+ */
+export async function siteRules(): Promise<SiteRule[]> {
+  try {
+    const result = await WardenBrowser.siteRules()
+    return Array.isArray(result?.rules) ? result.rules : []
+  } catch {
+    return []
+  }
+}
+
+/** Blocking back on and cookies refused for every host the operator exempted. */
+export async function forgetSiteRules(): Promise<boolean> {
+  try {
+    await WardenBrowser.forgetSiteRules()
     return true
   } catch {
     return false

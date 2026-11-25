@@ -3,10 +3,13 @@ import { StatusBar, Style } from '@capacitor/status-bar'
 import { resolveInput } from '@shared/urls'
 import {
   clearServiceData,
+  forgetSiteRules,
   openPage,
   openService,
+  siteRules,
   WardenBrowser,
-  type BrowserSurface
+  type BrowserSurface,
+  type SiteRule
 } from './warden-browser'
 import { ScryPanel } from './panels/ScryPanel'
 import { ServicesPanel } from './panels/ServicesPanel'
@@ -22,9 +25,7 @@ import {
   IconGlobe,
   IconLock,
   IconMail,
-  IconShield,
-  IconSpark,
-  IconTerminal
+  IconShield
 } from './icons'
 
 declare const __WARDEN_VERSION__: string
@@ -60,36 +61,20 @@ const POSTURE: [string, string][] = [
 ]
 
 /**
- * What the desktop side of the product does that a store build cannot.
+ * What the browser is, stated the way the App Store actually works.
  *
- * Each entry names the desktop surface, what it is there, and the thing a phone
- * sandbox does not have. Presented as a workspace rather than hidden, because an
- * operator moving from the desktop expects to find Trench and Genie in the rail
- * and is owed an answer where they used to be.
+ * iOS has no browser engines you can link against: every browser in the store —
+ * Chrome, Firefox, Edge, this one — renders with WebKit. So the product does not
+ * claim a renderer it did not write. It claims, accurately, the layer above it:
+ * the rules, the cookie policy, the fingerprint shim, the tab model, the chrome,
+ * the reader, the downloads and the teardown.
  */
-const DESKTOP_ONLY: { module: string; title: string; body: string; facts: [string, string][] }[] = [
-  {
-    module: 'Trench',
-    title: 'The shell needs a child process',
-    body:
-      'Trench is a real PTY — ConPTY on Windows, PTY on Unix — driven through node-pty, with a SHELL / SSH toggle that runs the system ssh client in the same terminal. An app on the App Store cannot spawn a child process, and iOS ships no shell or ssh binary to run in one.',
-    facts: [
-      ['A local shell', 'No process spawn, no PTY and no ssh binary inside an iOS bundle.'],
-      ['What to use instead', 'The desktop build, or an ssh app you already trust for the target.'],
-      ['On the roadmap', 'Nothing in this release. A server-backed terminal would be a different product, not a port.']
-    ]
-  },
-  {
-    module: 'Genie',
-    title: 'The assistant needs a key this app will not hold',
-    body:
-      'Genie posts to an OpenAI-compatible gateway with the owner’s key, from the main process. On a phone the only place for that key would be preferences in the bundle or a store of our own, and neither is a trade this product should make for an assistant surface.',
-    facts: [
-      ['Where the key lives on the desktop', 'Main process only; the renderer never sees it.'],
-      ['Why not here', 'An API key in an app bundle or plain preferences is readable by anyone with the device.'],
-      ['What the fraud read needs', 'Genie’s mail read runs beside the IMAP client, which is also desktop-only.']
-    ]
-  }
+const ENGINE: [string, string][] = [
+  ['Renderer', 'WebKit, provided by iOS — the only engine an App Store browser may use.'],
+  ['Rules', 'WARDEN’s own ad and tracker lists, compiled into a content rule list per tab.'],
+  ['Cookies', 'Non-persistent store, a JavaScript lock for hosts without an allowance, and a purge after every page.'],
+  ['Fingerprint', 'A shim injected before the page’s first script, with generic values rather than unique ones.'],
+  ['Chrome', 'Address field, tabs, shield, find, reader, share and downloads — all in the app, none handed to another browser.']
 ]
 
 // Only destinations that ship with the product belong here. A team's own paid
@@ -101,7 +86,7 @@ const SHORTCUTS = [
   { label: 'Privacy', url: 'https://innotelinc.github.io/warden/privacy.html' }
 ]
 
-type WorkspaceId = 'browse' | 'trench' | 'relay' | 'concourse' | 'scry' | 'genie' | 'policy'
+type WorkspaceId = 'browse' | 'concourse' | 'relay' | 'scry' | 'policy'
 
 interface Workspace {
   id: WorkspaceId
@@ -114,13 +99,11 @@ interface Workspace {
 }
 
 const WORKSPACES: Workspace[] = [
-  { id: 'browse', label: 'Browser', module: 'Bastion', hint: 'Browse with WARDEN’s own chrome', icon: IconShield },
-  { id: 'trench', label: 'Trench', module: 'Trench', hint: 'Desktop PTY shell', icon: IconTerminal },
+  { id: 'browse', label: 'Browser', module: 'Bastion', hint: 'WARDEN’s own browser', icon: IconShield },
+  { id: 'concourse', label: 'Services', module: 'Concourse', hint: 'Chat web clients', icon: IconChat },
   { id: 'relay', label: 'Mail', module: 'Relay', hint: 'Mail providers', icon: IconMail },
-  { id: 'concourse', label: 'Services', module: 'Concourse', hint: 'Chat and mail web clients', icon: IconChat },
   { id: 'scry', label: 'Scry', module: 'Scry', hint: 'Read the page in front of you', icon: IconCrosshair },
-  { id: 'genie', label: 'Genie', module: 'Genie', hint: 'Desktop assistant', icon: IconSpark },
-  { id: 'policy', label: 'Policy', module: 'Policy', hint: 'Every switch, and where it is enforced', icon: IconGear }
+  { id: 'policy', label: 'Policy', module: 'Policy', hint: 'What is enforced, and where', icon: IconGear }
 ]
 
 /** The host alone, for a line that has to stay one line. */
@@ -154,12 +137,11 @@ export function App(): React.ReactElement {
   const [serviceSurface, setServiceSurface] = useState<BrowserSurface | null>(null)
   const [current, setCurrent] = useState<string | null>(null)
   const [recents, setRecents] = useState<string[]>([])
+  const [rules, setRules] = useState<SiteRule[]>([])
   const [palette, setPalette] = useState(false)
   const [query, setQuery] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  const active = WORKSPACES.find((entry) => entry.id === workspace) ?? WORKSPACES[0]
 
   const notify = useCallback((text: string): void => setToast(text), [])
 
@@ -176,7 +158,7 @@ export function App(): React.ReactElement {
 
   /**
    * The surface reports where it goes, so this screen can keep the session's
-   * history. The listeners are best-effort: a build without the native plugin has
+   * pages. The listeners are best-effort: a build without the native plugin has
    * no events to give, and the address field still works there.
    */
   useEffect(() => {
@@ -201,6 +183,19 @@ export function App(): React.ReactElement {
       for (const handle of handles) void handle.remove().catch(() => undefined)
     }
   }, [current])
+
+  // Site rules live in the browser surface, so Policy re-reads them when it is
+  // opened rather than caching a picture of them from launch.
+  useEffect(() => {
+    if (workspace !== 'policy') return
+    let live = true
+    void siteRules().then((list) => {
+      if (live) setRules(list)
+    })
+    return () => {
+      live = false
+    }
+  }, [workspace])
 
   const go = useCallback(
     async (input?: string): Promise<void> => {
@@ -227,20 +222,17 @@ export function App(): React.ReactElement {
   )
 
   /** Services and mail open in the session that survives, not the browser's. */
-  const openInService = useCallback(
-    async (url: string): Promise<void> => {
-      setError(null)
-      try {
-        const where = await openService(url)
-        setServiceSurface(where)
-        setCurrent(url)
-        setRecents((list) => [url, ...list.filter((entry) => entry !== url)].slice(0, 12))
-      } catch (problem) {
-        setError((problem as Error).message)
-      }
-    },
-    []
-  )
+  const openInService = useCallback(async (url: string): Promise<void> => {
+    setError(null)
+    try {
+      const where = await openService(url)
+      setServiceSurface(where)
+      setCurrent(url)
+      setRecents((list) => [url, ...list.filter((entry) => entry !== url)].slice(0, 12))
+    } catch (problem) {
+      setError((problem as Error).message)
+    }
+  }, [])
 
   const signOutServices = useCallback(async (): Promise<void> => {
     const ok = await clearServiceData()
@@ -255,7 +247,17 @@ export function App(): React.ReactElement {
     setRecents([])
     setCurrent(null)
     setSurface(null)
-    notify('This session’s surfaces are gone. Nothing was stored.')
+    notify('This session’s pages are gone. Nothing was stored.')
+  }, [notify])
+
+  const forgetRules = useCallback(async (): Promise<void> => {
+    const ok = await forgetSiteRules()
+    if (!ok) {
+      notify('This surface has no per-site rules to forget.')
+      return
+    }
+    setRules([])
+    notify('Every site rule forgotten. Filtering is back on, cookies refused, everywhere.')
   }, [notify])
 
   const commands = useMemo<Command[]>(
@@ -326,7 +328,7 @@ export function App(): React.ReactElement {
             )
           })}
           <span className="rail-spacer" />
-          <div className="rail-meter" title="Surfaces opened this session">
+          <div className="rail-meter" title="Pages opened this session">
             <IconGlobe size={12} />
             <b>{recents.length}</b>
           </div>
@@ -367,21 +369,21 @@ export function App(): React.ReactElement {
                   <IconClose />
                 </button>
               ) : null}
-              <button type="submit" className="go" title="Open" aria-label="Open">
+              <button type="submit" className="go" title="Open in WARDEN" aria-label="Open in WARDEN">
                 <IconArrowRight />
               </button>
             </form>
             <button
               className="shield-pill"
               onClick={() => setWorkspace('policy')}
-              title="Bastion — what this build refuses, and where"
+              title="Bastion — what this browser refuses, and where"
             >
               <IconShield size={13} />
-              <b>blocking</b>
+              <b>shield</b>
             </button>
           </div>
 
-          <div className="tabstrip" role="tablist" aria-label="Surfaces this session">
+          <div className="tabstrip" role="tablist" aria-label="Pages this session">
             {recents.map((url) => (
               <div key={url} className={`surface-tab ${current === url ? 'active' : ''}`} title={url}>
                 <IconGlobe size={11} />
@@ -403,8 +405,8 @@ export function App(): React.ReactElement {
                 setWorkspace('browse')
                 inputRef.current?.focus()
               }}
-              title="New surface"
-              aria-label="New surface"
+              title="New page"
+              aria-label="New page"
             >
               +
             </button>
@@ -426,10 +428,10 @@ export function App(): React.ReactElement {
                     <h1>Read everything. Give nothing.</h1>
                     <p className="lede">WARDEN Mobile · us.innotel.warden</p>
                     <div className="chip-row">
-                      <span className="tag mint">memory-only session</span>
-                      <span className="tag mint">blocking on</span>
+                      <span className="tag mint">own chrome</span>
+                      <span className="tag mint">rules before requests</span>
+                      <span className="tag">memory-only</span>
                       <span className="tag">no account</span>
-                      <span className="tag">no telemetry</span>
                     </div>
                   </section>
 
@@ -451,6 +453,15 @@ export function App(): React.ReactElement {
                       </div>
                     </section>
                   ) : null}
+
+                  <section>
+                    <h2 className="section-title">The browser</h2>
+                    <ul className="facts">
+                      {ENGINE.map(([name, value]) => (
+                        <Fact key={name} name={name} value={value} />
+                      ))}
+                    </ul>
+                  </section>
 
                   <section>
                     <h2 className="section-title">This session</h2>
@@ -560,10 +571,6 @@ export function App(): React.ReactElement {
               </div>
             ) : null}
 
-            {workspace === 'trench' || workspace === 'genie' ? (
-              <DesktopOnlyPanel entry={DESKTOP_ONLY[workspace === 'trench' ? 0 : 1]} />
-            ) : null}
-
             {workspace === 'policy' ? (
               <div className="workspace scroll">
                 <header className="ws-head">
@@ -574,27 +581,52 @@ export function App(): React.ReactElement {
                   <section>
                     <h2 className="section-title">Enforced on this build</h2>
                     <ul className="facts">
-                      <Fact name="Request blocking" value="on — WKContentRuleList (iOS) / shouldInterceptRequest (Android)" />
-                      <Fact name="Cosmetic cleanup" value="on — a page script removes the empty ad slot" />
-                      <Fact name="Cookies" value="memory only — the browser uses a non-persistent store" />
-                      <Fact name="Third-party cookies" value="off" />
-                      <Fact name="Service session" value="separate store, ended by Sign out" />
+                      <Fact name="Request rules" value="on — a content rule list compiled per tab, applied before page scripts" />
+                      <Fact name="Cookie policy" value="non-persistent store; JavaScript cookie lock without an allowance; purge after load" />
+                      <Fact name="HTTPS only" value="on — a top-level http address is upgraded before it leaves the app" />
+                      <Fact name="Fingerprint shim" value="on — injected at document start, generic values" />
+                      <Fact name="Pages" value="up to six engines, one session store, in-app chrome" />
                       <Fact name="Telemetry" value="none — no SDK, no account, no crash reporter" />
                       <Fact name="Sensors" value="camera, microphone and location are never requested" />
                     </ul>
                   </section>
 
                   <section>
+                    <h2 className="section-title">Site rules</h2>
+                    {rules.length ? (
+                      <>
+                        <ul className="facts">
+                          {rules.map((rule) => (
+                            <Fact
+                              key={rule.host}
+                              name={rule.host}
+                              value={`${rule.blocking ? 'filtering' : 'not filtering'} · cookies ${rule.cookies ? 'allowed' : 'refused'}`}
+                            />
+                          ))}
+                        </ul>
+                        <div className="button-row">
+                          <button className="btn danger" onClick={() => void forgetRules()}>
+                            Forget all site rules
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="hint">
+                        No site has an exception. The shield in the browser sets one per site, for this run only — the
+                        list is in memory and ends with the app.
+                      </p>
+                    )}
+                  </section>
+
+                  <section>
                     <h2 className="section-title">Not in this build</h2>
                     <ul className="facts">
+                      <Fact name="A browser engine of our own" value="iOS allows none; WebKit is the only engine a store browser may use" />
                       <Fact name="DNS over HTTPS" value="needs a network extension entitlement" />
-                      <Fact name="Isolated tabs" value="one session per browser surface" />
-                      <Fact name="Fingerprint noise" value="desktop only" />
-                      <Fact name="Trench shell" value="no child process or PTY in an iOS app" />
+                      <Fact name="Isolated tabs" value="one session store per surface, shared by its pages" />
                       <Fact name="IMAP mail and fraud check" value="web client instead, and the panel says so" />
                       <Fact name="Genie assistant" value="needs a gateway key the phone will not store" />
-                      <Fact name="Splay video dock" value="desktop only — no media branch on a phone" />
-                      <Fact name="Privacy lock" value="desktop uses Windows Hello; no phone equivalent yet" />
+                      <Fact name="Device-unlock lock screen" value="Face ID gate is the next native piece, not here yet" />
                     </ul>
                   </section>
 
@@ -609,8 +641,8 @@ export function App(): React.ReactElement {
                       </button>
                     </div>
                     <p className="hint">
-                      Clearing history forgets the surfaces this screen is holding; it does not touch a page that is
-                      still open, and nothing was written to disk to delete.
+                      Clearing history forgets the pages this screen is holding; it does not touch a page that is still
+                      open, and nothing was written to disk to delete.
                     </p>
                   </section>
 
@@ -619,7 +651,7 @@ export function App(): React.ReactElement {
                     <ul className="facts">
                       <Fact name="Version" value={__WARDEN_VERSION__} />
                       <Fact name="Bundle" value="us.innotel.warden" />
-                      <Fact name="Platform" value="Capacitor shell · WKWebView / Android WebView" />
+                      <Fact name="Surface" value="Capacitor shell · WKWebView engine · WARDEN policy" />
                       <Fact name="Account" value="none" />
                     </ul>
                   </section>
@@ -632,13 +664,13 @@ export function App(): React.ReactElement {
             <span className="hover">{current ?? 'warden://newtab'}</span>
             <span className="sep" />
             <span className="stat">
-              <IconShield size={11} /> <b>blocking</b>
+              <IconShield size={11} /> <b>shield</b>
             </span>
             <span className="stat">
               <IconLock size={11} /> memory-only
             </span>
             <span className="sep" />
-            <span className="stat">{recents.length} surfaces</span>
+            <span className="stat">{recents.length} pages</span>
             <span className="stat">v{__WARDEN_VERSION__}</span>
           </footer>
         </main>
@@ -701,8 +733,8 @@ export function App(): React.ReactElement {
                     setQuery('')
                   }}
                 >
-                  <span className="k">new surface</span>
-                  <span>Open “{query.trim()}”</span>
+                  <span className="k">new page</span>
+                  <span>Open “{query.trim()}” in WARDEN</span>
                 </button>
               ) : null}
             </div>
@@ -729,45 +761,5 @@ function Fact({ name, value }: { name: string; value: string }): React.ReactElem
       <b>{name}</b>
       <span>{value}</span>
     </li>
-  )
-}
-
-/**
- * A desktop workspace, in the desktop's own words.
- *
- * These are not stubs behind a fake button: they state what the surface is, why
- * a store build cannot have it, and what to use instead. The rail entry exists
- * because an operator who uses both builds looks for it, and an empty slot
- * explains more than a missing one.
- */
-function DesktopOnlyPanel({
-  entry
-}: {
-  entry: { module: string; title: string; body: string; facts: [string, string][] }
-}): React.ReactElement {
-  return (
-    <div className="workspace scroll">
-      <header className="ws-head">
-        <h1>{entry.module}</h1>
-        <span className="sub">desktop build only</span>
-        <span className="spacer" />
-        <span className="tag amber">not on iPhone</span>
-      </header>
-      <div className="ws-pad">
-        <section className="desktop-only">
-          <b>{entry.title}</b>
-          <p>{entry.body}</p>
-        </section>
-        <ul className="facts">
-          {entry.facts.map(([name, value]) => (
-            <Fact key={name} name={name} value={value} />
-          ))}
-        </ul>
-        <p className="note">
-          The desktop build of WARDEN runs this surface. The mobile listing says what ships here, and this screen is
-          the same answer given in the app.
-        </p>
-      </div>
-    </div>
   )
 }

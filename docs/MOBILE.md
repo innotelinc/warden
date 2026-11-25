@@ -701,22 +701,51 @@ client that is not there.
 
 ## The iOS browser surface
 
-The shell used to hand every address to `SFSafariViewController`, which is
-another app's UI: pages opened, but WARDEN had no address bar of its own and no
-idea where the operator had gone. iOS now renders pages in a `WKWebView` the app
-presents itself, with an editable address, back, forward, reload and a way out —
-`mobile/plugins/warden-browser`, a local Capacitor plugin.
+**The engine is Apple's, and the app says so.** iOS has no browser engine a
+third party can link: every browser in the App Store — Chrome, Firefox, Edge,
+this one — renders with WebKit. A build that claimed its own renderer would be
+lying to a reviewer and to the operator. What WARDEN owns is every layer above
+the renderer, and those are the ones that make it a browser rather than a shell:
 
-Three things about it are deliberate:
+| Layer | Where it lives |
+|---|---|
+| Ad and tracker rules | `WardenAdBlocker.rulesJSON()`, compiled into a `WKContentRuleList` per tab |
+| Per-site policy | `WardenPolicy` — filtering and cookies per host, in memory, ended by *Forget all site rules* |
+| Cookie lock and purge | `WardenScripts.cookieLock` at document start; `WardenEngine.purgeCookies` after every load |
+| Fingerprint shim | `WardenScripts.fingerprint`, injected before any site script |
+| HTTPS-only | `WardenEngine.upgraded`, on a top-level `http://` navigation |
+| Chrome, tabs, shield, reader, find, share, downloads | `WardenBrowserViewController` |
 
-- **The session is memory only.** `websiteDataStore = .nonPersistent()`, which is
-  what the shell's posture screen claims and what the desktop product does.
-  Cookies and cache go when the surface does.
+Five things about the surface are deliberate:
+
+- **Tabs.** Up to six, each its own `WKWebView` with its own history and scroll
+  position, sharing the surface's data store. A `target="_blank"` link opens
+  where the operator is already looking instead of doing nothing.
+- **The shield states policy, not a count.** `WKWebView` does not report how many
+  requests a rule list refused, and a made-up number is the one lie a privacy
+  screen cannot afford. It shows filtering on/off and cookies allowed/refused,
+  with the switches to change them; a change rebuilds that tab's engine on the
+  same address, because the rule list is attached to a configuration.
+- **The session is memory only.** `websiteDataStore = .nonPersistent()` for the
+  browser and `.default()` for a service, which is what the posture screen
+  claims. Closing the surface clears the in-memory store as well, because that
+  store outlives the screen even though it never reaches the disk.
 - **Unknown schemes leave the app.** `mailto:`, `tel:` and app deep links are
   handed to the system rather than swallowed by a view that cannot honour them.
 - **The platform piece is optional at runtime.** `mobile/src/warden-browser.ts`
   falls back to the system browser if the plugin is not registered, so an older
   build or Android still opens the page and is told which surface it used.
+
+Reader mode renders the article into a script-free document with no network and
+no remote styles; find uses `WKFindConfiguration`; a download goes to the app's
+Documents directory through `WKDownloadDelegate` and straight to the share sheet.
+The three scripts — fingerprint, cookie lock, reader — are strings in
+`WardenEngine.swift`, so the policy they implement is readable in one place.
+
+**Android is one surface behind.** Its browser activity still renders one page
+with the same blocking rules and the same teardown, and has no tabs or shield
+sheet; `siteRules()` returns nothing there, and Policy says no site has an
+exception rather than pretending it read a list it could not.
 
 The plugin is a `file:` dependency of `mobile/package.json`, so `npx cap sync ios`
 writes the pod into `Podfile` and the class into `packageClassList` on its own —

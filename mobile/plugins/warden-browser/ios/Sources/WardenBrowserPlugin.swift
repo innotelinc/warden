@@ -25,7 +25,9 @@ public class WardenBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openService", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scry", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "clearServiceData", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "clearServiceData", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "siteRules", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "forgetSiteRules", returnType: CAPPluginReturnPromise)
     ]
 
     /// A capture waits on a page load; a stalled one must not hang the shell.
@@ -97,6 +99,23 @@ public class WardenBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             self.presented = browser
             host.present(browser, animated: true, completion: nil)
         }
+    }
+
+    /**
+     The per-site rules the browser has been given, so Policy can show them.
+
+     The switches live on the surface's shield sheet, where the operator is
+     looking at the site; this is the read-only view the shell needs to state
+     what is in force, and to end them all at once.
+     */
+    @objc func siteRules(_ call: CAPPluginCall) {
+        call.resolve(["rules": WardenPolicy.shared.rules()])
+    }
+
+    /// Forget every site rule — blocking back on, cookies refused, everywhere.
+    @objc func forgetSiteRules(_ call: CAPPluginCall) {
+        WardenPolicy.shared.forgetAll()
+        call.resolve()
     }
 
     /// Sign out of every service, without touching the browser's session.
