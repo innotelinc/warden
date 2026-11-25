@@ -3,7 +3,7 @@
   "teamId": "REPLACE_WITH_APPLE_TEAM_ID",
   "sku": "WARDEN-MOBILE",
   "primaryLanguage": "en-US",
-  "name": "WARDEN Mobile",
+  "name": "WARDEN Privacy Browser",
   "subtitle": "No account. No telemetry.",
   "promotionalText": "A private entry point for people who run networks: no account, no analytics, no sensor access, and a posture screen that states only what is actually enforced.",
   "keywords": "privacy,browser,security,network admin,private browsing,no tracking,sysadmin,web",
