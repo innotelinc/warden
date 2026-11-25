@@ -633,9 +633,19 @@ The store listing says browser and blocking, which is what ships.
 
 ## Operator surfaces on a phone
 
-Scry, Services and Mail are peers of the browser, not settings behind it: the tab
-bar sits under the address bar, because an operator switching from reading a page
-to reading its stack should not have to go hunting.
+The phone shell wears the desktop's chrome: a workspace rail down the left, the
+address bar and the session's own surfaces across the top, and the status bar
+underneath. Scry, Relay (Mail), Concourse (Services) and Policy sit in the rail as
+peers of the browser, because an operator switching from reading a page to reading
+its stack should not have to go hunting.
+
+The rail carries all seven of the desktop's workspaces, and the three a store
+build cannot host say so in their own screens instead of disappearing from a
+product an operator uses on both machines: **Trench** needs a child process and a
+PTY, **Genie** needs a gateway key the phone will not store, and **Splay** branches
+a video out of a page the desktop's Chromium owns. Everything the shell can
+actually do is wired: the browser, Scry's capture, the service and mail sessions,
+Policy's enforcement list, the session strip and the command palette.
 
 ### Scry
 
