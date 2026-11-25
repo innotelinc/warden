@@ -2,12 +2,12 @@ name: iOS listing
 
 # Writes the App Store listing copy from mobile/store/ios/listing.json into
 # App Store Connect: the version's description, keywords, promotional text and
-# URLs, the subtitle and privacy policy URL, the primary category, and the
-# age rating's unrestricted-web-access answer.
+# URLs, the app name and subtitle, the privacy policy URL, the primary category,
+# the age rating's unrestricted-web-access answer, and the review notes.
 #
-# It does not touch the app name, the screenshots (which must be captured from
-# the running app), the review contact (personal details, not in this repo) or
-# What's New (optional for a first version).
+# It does not touch the review contact (personal details, not in this repo), the
+# screenshots (which must be captured from the running app) or What's New
+# (optional for a first version).
 #
 # Reads the same four repository secrets as the other iOS workflows.
 #
