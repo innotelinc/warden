@@ -22,12 +22,16 @@ const config: CapacitorConfig = {
     webContentsDebuggingEnabled: false
   },
   ios: {
-    contentInset: 'automatic',
-    // Pairs with WKAppBoundDomains in ios/App/App/Info.plist: the bridge WebView
-    // may only stay on the shell's own local origin, so no page can be navigated
-    // into a context holding the Capacitor bridge. Capacitor requires both halves
-    // or the setting does nothing useful.
-    limitsNavigationsToAppBoundDomains: true
+    contentInset: 'automatic'
+    // Deliberately no `limitsNavigationsToAppBoundDomains`. That switch only does
+    // anything alongside WKAppBoundDomains in the app's Info.plist, and declaring
+    // that key puts *every* web view in the app into WebKit's app-bound mode,
+    // which denies JavaScript injection, user scripts and message handlers on any
+    // page that is not listed in it. A browser loads arbitrary pages and this
+    // app's policy is injected script — the fingerprint shim, the cookie lock,
+    // the cosmetic pass, Scry's capture — so it cannot be app-bound. The bridge
+    // stays on the shell's own origin because the shell never navigates it: a
+    // page opens in the native surface, never in the bridge. See docs/MOBILE.md.
   }
 }
 
