@@ -1,0 +1,101 @@
+name: iOS screenshots
+
+# Puts the screenshots from a capture run into App Store Connect's two slots:
+# APP_IPHONE_67 (the 6.9-inch iPhone) and APP_IPAD_PRO_3GEN_129 (the 13-inch
+# iPad). The files are the ones Mobile (iOS) captured from the running build and
+# uploaded as `warden-ios-screenshots`; this pulls that artifact from the run
+# that produced it, so what lands in the slots is the app and not a mockup.
+#
+# Reads the same four repository secrets as the other iOS workflows.
+#
+#   gh workflow run ios-screenshots.yml -f run_id=<capture run id>              # dry run
+#   gh workflow run ios-screenshots.yml -f run_id=<id> -f dry_run=false         # upload
+#   gh workflow run ios-screenshots.yml -f run_id=<id> -f dry_run=false -f replace=true
+#
+# `replace` deletes the screenshots already in those two slots first. Without it
+# the job refuses a slot that is not empty, because a stale capture left beside
+# a fresh one is what a reviewer sees.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Run that holds the warden-ios-screenshots artifact (empty uses directory)
+        type: string
+        default: ''
+      artifact:
+        description: Artifact name to download
+        type: string
+        default: warden-ios-screenshots
+      directory:
+        description: Local directory of PNGs, instead of downloading the artifact
+        type: string
+        default: ''
+      replace:
+        description: Delete the screenshots already in the two slots first
+        type: boolean
+        default: false
+      dry_run:
+        description: Check the files and print the slots, upload nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Write App Store Connect key
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+        run: |
+          if [ -z "${KEY_P8:-}" ]; then
+            echo "::error::APP_STORE_CONNECT_KEY_P8 is not set — add the App Store Connect secrets first."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+
+      # The capture runs on macOS and costs minutes; downloading its artifact is
+      # seconds, and it is the same bytes it produced.
+      - name: Download the captures
+        if: inputs.directory == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ inputs.run_id }}
+          ARTIFACT: ${{ inputs.artifact }}
+        run: |
+          if [ -z "${RUN_ID:-}" ]; then
+            echo "::error::pass run_id, or a directory of PNGs to upload."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/shots"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT" --dir "$RUNNER_TEMP/shots"
+          ls -l "$RUNNER_TEMP/shots"
+
+      - name: Upload the screenshots
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+          DRY_RUN: ${{ inputs.dry_run }}
+          REPLACE: ${{ inputs.replace }}
+          SHOTS: ${{ inputs.directory }}
+          DOWNLOADED: ${{ runner.temp }}/shots
+        run: |
+          directory="${SHOTS:-$DOWNLOADED}"
+          args=(--directory "$directory")
+          if [ "${REPLACE:-false}" = "true" ]; then
+            args+=(--replace)
+          fi
+          python3 scripts/ios-upload-screenshots.py "${args[@]}"
