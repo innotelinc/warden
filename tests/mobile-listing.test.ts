@@ -113,7 +113,7 @@ describe('the store name is one name', () => {
   })
 
   it('opens both descriptions', () => {
-    const opening = (text: string): string => text.split('\n')[0]
+    const opening = (text: string): string => text.split('\n')[0] ?? ''
     expect(opening(listing.description).startsWith(STORE_NAME)).toBe(true)
     expect(opening(android.fullDescription).startsWith(STORE_NAME)).toBe(true)
   })
