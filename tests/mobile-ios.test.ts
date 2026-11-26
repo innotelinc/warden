@@ -21,17 +21,21 @@ const PROJECT = 'mobile/ios/App/App.xcodeproj/project.pbxproj'
 
 describe('iOS project', () => {
   /**
-   * Capacitor only applies limitsNavigationsToAppBoundDomains when the plist
-   * lists the domains it may stay on; the docs call the pair mandatory and the
-   * failure mode is a bridge WebView that stops loading its own content.
+   * A browser cannot be app-bound, and the pair that looks like a hardening win
+   * is the opposite here. Declaring WKAppBoundDomains puts every web view in the
+   * app into WebKit's app-bound mode, which denies JavaScript injection, user
+   * scripts and message handlers on any page that is not listed — and this app's
+   * policy *is* injected script: the fingerprint shim, the cookie lock, the
+   * cosmetic pass and Scry's capture. The first simulator capture run found it:
+   * Scry reported "JavaScript execution targeted a frame that is not in an
+   * app-bound domain" and no report appeared. The bridge stays local because the
+   * shell never navigates it; a page opens in the native surface.
    */
-  it('pairs the app-bound-domain switch with the plist it needs', () => {
-    const config = read('mobile/capacitor.config.ts')
-    expect(config).toContain('limitsNavigationsToAppBoundDomains: true')
-
-    const plist = read(`${PRODUCT}/Info.plist`)
-    expect(plist).toContain('<key>WKAppBoundDomains</key>')
-    expect(plist).toMatch(/<key>WKAppBoundDomains<\/key>\s*<array>\s*<string>localhost<\/string>/)
+  it('is not app-bound, which a browser cannot afford to be', () => {
+    // Both files name the setting in a comment explaining why it is absent; what
+    // may not come back is the setting itself.
+    expect(read('mobile/capacitor.config.ts')).not.toMatch(/limitsNavigationsToAppBoundDomains\s*:\s*true/)
+    expect(read(`${PRODUCT}/Info.plist`)).not.toMatch(/<key>WKAppBoundDomains<\/key>/)
   })
 
   /** A marketing version that disagrees with the tag builds the wrong app. */

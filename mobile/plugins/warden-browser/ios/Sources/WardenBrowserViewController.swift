@@ -120,6 +120,12 @@ final class WardenBrowserViewController: UIViewController, WKNavigationDelegate,
     }
 
     private func makeConfiguration() -> WKWebViewConfiguration {
+        // No `limitsNavigationsToAppBoundDomains` on purpose, and the app must not
+        // declare WKAppBoundDomains either: that key puts every web view in the
+        // app into app-bound mode, which denies JavaScript injection and user
+        // scripts on any page that is not listed in it — and every policy this
+        // surface applies (the shim, the cookie lock, the slot pass, Scry) is
+        // injected. See docs/MOBILE.md.
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = session == .service ? .default() : .nonPersistent()
         configuration.allowsInlineMediaPlayback = true

@@ -477,6 +477,22 @@ states in the app bundle as well. Export compliance is answered by
 `ITSAppUsesNonExemptEncryption = false` in `Info.plist`, so no exemption
 paperwork is needed.
 
+**The app is not app-bound, and that is deliberate.** WebKit's app-bound domains
+feature looks like free hardening — declare `WKAppBoundDomains` in `Info.plist`
+and the web views in the app may only reach the domains listed. What it actually
+does once the key exists is put *every* web view in the app into app-bound mode
+and deny JavaScript injection, user scripts, custom style sheets, cookie
+manipulation and message handlers on any page that is not listed. A browser
+loads pages nobody can list in advance, and this app's policy is injected
+script: the fingerprint shim, the cookie lock, the cosmetic pass that closes a
+blocked ad's slot, and Scry's capture. The first simulator capture run is how
+this surfaced — Scry displayed *JavaScript execution targeted a frame that is
+not in an app-bound domain* and showed no report, and the shim and the lock
+would have failed the same way, silently. The bridge WebView stays on the
+shell's own origin because the shell never navigates it: an address from the bar
+opens the native surface, never the bridge. `tests/mobile-ios.test.ts` fails if
+either half of the app-bound pair comes back.
+
 What is already in the repository, so nobody regenerates it by hand:
 
 - `App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` — the WARDEN mark
@@ -488,9 +504,9 @@ What is already in the repository, so nobody regenerates it by hand:
 - `App/PrivacyInfo.xcprivacy` — no tracking, no collected data, and the two
   required-reason APIs Capacitor's bridge touches (UserDefaults, file
   timestamps).
-- `App/Info.plist` — `WKAppBoundDomains` listing `localhost`, which is what
-  `ios.limitsNavigationsToAppBoundDomains` needs so the bridge WebView can never
-  be navigated off the shell's own origin.
+- `App/Info.plist` — no `WKAppBoundDomains`, and `capacitor.config.ts` no
+  `limitsNavigationsToAppBoundDomains`. See below: the key costs a browser more
+  than it protects.
 - `App.xcodeproj/xcshareddata/xcschemes/App.xcscheme` — a shared scheme, without
   which `xcodebuild -scheme App` has nothing to build on a fresh checkout.
 
