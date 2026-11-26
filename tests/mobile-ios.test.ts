@@ -31,6 +31,19 @@ describe('iOS project', () => {
    * app-bound domain" and no report appeared. The bridge stays local because the
    * shell never navigates it; a page opens in the native surface.
    */
+  /**
+   * The safe area gets one owner, not two. The shell pads from
+   * env(safe-area-inset-*) with viewport-fit=cover; when the web view also added
+   * its own content inset, the strip below the content showed the scroll view's
+   * default white — 102px, exactly the iPhone's 34pt home indicator, in every
+   * shell screenshot of the first capture runs.
+   */
+  it('leaves the safe area to the CSS the shell already has', () => {
+    expect(read('mobile/capacitor.config.ts')).toContain("contentInset: 'never'")
+    expect(read('mobile/src/styles.css')).toContain('--safe-bottom: env(safe-area-inset-bottom')
+    expect(read('mobile/index.html')).toContain('viewport-fit=cover')
+  })
+
   it('is not app-bound, which a browser cannot afford to be', () => {
     // Both files name the setting in a comment explaining why it is absent; what
     // may not come back is the setting itself.
