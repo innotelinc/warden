@@ -33,8 +33,6 @@ export interface WardenBrowserPlugin {
   openService(options: { url: string }): Promise<void>
   scry(options: { url: string; script: string }): Promise<{ capture?: string }>
   clearServiceData(): Promise<void>
-  /** Close the surface that is up. Absent on Android's plugin. */
-  close(): Promise<void>
   /** Absent on a surface that has no per-site policy — Android's, for now. */
   siteRules(): Promise<{ rules?: SiteRule[] }>
   forgetSiteRules(): Promise<void>
@@ -44,14 +42,11 @@ export interface WardenBrowserPlugin {
   ): Promise<{ remove: () => Promise<void> }>
   addListener(event: 'closed', listener: () => void): Promise<{ remove: () => Promise<void> }>
   /**
-   * A `warden://` address the app was opened with, raw. Present on iOS only:
-   * the scheme is what the screenshot capture drives the app with, and the
-   * shell parses it (`capture-tour.ts`) because that half can be tested.
+   * The tour this launch was asked for, raw, if it was asked for one. iOS only:
+   * the screenshot capture launches the app with it, and the shell parses it
+   * (`capture-tour.ts`) because that half can be tested without a Mac.
    */
-  addListener(
-    event: 'tour',
-    listener: (data: { url?: string }) => void
-  ): Promise<{ remove: () => Promise<void> }>
+  launchTour(): Promise<{ url?: string }>
 }
 
 export const WardenBrowser = registerPlugin<WardenBrowserPlugin>('WardenBrowser')
@@ -91,22 +86,6 @@ export async function scryPage(url: string, script: string): Promise<string> {
     throw new Error('The surface returned no capture.')
   }
   return result.capture
-}
-
-/**
- * Close the browser surface, if one is up.
- *
- * `scryPage` reads the surface it finds rather than reloading the address, so a
- * caller that needs the report itself on screen — the screenshot capture does —
- * has to close the page first. False when this build has no such call.
- */
-export async function closeSurface(): Promise<boolean> {
-  try {
-    await WardenBrowser.close()
-    return true
-  } catch {
-    return false
-  }
 }
 
 export async function clearServiceData(): Promise<boolean> {

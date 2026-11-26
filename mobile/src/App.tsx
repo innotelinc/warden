@@ -3,7 +3,6 @@ import { StatusBar, Style } from '@capacitor/status-bar'
 import { resolveInput } from '@shared/urls'
 import {
   clearServiceData,
-  closeSurface,
   forgetSiteRules,
   openPage,
   openService,
@@ -233,41 +232,31 @@ export function App(): React.ReactElement {
   }, [go])
 
   /**
-   * The capture tour: `warden://browse?url=…` and `warden://scry?url=…`.
+   * The capture tour: `-wardenTour warden://browse?url=…`, or `…scry?…`.
    *
-   * The iOS screenshot job opens these on a simulator, because a store shot has
-   * to be of the running app and a simulator cannot tap. Each one runs the same
-   * path a tap does — the address bar for `browse`, the Scry capture for `scry`
-   * — so what the shot shows is the product, not a screen built to be shot.
-   * Anything else arriving on the scheme is ignored.
+   * The iOS screenshot job launches the app with one of these, because a store
+   * shot has to be of the running app and a simulator cannot tap. Each one runs
+   * the same path a tap does — the address bar for `browse`, the Scry capture
+   * for `scry` — so what the shot shows is the product, not a screen built to be
+   * shot. Anything else is ignored.
+   *
+   * A launch argument rather than a `warden://` URL opened on a running app:
+   * iOS 26 puts an "Open in WARDEN?" prompt in front of that, and nothing on a
+   * simulator can dismiss it.
    */
   useEffect(() => {
-    let handle: { remove: () => Promise<void> } | null = null
-    let live = true
-    void WardenBrowser.addListener('tour', (data) => {
-      const step = parseTourStep(data?.url)
-      if (!step) return
-      if (step.screen === 'browse') {
-        void goRef.current(step.url)
-        return
-      }
-      // The page is closed first: Scry reads the surface it finds on screen and
-      // reports behind it, and a report behind a browser is not the screen the
-      // capture is looking for.
-      void closeSurface().finally(() => {
+    void WardenBrowser.launchTour()
+      .then(({ url }) => {
+        const step = parseTourStep(url)
+        if (!step) return
+        if (step.screen === 'browse') {
+          void goRef.current(step.url)
+          return
+        }
         setTourUrl(step.url)
         setWorkspace('scry')
       })
-    })
-      .then((registered) => {
-        if (live) handle = registered
-        else void registered.remove().catch(() => undefined)
-      })
       .catch(() => undefined)
-    return () => {
-      live = false
-      if (handle) void handle.remove().catch(() => undefined)
-    }
   }, [])
 
   /** Services and mail open in the session that survives, not the browser's. */
