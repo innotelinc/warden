@@ -378,7 +378,9 @@ with `web/landing/privacy.html` as the policy URL.
    Nothing appears under another Apple ID, and the iPhone must run at least the
    deployment target of 15.0.
 7. When the binary is final, attach the build to the App Store version, fill in
-   the listing (see *Submitting to the App Store*), and submit for review.
+   the listing (see *Submitting to the App Store*), and submit for review — or
+   tick `submit_for_review` on **iOS build status**, which makes the same call
+   once its check reports zero gaps.
 
 "Upload succeeded" only means App Store Connect took the file. It processes a
 build for 5–15 minutes afterwards and can still reject it, so **iOS build
@@ -415,6 +417,24 @@ wants before the version can be sent to review:
 ```
 gh workflow run ios-build-status.yml -f submission=true
 ```
+
+`submit_for_review=true` runs that check and, only when it reports zero gaps and
+the version is in `PREPARE_FOR_SUBMISSION`, sends `submit_version` to App Review
+through the review-submission API:
+
+```
+gh workflow run ios-build-status.yml -f submit_for_review=true
+gh workflow run ios-build-status.yml -f submit_for_review=true -f submit_version=1.1
+```
+
+The version's state and every row of the check are read on the runner, so the
+tick cannot submit past a missing review contact, a build that is not the newest
+`VALID` one or a version App Review already holds; either refusal exits non-zero
+and writes nothing. It uses the submission Apple already has open for the app
+when there is one, adds the version as an item, and PATCHes the submission with
+`submitted: true`, then prints the state the version ended in and writes it to
+the run's summary. The default is off: looking at a build and submitting it are
+different decisions, and nothing submits on a tag or a schedule.
 
 **iOS listing** writes that copy into App Store Connect so the record cannot
 drift from the reviewed file — `dry_run` defaults to true:
