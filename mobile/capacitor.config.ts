@@ -22,7 +22,12 @@ const config: CapacitorConfig = {
     webContentsDebuggingEnabled: false
   },
   ios: {
-    contentInset: 'automatic'
+    // The shell paints its own safe-area padding from env(safe-area-inset-*)
+    // (styles.css), and index.html sets viewport-fit=cover. Letting the web view
+    // add its own insets as well leaves the strip below the content showing the
+    // scroll view's default white — the band under WARDEN's footer in the first
+    // capture runs, exactly 34pt on a home-indicator phone, absent on an iPad.
+    contentInset: 'never'
     // Deliberately no `limitsNavigationsToAppBoundDomains`. That switch only does
     // anything alongside WKAppBoundDomains in the app's Info.plist, and declaring
     // that key puts *every* web view in the app into WebKit's app-bound mode,
