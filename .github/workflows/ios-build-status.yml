@@ -11,6 +11,12 @@ name: iOS build status
 #
 #   gh workflow run ios-build-status.yml
 #   gh workflow run ios-build-status.yml -f wait_minutes=20 -f build_version=0.2.4
+#
+# `submit_for_review` is the one input that changes what a reviewer sees: it
+# sends `submit_version` to App Review through the review-submission API, and
+# only when the submission check reports zero gaps and the version is in
+# PREPARE_FOR_SUBMISSION. Both are read by the script on the runner, so the tick
+# cannot skip either. It is off by default, and nothing here submits on a tag.
 
 on:
   workflow_dispatch:
@@ -46,6 +52,17 @@ on:
         description: Report what the current App Store version still needs before submitting
         type: boolean
         default: false
+      # Sending a version to App Review is the only irreversible input here, so it
+      # is its own tick and off by default. Looking at a build and submitting it
+      # are different decisions.
+      submit_for_review:
+        description: Submit the version to App Review if the check reports zero gaps (irreversible)
+        type: boolean
+        default: false
+      submit_version:
+        description: Marketing version to submit; it has to be the app's newest
+        type: string
+        default: '1.0'
       # Which app a build lands in is decided by a bundle id, and the account can
       # hold records for apps whose code lives elsewhere. This prints them all, so
       # an identifier seen in the portal can be traced to a repository.
@@ -118,3 +135,15 @@ jobs:
             args+=(--build-number "$BUILD_NUMBER")
           fi
           python3 scripts/ios-build-status.py "${args[@]}"
+
+      # The script asks App Store Connect for the version's state and runs the
+      # submission check itself, so neither gate can be skipped by leaving the
+      # other input unticked. A refusal exits non-zero and writes nothing.
+      - name: Submit for review
+        if: ${{ inputs.submit_for_review }}
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+          SUBMIT_VERSION: ${{ inputs.submit_version }}
+        run: python3 scripts/ios-submit-for-review.py --version "${SUBMIT_VERSION:-1.0}"

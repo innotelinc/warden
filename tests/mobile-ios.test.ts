@@ -363,6 +363,64 @@ describe('iOS device registration', () => {
 })
 
 /**
+ * Sending a version to App Review is the last irreversible step of the release
+ * runbook, and both ways it goes wrong are silent: a half-filled version is
+ * refused after the click, and a version already in review is not refused at
+ * all. The submit path therefore reads its two gates from App Store Connect in
+ * the same run, and it stays behind its own tick rather than riding along with a
+ * status report.
+ */
+describe('iOS submit for review', () => {
+  const script = read('scripts/ios-submit-for-review.py')
+  const workflow = read('.github/workflows/ios-build-status.yml')
+
+  it('sends only a version that is waiting to be sent', () => {
+    expect(script).toContain('PREPARE_FOR_SUBMISSION')
+    // The state and the version are read from the API, not taken from a flag.
+    expect(script).toContain('asc.newest_version')
+    expect(script).toContain('version["state"] != SUBMITTABLE')
+  })
+
+  it('refuses to send while the check reports a gap', () => {
+    // The same function the status report prints, so the gate and the report
+    // cannot disagree about what is missing.
+    expect(script).toContain('asc.submission_report(bearer, app)')
+    expect(script).toContain('if gaps != 0:')
+    // The gate runs before anything is written: creating the submission, adding
+    // the item and the submit itself all sit below it.
+    expect(script.indexOf('if gaps != 0:')).toBeLessThan(script.indexOf('created = send('))
+    expect(script.indexOf('if gaps != 0:')).toBeLessThan(
+      script.indexOf('"submitted": True')
+    )
+  })
+
+  it('uses the review-submission API, not the deprecated resource', () => {
+    expect(script).toContain('"/v1/reviewSubmissions"')
+    expect(script).toContain('"/v1/reviewSubmissionItems"')
+    expect(script).toContain('"submitted": True')
+    // Named once, in the docstring, to say what this replaced — never called.
+    expect(script).not.toContain('"/v1/appStoreVersionSubmissions"')
+  })
+
+  /** A re-run after a failed PATCH has to reuse the open submission. */
+  it('reuses the submission Apple already has open', () => {
+    expect(script).toContain('def open_submission')
+    expect(script).toContain('"filter[state]": OPEN')
+    expect(script).toContain('def holds_version')
+  })
+
+  it('is off by default, versioned by input and reported in the run', () => {
+    expect(workflow).toMatch(
+      /submit_for_review:\s*\n\s*description:[^\n]*\n\s*type: boolean\s*\n\s*default: false/
+    )
+    expect(workflow).toContain("if: ${{ inputs.submit_for_review }}")
+    expect(workflow).toContain('python3 scripts/ios-submit-for-review.py')
+    expect(workflow).toMatch(/submit_version:[\s\S]*?default: '1\.0'/)
+    expect(script).toContain('asc.note(')
+  })
+})
+
+/**
  * A signed export is not an installable one. Xcode will sign with a profile that
  * names no phone — or a stale one that predates the latest registration — and
  * the run goes green while the tester's phone refuses the build. The check has
