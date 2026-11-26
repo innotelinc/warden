@@ -20,13 +20,15 @@
     "notes": "The app has no analytics or crash SDK. Pages opened in the platform browser surface are governed by that browser's own policy and by the sites themselves."
   },
   "graphics": {
-    "icon": "icon-512.png",
-    "featureGraphic": "feature-graphic-1024x500.png",
-    "phoneScreenshots": [
-      "phone-1.png",
-      "phone-2.png",
-      "phone-3.png"
-    ]
+    "icon": null,
+    "featureGraphic": null,
+    "phoneScreenshots": [],
+    "requiredScreens": [
+      "the posture screen on launch",
+      "a page in WARDEN's own surface",
+      "Scry's report of that page"
+    ],
+    "note": "No Play graphics are in the repository yet, so this names none. Play takes a 512 x 512 icon, a 1024 x 500 feature graphic and two or more phone screenshots; the three screens are the ones scripts/ios-capture-screenshots.py takes, but Play needs them from an Android build between 16:9 and 9:16, and the 1320 x 2868 iPhone PNGs are too tall for that slot. Android's launcher icons are still Capacitor's generated set."
   },
   "releaseTrack": "internal → closed → production",
   "notes": "Upload the signed .aab produced by .github/workflows/mobile-android.yml. First release also needs the Play Console data-safety form filled from dataSafety above and the content-rating questionnaire answered as described."

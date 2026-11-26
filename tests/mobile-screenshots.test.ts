@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parseTourStep } from '../mobile/src/capture-tour'
 
@@ -223,5 +223,152 @@ describe('the upload script', () => {
     expect(workflow).toContain('gh run download')
     expect(workflow).toContain('warden-ios-screenshots')
     expect(workflow).toContain('actions: read')
+  })
+})
+
+/**
+ * The listings' `graphics` block is copied into the console by hand, and it had
+ * drifted from the thing it describes: it recorded a single 1290x2796 phone set
+ * and two 2048x2732 iPads while the capture writes three shots per slot at the
+ * simulator's own pixels, and the Play block named three PNGs nothing produces
+ * and an icon and feature graphic that are not in the repository. A manifest
+ * that names files and sizes nobody will find reads as work that is already
+ * done, and the mistake surfaces at submission.
+ *
+ * So the block is pinned to the scripts that make the files: slot keys, labels,
+ * API display types, accepted widths and file names come from
+ * ios-capture-screenshots.py, and the minimum count from the submission check.
+ */
+describe('the listings describe the graphics that exist', () => {
+  interface CapturedSlot {
+    key: string
+    label: string
+    display: string
+    widths: number[]
+  }
+
+  const capture = read('scripts/ios-capture-screenshots.py')
+
+  const slots: CapturedSlot[] = [
+    ...capture.matchAll(
+      /Slot\(\s*key="([^"]+)",\s*label=["']([^"']+)["'],[\s\S]*?display_type="([^"]+)",\s*widths=\(([^)]*)\)/g
+    )
+  ].map((match) => {
+    const [, key = '', label = '', display = '', widths = ''] = match
+    return {
+      key,
+      label,
+      display,
+      widths: widths.split(',').map((value) => Number(value.trim()))
+    }
+  })
+
+  const steps = [
+    ...capture.matchAll(/^ {4}\("([a-z]+)",\s*(?:None|tour_link\("[a-z]+"\),?)\s*,\s*"([^"]+)"\),$/gm)
+  ].map((match) => {
+    const [, name = '', description = ''] = match
+    return { name, description }
+  })
+
+  const minimum = Number(
+    /MIN_SHOTS_PER_SIZE = (\d+)/.exec(read('scripts/ios-build-status.py'))?.[1]
+  )
+
+  interface DescribedSlot {
+    label: string
+    display: string
+    widths: number[]
+    captured: string
+    files: string[]
+    content: string[]
+  }
+
+  const ios = JSON.parse(read('mobile/store/ios/listing.json')) as {
+    graphics: { appIcon: string; screenshots: Record<string, DescribedSlot> }
+  }
+  const android = JSON.parse(read('mobile/store/android/listing.json')) as {
+    graphics: {
+      icon: string | null
+      featureGraphic: string | null
+      phoneScreenshots: string[]
+      requiredScreens: string[]
+      note: string
+    }
+  }
+
+  /** A slot the manifest forgot is a failure, not a skipped loop. */
+  const describedSlot = (key: string): DescribedSlot => {
+    const described = ios.graphics.screenshots[key]
+    if (!described) throw new Error(`the iOS listing describes no ${key} screenshots`)
+    return described
+  }
+
+  /** If either script is reshaped, fail here rather than check an empty set. */
+  it('reads the slots and screens the capture runs', () => {
+    expect(slots.map((slot) => slot.key)).toEqual(['iphone-6.9', 'ipad-13'])
+    expect(slots.map((slot) => slot.display)).toEqual([
+      'APP_IPHONE_67',
+      'APP_IPAD_PRO_3GEN_129'
+    ])
+    expect(steps.map((step) => step.name)).toEqual(['posture', 'browse', 'scry'])
+    expect(minimum).toBe(3)
+  })
+
+  it('describes both slots by API name, label and accepted sizes', () => {
+    expect(Object.keys(ios.graphics.screenshots).sort()).toEqual(
+      slots.map((slot) => slot.key).sort()
+    )
+    for (const slot of slots) {
+      const described = describedSlot(slot.key)
+      expect(described.label, slot.key).toBe(slot.label)
+      expect(described.display, slot.key).toBe(slot.display)
+      expect(described.widths, slot.key).toEqual(slot.widths)
+    }
+  })
+
+  /** The names are the capture's, so the upload script's glob finds them. */
+  it('names the three files the capture writes for each slot', () => {
+    for (const slot of slots) {
+      const described = describedSlot(slot.key)
+      expect(described.files, slot.key).toEqual(
+        steps.map((step, index) => `${slot.key}-${index + 1}-${step.name}.png`)
+      )
+      expect(described.files.length, slot.key).toBeGreaterThanOrEqual(minimum)
+      expect(described.content, slot.key).toEqual(steps.map((step) => step.description))
+    }
+  })
+
+  /** A recorded size outside the slot's widths is the drift this pins. */
+  it('records a captured size its slot accepts', () => {
+    for (const slot of slots) {
+      const size = /^(\d+) x (\d+)$/.exec(describedSlot(slot.key).captured)
+      expect(size, slot.key).not.toBeNull()
+      const [width, height] = [Number(size![1]), Number(size![2])]
+      expect(slot.widths, slot.key).toContain(width)
+      expect(height, slot.key).toBeGreaterThan(width)
+    }
+  })
+
+  it('points the icon at the file the bundle actually holds', () => {
+    expect(existsSync(file(ios.graphics.appIcon))).toBe(true)
+  })
+
+  /**
+   * Play holds no graphics until they exist. When they do, a name beside the
+   * manifest has to be a file that is there, and Play wants two or more shots.
+   */
+  it('names no Play graphic that does not exist', () => {
+    expect(android.graphics.icon).toBeNull()
+    expect(android.graphics.featureGraphic).toBeNull()
+    expect(android.graphics.phoneScreenshots).toEqual([])
+    expect(android.graphics.note).toMatch(/no Play graphics are in the repository yet/i)
+    expect(android.graphics.requiredScreens).toEqual(steps.map((step) => step.description))
+
+    if (android.graphics.phoneScreenshots.length > 0) {
+      expect(android.graphics.phoneScreenshots.length).toBeGreaterThanOrEqual(2)
+      for (const name of android.graphics.phoneScreenshots) {
+        expect(existsSync(file(`mobile/store/android/${name}`)), name).toBe(true)
+      }
+    }
   })
 })
