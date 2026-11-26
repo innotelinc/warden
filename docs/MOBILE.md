@@ -428,16 +428,27 @@ gh workflow run ios-listing.yml -f dry_run=false -f attach_build=10
 It sets the version's description, keywords, promotional text and URLs, the
 subtitle and privacy policy URL, the primary category, the whole age rating
 questionnaire (unrestricted web access answered yes, which produces 16+) and,
-with `attach_build`, the build on the version page. It leaves the app name,
-the screenshots and the review contact alone: those are a person's details or
-have to come from the running app.
+with `attach_build`, the build on the version page, and — from three repository
+variables — the App Review contact. It leaves the app name and the screenshots
+alone: a taken name is Apple's decision, and the screenshots have to come from
+the running app.
+
+The contact is typed once into **Settings → Secrets and variables → Actions →
+Variables**, not into App Store Connect: `APP_REVIEW_CONTACT_NAME` (`Ada
+Lovelace` — first and last), `APP_REVIEW_CONTACT_PHONE` (country code included)
+and `APP_REVIEW_CONTACT_EMAIL`. They are variables rather than secrets because
+the same three values are published on the record; a secret would only hide them
+from the person who has to check they are right. Unset, the contact is left
+exactly as it is; half set, the run stops instead of writing a record App Review
+cannot use.
 
 It reports every field of the newest iOS version page (description, keywords,
 URLs, promotional text, what's new), the screenshots per display size, the app
 information (name, subtitle, privacy policy URL, primary category), the age
-rating, and whether a build and review details are attached. Each line is `ok`
-or `GAP`, and the job exits non-zero while anything is missing, so a checklist
-cannot drift from the record. The version page and the build carry independent
+rating, whether the attached build is the **newest `VALID`** one rather than
+merely some build, and whether the review contact holds a name, a phone **and**
+an email. Each line is `ok` or `GAP`, and the job exits non-zero while anything
+is missing, so a checklist cannot drift from the record. The version page and the build carry independent
 numbers: a version page of `1.0` accepts a build stamped `0.2.4`, but keeping
 them equal avoids explaining the difference later.
 
@@ -618,7 +629,9 @@ Capturing them from the build, shortest path — a run, not a desk:
    Connect first.
 5. Re-run **iOS build status** with `submission=true`; both screenshot rows —
    `en-US iPhone 6.9" screenshots` and `en-US iPad 13" screenshots` — should read
-   `ok`, and only the review contact should be left.
+   `ok`. The build row has to name the newest `VALID` build: a version keeps
+   whatever build it was given, so a stale attach reads `GAP` until **iOS
+   listing** runs with `attach_build` set to that number.
 
 On a Mac, the same thing without CI: `npx cap sync ios && pod install`, then
 `python3 scripts/ios-capture-screenshots.py --out /tmp/shots` (add
@@ -705,6 +718,9 @@ internal build exists and show the real UI rather than a mockup.
   the account: create the app record in App Store Connect for
   `us.innotel.warden`, create the App Store Connect API key, and set the four
   secrets above. Everything after that runs from a tag.
+- Apple: the review contact, as the three `APP_REVIEW_CONTACT_*` repository
+  variables above. `ios-listing.yml` writes them onto the version; until they
+  exist the submission check reports the contact as missing.
 - Both stores: confirm the developer name, support email and privacy-policy URL
   (`https://innotelinc.github.io/warden/privacy.html`, deployed by the Pages
   workflow from `web/landing/`).

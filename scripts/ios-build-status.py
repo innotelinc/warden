@@ -613,6 +613,17 @@ def unrestricted_web(rating: dict | None) -> tuple[str, bool]:
     return "not exposed by the API", True
 
 
+def newest_valid_build(bearer: str, app: str) -> dict | None:
+    """The build a release would actually ship.
+
+    `builds` lists newest-uploaded first, so the first VALID row is the newest
+    of the ones Apple has finished with. A build still PROCESSING is skipped
+    rather than counted: nothing can be attached to a version until it is VALID,
+    so it is not a newer candidate yet.
+    """
+    return next((row for row in builds(bearer, app, 50) if row["state"] == "VALID"), None)
+
+
 def submission_report(bearer: str, app: str) -> int:
     version = newest_version(bearer, app)
     info = app_info(bearer, app)
@@ -683,11 +694,55 @@ def submission_report(bearer: str, app: str) -> int:
     rows.append(("age rating: unrestricted web access", rated and answer == "yes", answer))
 
     # --- the version page ---------------------------------------------------
+    # An attached build is not enough to go green on. A version keeps whatever
+    # build it was given, so one that has held build 43 since the last upload
+    # still reads ok while build 44 sits VALID beside it — and a submit ships the
+    # code from before the fix, with the newest screenshots next to it. The
+    # comparison is against the newest VALID build, which is what a release
+    # would ship.
     build = version["build"]
-    rows.append(("build attached", build is not None, (build or {}).get("attributes", {}).get("version") or "none"))
+    attached = ((build or {}).get("attributes") or {}).get("version") or ""
+    newest = newest_valid_build(bearer, app)
+    if build is None:
+        rows.append(("build attached", False, "none"))
+    elif newest is None:
+        rows.append(("build attached", True, f"{attached} (nothing VALID listed to compare)"))
+    elif str(attached) == str(newest["number"]):
+        rows.append(("build attached", True, f"{attached}, the newest VALID build"))
+    else:
+        rows.append(
+            (
+                "build attached",
+                False,
+                f"{attached} is attached, but {newest['marketing']} ({newest['number']}) "
+                "is the newest VALID build",
+            )
+        )
+
     review = (version["review"] or {}).get("attributes") or {}
     rows.append(("review notes", bool(review.get("notes")), (review.get("notes") or "empty")[:40]))
-    rows.append(("review contact", bool(review.get("contactEmail")), review.get("contactEmail") or "empty"))
+
+    # All three fields, because App Review needs all three to reach anyone: a
+    # name, a phone and an address. Reading only the email — this check's first
+    # version — went green on a record nobody could call, which is the one thing
+    # it exists to prevent.
+    contact = (
+        ("name", ("contactFirstName", "contactLastName")),
+        ("phone", ("contactPhone",)),
+        ("email", ("contactEmail",)),
+    )
+    missing = [
+        label
+        for label, keys in contact
+        if not all((review.get(key) or "").strip() for key in keys)
+    ]
+    rows.append(
+        (
+            "review contact",
+            not missing,
+            ("missing " + ", ".join(missing)) if missing else "name, phone and email",
+        )
+    )
 
     width = max((len(row[0]) for row in rows), default=0)
     print(f"App Store submission for {version['version']}  [{version['state']}]\n")

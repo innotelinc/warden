@@ -5,9 +5,15 @@ name: iOS listing
 # URLs, the app name and subtitle, the privacy policy URL, the primary category,
 # the age rating's unrestricted-web-access answer, and the review notes.
 #
-# It does not touch the review contact (personal details, not in this repo), the
-# screenshots (which must be captured from the running app) or What's New
-# (optional for a first version).
+# It also writes the App Review contact — a name, a phone and an email — from
+# three repository variables: APP_REVIEW_CONTACT_NAME (first and last name),
+# APP_REVIEW_CONTACT_PHONE (country code included) and APP_REVIEW_CONTACT_EMAIL.
+# They are variables rather than secrets because the same three values are
+# published on the record. Unset, the contact is left exactly as it is; half set,
+# the run fails instead of writing a record App Review cannot use.
+#
+# It does not touch the screenshots (which must be captured from the running
+# app) or What's New (optional for a first version).
 #
 # Reads the same four repository secrets as the other iOS workflows.
 #
@@ -57,6 +63,9 @@ jobs:
           ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
           DRY_RUN: ${{ inputs.dry_run }}
           ATTACH_BUILD: ${{ inputs.attach_build }}
+          APP_REVIEW_CONTACT_NAME: ${{ vars.APP_REVIEW_CONTACT_NAME }}
+          APP_REVIEW_CONTACT_PHONE: ${{ vars.APP_REVIEW_CONTACT_PHONE }}
+          APP_REVIEW_CONTACT_EMAIL: ${{ vars.APP_REVIEW_CONTACT_EMAIL }}
         run: |
           if [ -n "${ATTACH_BUILD:-}" ]; then
             python3 scripts/ios-fill-listing.py --attach-build "$ATTACH_BUILD"
