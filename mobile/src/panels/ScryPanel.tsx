@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ScryReport } from '@shared/types'
 import { captureScript } from '../operator/capture'
 import { reportFromCapture, summarise } from '../operator/scry'
@@ -15,11 +15,18 @@ import { scryPage } from '../warden-browser'
 export function ScryPanel({
   lastVisited,
   resolve,
-  onVisited
+  onVisited,
+  tourUrl
 }: {
   lastVisited: string | null
   resolve: (input: string) => string | null
   onVisited: (url: string) => void
+  /**
+   * A page the capture tour named. The screenshot job opens Scry with the
+   * address already chosen, so the screen it captures is the report and not
+   * the empty field in front of it.
+   */
+  tourUrl?: string | null
 }): React.ReactElement {
   const [target, setTarget] = useState(lastVisited ?? '')
   const [busy, setBusy] = useState(false)
@@ -32,8 +39,8 @@ export function ScryPanel({
     if (!target && lastVisited) setTarget(lastVisited)
   }, [lastVisited, target])
 
-  const capture = useCallback(async (): Promise<void> => {
-    const url = resolve(target)
+  const capture = useCallback(async (override?: string): Promise<void> => {
+    const url = resolve(override ?? target)
     if (!url) {
       setError('Type a host or a search.')
       return
@@ -61,6 +68,16 @@ export function ScryPanel({
       setBusy(false)
     }
   }, [onVisited, resolve, target])
+
+  // Once per address: a re-render must not start a second page load, and the
+  // report it is showing is the one that was just captured.
+  const toured = useRef<string | null>(null)
+  useEffect(() => {
+    if (!tourUrl || toured.current === tourUrl) return
+    toured.current = tourUrl
+    setTarget(tourUrl)
+    void capture(tourUrl)
+  }, [capture, tourUrl])
 
   return (
     <div className="panel">

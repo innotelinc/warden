@@ -18,6 +18,20 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- The screenshot capture's entry point: warden://browse?url=… and
+	     warden://scry?url=… let the App Store shots be taken from the running
+	     app on a simulator, which cannot tap. Nothing else is registered here. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>us.innotel.warden.capture</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>warden</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>

@@ -552,27 +552,66 @@ ships its own manifest, so the listed-SDK expectation is met.
 
 **Screenshots — both sizes, and they must be real.** `TARGETED_DEVICE_FAMILY`
 is `"1,2"`, so App Store Connect demands 6.9" iPhone **and** 13" iPad shots,
-three or more of each (`scripts/ios-build-status.py` counts 3). They have to
-come from the running build on a device or simulator; nothing in this repository
-can generate them, and a mockup of a UI that does not exist is a 2.3 rejection.
+three or more of each. They have to come from the running build on a device or
+simulator: nothing here can draw them, and a mockup of a UI that does not exist
+is a 2.3 rejection. What the script below does instead is take them from the app
+itself.
 
-Capturing them from build 43, shortest path:
+The check is per slot, not per family. `scripts/ios-build-status.py` looks for
+the API's `APP_IPHONE_67` set — Apple labels that slot "6.9-inch display" in the
+console and accepts 1260×2736, 1290×2796 and 1320×2868 in it — and for
+`APP_IPAD_PRO_3GEN_129`, the 13-inch slot, which accepts 2048×2732 and
+2064×2752. A 6.5-inch or 6.1-inch iPhone set does not fill either, which is why
+the family-wide match this check started with let a refused version read `ok`.
 
-1. Install `0.2.20 (43)` from TestFlight on an iPhone 16 Plus or 15 Pro Max
-   (1290×2796) and an iPad Pro 13" (2064×2752 on the M4, 2048×2732 on a 12.9").
-   Each of those sizes is accepted in its section; a capture at any other size is
-   not.
-2. On each device open the app and take three screens: the posture screen on
-   launch, a page loaded with WARDEN's address bar and progress line
-   (`example.com`), and a Scry report of that page.
-3. Capture with the hardware buttons — side + volume up on the iPhone, top +
-   volume up on the iPad — so the files land at the screen's own pixels. Do not
-   crop, resize, or add device frames.
+Capturing them from the build, shortest path — a run, not a desk:
+
+1. Run **Mobile (iOS)** with `capture_screenshots` ticked. The job builds the
+   same source for the simulator, boots one device of each size (the first
+   installed of `iPhone 17 Pro Max`, `16 Pro Max`, `Air`, `16 Plus`, `15 Pro
+   Max`; and `iPad Pro 13-inch (M5)/(M4)` or a 12.9-inch), installs the app and
+   walks it through three screens.
+2. The walk is not UI automation: `simctl` cannot tap, so the shell answers
+   `warden://browse?url=https://example.com` and
+   `warden://scry?url=https://example.com` — the address is registered in
+   `Info.plist`, `AppDelegate` announces it, and `WardenBrowserPlugin` hands it
+   to the shell, which opens the page or reads it exactly as a tap would. Screen
+   one needs neither: it is the app on launch, the posture screen.
+3. Collect the `warden-ios-screenshots` artifact. Each file is named for its
+   slot (`iphone-6.9-…`, `ipad-13-…`) and the script fails rather than keep a
+   capture that is not a portrait PNG of that slot's width, so a file it hands
+   back is one the console accepts.
 4. App Store Connect → the 1.0 version → **App Previews and Screenshots**: the
    iPhone files into **iPhone 6.9" Display**, the iPad files into **iPad 13"
    Display**. PNG or JPEG, no transparency, 3–10 per size.
-5. Re-run **iOS build status** with `submission=true`; the three screenshot rows
-   should read `ok` and only the review contact should be left.
+5. Re-run **iOS build status** with `submission=true`; both screenshot rows —
+   `en-US iPhone 6.9" screenshots` and `en-US iPad 13" screenshots` — should read
+   `ok`, and only the review contact should be left.
+
+On a Mac, the same thing without CI: `npx cap sync ios && pod install`, then
+`python3 scripts/ios-capture-screenshots.py --out /tmp/shots` (add
+`--only ipad-13` to redo one size, `--settle 25` when a page loads slowly).
+
+The waits are wall-clock, because `simctl` reports that a device booted, not that
+a page finished drawing: `--settle` is the page load plus the Scry capture. If a
+shot comes out before the page or the report is on screen, raise it — a blank
+screenshot is worse than a slow run.
+
+**By hand**, if the tour is what is broken and a build is waiting:
+
+1. Install the build from TestFlight on an iPhone 16 Plus or 15 Pro Max
+   (1290×2796) and an iPad Pro 13" (2064×2752 on the M4, 2048×2732 on a 12.9").
+   Each of those sizes is accepted in its slot; a capture at any other size is
+   not.
+2. On each device take three screens: the posture screen on launch, a page
+   loaded with WARDEN's address bar and progress line (`example.com`), and a Scry
+   report of that page.
+3. Capture with the hardware buttons — side + volume up on the iPhone, top +
+   volume up on the iPad — so the files land at the screen's own pixels. Do not
+   crop, resize, or add device frames.
+
+The upload and the re-check are steps 4 and 5 above, whichever way the PNGs were
+made.
 
 **Review notes have one job: explain what the app is before a reviewer decides
 it is a wrapper.** They are in the listing file and say, in order: no sign-in
