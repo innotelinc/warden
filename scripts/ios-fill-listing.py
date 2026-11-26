@@ -14,12 +14,17 @@ It sets, on the newest iOS version page of the app:
     information record
   * the primary category
   * the age rating's unrestricted-web-access answer
-  * the review notes, on the version's App Review information (skipped when the
-    record already holds the same text)
+  * the review notes and the review contact, on the version's App Review
+    information (skipped when the record already holds the same values)
 
-It deliberately does not touch the review contact (a person's name, phone and
-email are not in this repository), the screenshots (which have to be captured
-from the running app) or What's New (optional for a first version).
+The contact is a person's name, a phone and an email, so it does not live in the
+listing file: it comes from three repository variables — APP_REVIEW_CONTACT_NAME,
+APP_REVIEW_CONTACT_PHONE and APP_REVIEW_CONTACT_EMAIL — and is left exactly as
+it is when none of them is set. Typing it into App Store Connect's web form is
+how a version reaches review with a phone number nobody answers.
+
+It does not touch the screenshots (which have to be captured from the running
+app) or What's New (optional for a first version).
 
 Apple reserves app names across every account, so the name is the one attribute
 here that the store can refuse. That refusal is printed and the rest of the
@@ -107,23 +112,83 @@ def try_patch(path: str, bearer: str, payload: dict) -> tuple[bool, str]:
         return False, error.read().decode("utf-8", "replace")
 
 
-def write_review_notes(bearer: str, version: dict, notes: str) -> str:
-    """App Review reads the notes off the version's App Review information
-    record, which App Store Connect creates empty with the version. It is
-    patched when it exists and created when it does not, so a version page that
-    has never held review information still ends up with them.
+# The App Review contact: a person App Review can call about this version. It is
+# three values and App Store Connect will not take the record with only some of
+# them, so they are read together and refused together rather than written one
+# at a time. They are repository *variables* rather than secrets because the same
+# three values are published on the App Store record; a secret would only hide
+# them from the person who has to check they are right.
+CONTACT_VARIABLES = (
+    "APP_REVIEW_CONTACT_NAME",
+    "APP_REVIEW_CONTACT_PHONE",
+    "APP_REVIEW_CONTACT_EMAIL",
+)
 
-    Writing is skipped when the record already holds this text. Once a build is
-    attached to the version, Apple refuses a patch of this entity that omits the
-    review contact — a person's name, phone and email, which are not in this
-    repository — so resending identical notes would fail a run over a field the
-    owner has to type into App Store Connect anyway."""
+
+def review_contact() -> dict:
+    """The review contact as App Store Connect's attributes, from the
+    environment — or an empty dict when none of the three variables is set.
+
+    The name is one variable because a person writes their name as one string,
+    and Apple wants a first and a last: the last word becomes the surname, so
+    `Mary Jane Watson` is `Mary Jane` / `Watson`.
+
+    A half-set contact is an error rather than a partial write. App Store
+    Connect would keep the record and accept the version, and App Review would
+    have a phone number with no name or an address nobody reads.
+    """
+    values = {name: os.environ.get(name, "").strip() for name in CONTACT_VARIABLES}
+    if not any(values.values()):
+        return {}
+    unset = [name for name in CONTACT_VARIABLES if not values[name]]
+    if unset:
+        raise SystemExit(
+            "the review contact is half set: " + ", ".join(unset) + " is empty. "
+            "App Review needs a name, a phone and an email together; unset all "
+            "three to leave the contact alone."
+        )
+
+    parts = values["APP_REVIEW_CONTACT_NAME"].split()
+    if len(parts) < 2:
+        raise SystemExit(
+            "APP_REVIEW_CONTACT_NAME needs a first and a last name, e.g. 'Ada Lovelace'."
+        )
+    email = values["APP_REVIEW_CONTACT_EMAIL"]
+    if "@" not in email.strip("@"):
+        raise SystemExit(f"APP_REVIEW_CONTACT_EMAIL is not an address: {email!r}")
+    phone = values["APP_REVIEW_CONTACT_PHONE"]
+    if sum(character.isdigit() for character in phone) < 7:
+        raise SystemExit(
+            "APP_REVIEW_CONTACT_PHONE needs a full number, country code included: "
+            f"{phone!r}"
+        )
+
+    return {
+        "contactFirstName": " ".join(parts[:-1]),
+        "contactLastName": parts[-1],
+        "contactPhone": phone,
+        "contactEmail": email,
+    }
+
+
+def write_review(bearer: str, version: dict, notes: str, contact: dict) -> str:
+    """App Review reads the notes and the contact off the version's App Review
+    information record, which App Store Connect creates empty with the version.
+    It is patched when it exists and created when it does not, so a version page
+    that has never held review information still ends up with them.
+
+    The two are written in one request on purpose: once a build is attached,
+    Apple refuses a patch of this entity that omits the contact, so notes sent on
+    their own fail a run over a field that has to be there anyway.
+
+    Writing is skipped when the record already holds exactly these values, which
+    is what makes a repeated listing run free.
+    """
     detail = version.get("review") or {}
-    if detail.get("id"):
-        current = (detail.get("attributes") or {}).get("notes") or ""
-        if current == notes:
-            return "kept"
-    attributes = {"notes": notes}
+    current = detail.get("attributes") or {}
+    attributes = {"notes": notes, **contact}
+    if detail.get("id") and all(current.get(key) == value for key, value in attributes.items()):
+        return "kept"
     if detail.get("id"):
         patch(
             f"/v1/appStoreReviewDetails/{detail['id']}",
@@ -353,6 +418,18 @@ def main() -> int:
     notes = copy["reviewNotes"]
     print(f"  review notes     {len(notes)} chars, {len(notes.splitlines())} lines")
 
+    contact = review_contact()
+    if contact:
+        print(
+            f"  review contact   {contact['contactFirstName']} {contact['contactLastName']}, "
+            f"{contact['contactPhone']}, {contact['contactEmail']}"
+        )
+    else:
+        print(
+            "  review contact   not set (APP_REVIEW_CONTACT_NAME, _PHONE and _EMAIL) — "
+            "App Store Connect keeps whatever it holds"
+        )
+
     attached: dict | None = None
     if args.attach_build:
         candidates = asc.builds(bearer, app, 50)
@@ -448,8 +525,12 @@ def main() -> int:
         "unrestricted web access yes)"
     )
 
-    action = write_review_notes(bearer, version, notes)
-    print(f"{action} the review notes ({len(notes)} chars)")
+    action = write_review(bearer, version, notes, contact)
+    print(
+        f"{action} the App Review information ({len(notes)} chars of notes, "
+        + ("with the contact" if contact else "contact left alone")
+        + ")"
+    )
 
     if attached is not None:
         patch(

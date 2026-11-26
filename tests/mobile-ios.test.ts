@@ -190,6 +190,69 @@ describe('iOS build status workflow', () => {
 })
 
 /**
+ * A green checklist is the last thing between a version and Submit for Review,
+ * so it has to fail for the two reasons it used to go green on: a contact that
+ * exists but cannot be used, and a build that is attached but older than the one
+ * a release would ship.
+ */
+describe('the submission check refuses a version it cannot vouch for', () => {
+  const script = read('scripts/ios-build-status.py')
+
+  it('needs the whole review contact, not just the email', () => {
+    expect(script).toContain('contactFirstName')
+    expect(script).toContain('contactLastName')
+    expect(script).toContain('contactPhone')
+    expect(script).toContain('contactEmail')
+    // The field it used to pass on its own, with no name or phone behind it.
+    expect(script).not.toContain('bool(review.get("contactEmail"))')
+  })
+
+  it('compares the attached build with the newest VALID one', () => {
+    expect(script).toContain('def newest_valid_build')
+    expect(script).toContain('"state"] == "VALID"')
+    expect(script).toContain('is the newest VALID build')
+  })
+
+  it('does not call an unlisted build stale', () => {
+    expect(script).toContain('(nothing VALID listed to compare)')
+  })
+})
+
+/**
+ * The review contact is the field a submission waits on and the only one a
+ * person has to supply, so it is supplied once as a repository variable instead
+ * of being typed into a web form whose empty phone field stays silent.
+ */
+describe('the listing workflow writes the review contact', () => {
+  const script = read('scripts/ios-fill-listing.py')
+  const workflow = read('.github/workflows/ios-listing.yml')
+
+  it('reads the three variables as one contact', () => {
+    for (const name of [
+      'APP_REVIEW_CONTACT_NAME',
+      'APP_REVIEW_CONTACT_PHONE',
+      'APP_REVIEW_CONTACT_EMAIL',
+    ]) {
+      expect(script).toContain(name)
+      expect(workflow).toContain(`vars.${name}`)
+    }
+  })
+
+  it('refuses a half-set contact instead of writing one', () => {
+    expect(script).toContain('the review contact is half set')
+    expect(script).toContain('needs a first and a last name')
+  })
+
+  it('writes the notes and the contact in one request', () => {
+    expect(script).toContain('def write_review(')
+    expect(script).toContain('**contact')
+    // The old writer sent the notes alone, which Apple refuses once a build is
+    // attached — the exact request that would have failed the first apply.
+    expect(script).not.toContain('write_review_notes')
+  })
+})
+
+/**
  * App Distribution installs an ad hoc build, not an App Store one, so it cannot
  * reuse the ipa the TestFlight export produces — and on a tag that export writes
  * nothing at all. A separate ad hoc export is the only thing that can be
