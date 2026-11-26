@@ -207,6 +207,23 @@ describe('the submission check refuses a version it cannot vouch for', () => {
     expect(script).not.toContain('bool(review.get("contactEmail"))')
   })
 
+  /**
+   * The gap is what a blocked submit prints, so it has to say what to fix. A
+   * line reading only "review contact" sent the reader into the workflow to
+   * find out where a value it does not hold comes from.
+   */
+  it('names the repository variable that fills each missing contact field', () => {
+    const contact = script.slice(script.indexOf('    contact = ('), script.indexOf('    missing = ['))
+    expect(contact).toContain(
+      '("name", ("contactFirstName", "contactLastName"), "APP_REVIEW_CONTACT_NAME")'
+    )
+    expect(contact).toContain('("phone", ("contactPhone",), "APP_REVIEW_CONTACT_PHONE")')
+    expect(contact).toContain('("email", ("contactEmail",), "APP_REVIEW_CONTACT_EMAIL")')
+    // The detail column carries the variable beside the field it fills, so the
+    // row itself says what to set.
+    expect(script).toContain('(set {variable})')
+  })
+
   it('compares the attached build with the newest VALID one', () => {
     expect(script).toContain('def newest_valid_build')
     expect(script).toContain('"state"] == "VALID"')
