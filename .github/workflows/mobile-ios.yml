@@ -20,7 +20,9 @@ name: Mobile (iOS)
 # for a hand-installed build and notifies nobody. Ticking neither exports
 # nothing and sends nothing. A run that uploads then asks App Store Connect, in
 # a loop, whether the build left processing and reached a TestFlight group with
-# a tester in it — and fails when it never does.
+# a tester in it — and fails when it never does. `capture_screenshots` builds the
+# same source for the simulator and takes the two screenshot sets the listing
+# needs, because neither size is something a person can type in.
 # Without the App Store Connect key the job still archives — unsigned, for
 # inspection — instead of failing on empty credentials.
 
@@ -36,6 +38,12 @@ on:
       # App Distribution export minus the distribution.
       export_signed_ipa:
         description: Export a signed ad hoc .ipa for sideloading (publishes nothing)
+        type: boolean
+        default: false
+      # The store screenshots are the one submission field nobody can type in,
+      # and App Store Connect refuses the version until both sizes have three.
+      capture_screenshots:
+        description: Capture the 6.9-inch and 13-inch App Store screenshots on simulators
         type: boolean
         default: false
   push:
@@ -236,6 +244,21 @@ jobs:
           fi
           xcodebuild "${args[@]}" archive
 
+      # The screenshots have to come from the running app, and nobody has a
+      # 6.9-inch phone and a 13-inch iPad on a desk. So the same source is built
+      # for the simulator, and the app is walked through its three screens by the
+      # `warden://` addresses the shell answers — the posture screen on launch, a
+      # page in WARDEN's own surface, and Scry's report of that page. The script
+      # refuses a capture that is not the pixel size of the slot it is for, so a
+      # run cannot hand back a file Apple will reject at upload.
+      - name: Capture the App Store screenshots
+        if: inputs.capture_screenshots
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 scripts/ios-capture-screenshots.py \
+            --project mobile/ios/App \
+            --out "${{ runner.temp }}/screenshots"
+
       # `destination=upload` hands the build to App Store Connect from the same
       # export Xcode already does, so TestFlight needs no altool/Transporter step.
       # It only runs when the build is being uploaded: an export is signing and
@@ -389,3 +412,14 @@ jobs:
             ${{ runner.temp }}/adhoc/*.ipa
             ${{ runner.temp }}/WARDEN.xcarchive
           if-no-files-found: error
+
+      # Last, and `always()`, because a screenshot costs a device and a page
+      # load rather than a compile: a run that asks for them keeps them even when
+      # the export after them failed. `warn` rather than `error` on an empty
+      # directory, so the failure the run is about stays the visible one.
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.capture_screenshots
+        with:
+          name: warden-ios-screenshots
+          path: ${{ runner.temp }}/screenshots/*.png
+          if-no-files-found: warn

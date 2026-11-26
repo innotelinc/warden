@@ -500,9 +500,24 @@ def select_target(rows: list[dict], build_number: str) -> dict | None:
     return wanted[0] if wanted else None
 
 
-# The screenshots a universal app needs before Apple lets a version be
-# submitted: one set for the largest iPhone and one for the largest iPad.
-RECOMMENDED_SHOTS = 3
+# The two screenshot sets App Store Connect requires from a universal app, by
+# the API's own display-type names.
+#
+# The names lag the store's labels. Apple calls the largest iPhone the "6.9-inch
+# display" in App Store Connect, but the API value is still APP_IPHONE_67, which
+# accepts 1260x2736, 1290x2796 and 1320x2868 — the 6.9-inch screen sizes. The
+# 13-inch iPad slot is APP_IPAD_PRO_3GEN_129, which accepts 2048x2732 and
+# 2064x2752.
+#
+# Matching the family instead ("APP_IPHONE") was this check's first version, and
+# it read ok for a 6.5-inch or 6.1-inch set — sizes App Store Connect refuses at
+# submission. What is required is the slot, not any set from the family.
+REQUIRED_SHOTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ('iPhone 6.9"', ("APP_IPHONE_67",)),
+    ('iPad 13"', ("APP_IPAD_PRO_3GEN_129",)),
+)
+MIN_SHOTS_PER_SIZE = 3
+
 
 def newest_version(bearer: str, app: str) -> dict:
     """The version page a submission is made against, with its build, its
@@ -635,14 +650,20 @@ def submission_report(bearer: str, app: str) -> int:
             rows.append((f"{language} {label}", bool(value), value[:40] or "empty"))
 
         # --- screenshots ----------------------------------------------------
+        # Per slot, not per family: a 6.5-inch iPhone set does not fill the
+        # 6.9-inch slot, and only a 13-inch iPad set fills the iPad one.
         shots = screenshots(bearer, localization["id"])
-        kinds = ", ".join(f"{row['display']}={row['count']}" for row in shots) or "none"
-        has_iphone = any(row["display"].startswith("APP_IPHONE") for row in shots)
-        has_ipad = any(row["display"].startswith("APP_IPAD") for row in shots)
-        enough = all(row["count"] >= RECOMMENDED_SHOTS for row in shots) if shots else False
-        rows.append((f"{language} iPhone screenshots", has_iphone, kinds))
-        rows.append((f"{language} iPad screenshots", has_ipad, kinds))
-        rows.append((f"{language} {RECOMMENDED_SHOTS}+ per size", enough, kinds))
+        counts = {row["display"]: row["count"] for row in shots}
+        found = ", ".join(f"{row['display']}={row['count']}" for row in shots) or "none"
+        for label, accepted in REQUIRED_SHOTS:
+            held = next((counts[name] for name in accepted if name in counts), 0)
+            if held == 0:
+                detail = f"no {' / '.join(accepted)} set — found {found}"
+            elif held < MIN_SHOTS_PER_SIZE:
+                detail = f"{held} in {accepted[0]}, needs {MIN_SHOTS_PER_SIZE}"
+            else:
+                detail = f"{held} in {accepted[0]}"
+            rows.append((f"{language} {label} screenshots", held >= MIN_SHOTS_PER_SIZE, detail))
 
     # --- app information ----------------------------------------------------
     for localization in info["localizations"]:

@@ -3,6 +3,7 @@ import { StatusBar, Style } from '@capacitor/status-bar'
 import { resolveInput } from '@shared/urls'
 import {
   clearServiceData,
+  closeSurface,
   forgetSiteRules,
   openPage,
   openService,
@@ -11,6 +12,7 @@ import {
   type BrowserSurface,
   type SiteRule
 } from './warden-browser'
+import { parseTourStep } from './capture-tour'
 import { ScryPanel } from './panels/ScryPanel'
 import { ServicesPanel } from './panels/ServicesPanel'
 import { MailPanel } from './panels/MailPanel'
@@ -141,6 +143,7 @@ export function App(): React.ReactElement {
   const [palette, setPalette] = useState(false)
   const [query, setQuery] = useState('')
   const [toast, setToast] = useState<string | null>(null)
+  const [tourUrl, setTourUrl] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const notify = useCallback((text: string): void => setToast(text), [])
@@ -220,6 +223,52 @@ export function App(): React.ReactElement {
     },
     [address, notify]
   )
+
+  // The tour listener is registered once and lives for the session, so it calls
+  // the current `go` through a ref rather than re-subscribing on every keystroke
+  // in the address field.
+  const goRef = useRef(go)
+  useEffect(() => {
+    goRef.current = go
+  }, [go])
+
+  /**
+   * The capture tour: `warden://browse?url=…` and `warden://scry?url=…`.
+   *
+   * The iOS screenshot job opens these on a simulator, because a store shot has
+   * to be of the running app and a simulator cannot tap. Each one runs the same
+   * path a tap does — the address bar for `browse`, the Scry capture for `scry`
+   * — so what the shot shows is the product, not a screen built to be shot.
+   * Anything else arriving on the scheme is ignored.
+   */
+  useEffect(() => {
+    let handle: { remove: () => Promise<void> } | null = null
+    let live = true
+    void WardenBrowser.addListener('tour', (data) => {
+      const step = parseTourStep(data?.url)
+      if (!step) return
+      if (step.screen === 'browse') {
+        void goRef.current(step.url)
+        return
+      }
+      // The page is closed first: Scry reads the surface it finds on screen and
+      // reports behind it, and a report behind a browser is not the screen the
+      // capture is looking for.
+      void closeSurface().finally(() => {
+        setTourUrl(step.url)
+        setWorkspace('scry')
+      })
+    })
+      .then((registered) => {
+        if (live) handle = registered
+        else void registered.remove().catch(() => undefined)
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+      if (handle) void handle.remove().catch(() => undefined)
+    }
+  }, [])
 
   /** Services and mail open in the session that survives, not the browser's. */
   const openInService = useCallback(async (url: string): Promise<void> => {
@@ -521,6 +570,7 @@ export function App(): React.ReactElement {
                 <div className="ws-body scroll">
                   <div className="ws-pad">
                     <ScryPanel
+                      tourUrl={tourUrl}
                       lastVisited={current}
                       resolve={resolveTarget}
                       onVisited={(url) =>

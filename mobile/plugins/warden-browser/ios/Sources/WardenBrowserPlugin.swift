@@ -26,6 +26,7 @@ public class WardenBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "openService", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scry", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearServiceData", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "close", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "siteRules", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "forgetSiteRules", returnType: CAPPluginReturnPromise)
     ]
@@ -36,6 +37,28 @@ public class WardenBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     /// The surface that is up, so a second `open` replaces it rather than
     /// stacking another browser behind this one.
     private weak var presented: WardenBrowserViewController?
+
+    /// The `warden://` observer, so a screen can be asked for from outside the
+    /// app. AppDelegate announces the address; this hands it to the shell, which
+    /// decides what it means.
+    private var tourObserver: NSObjectProtocol?
+
+    override public func load() {
+        tourObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("warden.captureTour"),
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let raw = note.userInfo?["url"] as? String else { return }
+            self?.notifyListeners("tour", data: ["url": raw])
+        }
+    }
+
+    deinit {
+        if let tourObserver {
+            NotificationCenter.default.removeObserver(tourObserver)
+        }
+    }
 
     @objc func open(_ call: CAPPluginCall) {
         present(call, session: .privateMode)
@@ -116,6 +139,26 @@ public class WardenBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func forgetSiteRules(_ call: CAPPluginCall) {
         WardenPolicy.shared.forgetAll()
         call.resolve()
+    }
+
+    /// Close the surface that is up, if any.
+    ///
+    /// `scry` reads the surface it finds on screen rather than reloading the
+    /// same address, which is right when an operator is looking at the page. It
+    /// is wrong when the next screen is the report: the shell cannot show one
+    /// behind a browser it did not close, and the screenshot capture asks for
+    /// exactly that screen.
+    @objc func close(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let browser = self.presented else {
+                call.resolve()
+                return
+            }
+            browser.dismiss(animated: false) {
+                self.presented = nil
+                call.resolve()
+            }
+        }
     }
 
     /// Sign out of every service, without touching the browser's session.
