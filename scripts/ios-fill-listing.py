@@ -14,7 +14,8 @@ It sets, on the newest iOS version page of the app:
     information record
   * the primary category
   * the age rating's unrestricted-web-access answer
-  * the review notes, on the version's App Review information
+  * the review notes, on the version's App Review information (skipped when the
+    record already holds the same text)
 
 It deliberately does not touch the review contact (a person's name, phone and
 email are not in this repository), the screenshots (which have to be captured
@@ -110,8 +111,18 @@ def write_review_notes(bearer: str, version: dict, notes: str) -> str:
     """App Review reads the notes off the version's App Review information
     record, which App Store Connect creates empty with the version. It is
     patched when it exists and created when it does not, so a version page that
-    has never held review information still ends up with them."""
+    has never held review information still ends up with them.
+
+    Writing is skipped when the record already holds this text. Once a build is
+    attached to the version, Apple refuses a patch of this entity that omits the
+    review contact — a person's name, phone and email, which are not in this
+    repository — so resending identical notes would fail a run over a field the
+    owner has to type into App Store Connect anyway."""
     detail = version.get("review") or {}
+    if detail.get("id"):
+        current = (detail.get("attributes") or {}).get("notes") or ""
+        if current == notes:
+            return "kept"
     attributes = {"notes": notes}
     if detail.get("id"):
         patch(
