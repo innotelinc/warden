@@ -603,9 +603,19 @@ Capturing them from the build, shortest path — a run, not a desk:
    capture that is not a portrait PNG of that slot's width, so a file it hands
    back is one the console accepts. It also fails when two screens come back
    byte-identical, which is what a tour that never arrived looks like.
-4. App Store Connect → the 1.0 version → **App Previews and Screenshots**: the
-   iPhone files into **iPhone 6.9" Display**, the iPad files into **iPad 13"
-   Display**. PNG or JPEG, no transparency, 3–10 per size.
+4. Put them in the slots: **iOS screenshots** with `run_id` set to that capture
+   run and `dry_run=false`. It downloads the run's `warden-ios-screenshots`
+   artifact, refuses any file that is not a portrait PNG of its slot's width,
+   and writes `iphone-6.9-*.png` into `APP_IPHONE_67` ("iPhone 6.9\" Display")
+   and `ipad-13-*.png` into `APP_IPAD_PRO_3GEN_129` ("iPad 13\" Display"). A
+   slot that already holds screenshots is refused until `replace=true`, which
+   deletes what is there first: a stale capture left beside a fresh one is what
+   a reviewer sees. Upload is the API's three steps — reserve the record, send
+   the bytes, confirm with the file's MD5 — and each file is followed until
+   Apple reports the asset `COMPLETE`, because a reserved record that was never
+   confirmed fills the slot with an empty image. The version has to be
+   editable: one waiting for review must be taken out of review in App Store
+   Connect first.
 5. Re-run **iOS build status** with `submission=true`; both screenshot rows —
    `en-US iPhone 6.9" screenshots` and `en-US iPad 13" screenshots` — should read
    `ok`, and only the review contact should be left.

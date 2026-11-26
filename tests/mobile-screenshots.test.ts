@@ -172,3 +172,56 @@ describe('the submission check looks for the slots', () => {
     expect(script).toContain('found {found}')
   })
 })
+
+/**
+ * A capture that stays on disk fills no slot. Uploading by hand is how the wrong
+ * set lands in the 6.9-inch slot, and how one slot ends up holding captures from
+ * two runs. The script writes the slots through the API instead, in three steps
+ * Apple documents: reserve a screenshot record, send the bytes, confirm it with
+ * the file's MD5. A record that is reserved and never confirmed fills the slot
+ * with an empty image, which is the failure this pins.
+ */
+describe('the upload script', () => {
+  const script = read('scripts/ios-upload-screenshots.py')
+
+  it('writes each file into the slot its name says', () => {
+    expect(script).toContain('"APP_IPHONE_67", (1260, 1290, 1320)')
+    expect(script).toContain('"APP_IPAD_PRO_3GEN_129", (2048, 2064)')
+  })
+
+  it('refuses a file its slot would not take', () => {
+    expect(script).toContain('is not a PNG')
+    expect(script).toContain('height <= width')
+    expect(script).toContain('::error::')
+  })
+
+  it('refuses two screens that are the same picture', () => {
+    expect(script).toContain('is identical to')
+    expect(script).toContain('hashlib.sha256')
+  })
+
+  it('needs the three the slot requires, not just one', () => {
+    expect(script).toContain('asc.MIN_SHOTS_PER_SIZE')
+  })
+
+  it('confirms every upload with its checksum, then waits for delivery', () => {
+    expect(script).toContain('"/v1/appScreenshots"')
+    expect(script).toContain('uploadOperations')
+    expect(script).toContain('sourceFileChecksum')
+    expect(script).toContain('hashlib.md5')
+    expect(script).toContain('assetDeliveryState')
+  })
+
+  it('does not mix two captures in one slot unless told to', () => {
+    expect(script).toContain('--replace')
+    expect(script).toContain('a mix of two')
+  })
+
+  it('is what the upload workflow runs', () => {
+    const workflow = read('.github/workflows/ios-screenshots.yml')
+    expect(workflow).toContain('python3 scripts/ios-upload-screenshots.py')
+    expect(workflow).toContain('gh run download')
+    expect(workflow).toContain('warden-ios-screenshots')
+    expect(workflow).toContain('actions: read')
+  })
+})
