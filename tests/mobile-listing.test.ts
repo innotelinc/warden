@@ -90,6 +90,35 @@ describe('iOS store listing', () => {
   })
 })
 
+/**
+ * One product, one name. The App Store record holds `WARDEN Privacy Browser`
+ * because `WARDEN Mobile` is taken by another account and Apple reserves names
+ * across accounts; Play and both descriptions were matched to it. A title that
+ * drifts back puts the same app on two stores under two names, and the
+ * description that opens with the old one reads as a different product.
+ */
+describe('the store name is one name', () => {
+  const STORE_NAME = 'WARDEN Privacy Browser'
+  const android = JSON.parse(read('mobile/store/android/listing.json')) as {
+    title: string
+    fullDescription: string
+  }
+
+  it('is the App Store name', () => {
+    expect(listing.name).toBe(STORE_NAME)
+  })
+
+  it('is the Play title', () => {
+    expect(android.title).toBe(STORE_NAME)
+  })
+
+  it('opens both descriptions', () => {
+    const opening = (text: string): string => text.split('\n')[0]
+    expect(opening(listing.description).startsWith(STORE_NAME)).toBe(true)
+    expect(opening(android.fullDescription).startsWith(STORE_NAME)).toBe(true)
+  })
+})
+
 describe('claims the mobile build cannot back up', () => {
   const forbidden = [
     /encrypted DNS/i,

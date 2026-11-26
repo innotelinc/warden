@@ -551,10 +551,28 @@ ships its own manifest, so the listed-SDK expectation is met.
 | Review notes | from `listing.json` | 4,000 |
 
 **Screenshots — both sizes, and they must be real.** `TARGETED_DEVICE_FAMILY`
-is `"1,2"`, so App Store Connect demands 6.9" iPhone (1290×2796) **and** 13"
-iPad (2048×2732) shots. They have to come from the running build on a device or
-simulator; nothing in this repository can generate them, and a mockup of a UI
-that does not exist is a 2.3 rejection.
+is `"1,2"`, so App Store Connect demands 6.9" iPhone **and** 13" iPad shots,
+three or more of each (`scripts/ios-build-status.py` counts 3). They have to
+come from the running build on a device or simulator; nothing in this repository
+can generate them, and a mockup of a UI that does not exist is a 2.3 rejection.
+
+Capturing them from build 43, shortest path:
+
+1. Install `0.2.20 (43)` from TestFlight on an iPhone 16 Plus or 15 Pro Max
+   (1290×2796) and an iPad Pro 13" (2064×2752 on the M4, 2048×2732 on a 12.9").
+   Each of those sizes is accepted in its section; a capture at any other size is
+   not.
+2. On each device open the app and take three screens: the posture screen on
+   launch, a page loaded with WARDEN's address bar and progress line
+   (`example.com`), and a Scry report of that page.
+3. Capture with the hardware buttons — side + volume up on the iPhone, top +
+   volume up on the iPad — so the files land at the screen's own pixels. Do not
+   crop, resize, or add device frames.
+4. App Store Connect → the 1.0 version → **App Previews and Screenshots**: the
+   iPhone files into **iPhone 6.9" Display**, the iPad files into **iPad 13"
+   Display**. PNG or JPEG, no transparency, 3–10 per size.
+5. Re-run **iOS build status** with `submission=true`; the three screenshot rows
+   should read `ok` and only the review contact should be left.
 
 **Review notes have one job: explain what the app is before a reviewer decides
 it is a wrapper.** They are in the listing file and say, in order: no sign-in
