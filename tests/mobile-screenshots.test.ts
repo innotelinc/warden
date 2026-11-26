@@ -67,40 +67,29 @@ describe('the capture tour', () => {
 })
 
 describe('the tour reaches the app', () => {
-  it('registers the scheme the script opens', () => {
-    const plist = read('mobile/ios/App/App/Info.plist')
-    expect(plist).toContain('<key>CFBundleURLTypes</key>')
-    expect(plist).toMatch(/<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>warden<\/string>/)
-  })
-
   /**
-   * AppDelegate announces the address on a notification and the browser plugin
-   * forwards it. Two files, one name — a typo in either leaves the scheme dead,
-   * and nothing compiles or runs here to say so.
+   * A launch argument, not a `warden://` URL opened on a running app: iOS 26
+   * puts an "Open in WARDEN Mobile?" prompt in front of that, and the first
+   * capture run photographed the prompt three times because a simulator cannot
+   * tap it. Nothing may quietly reintroduce the scheme path.
    */
-  it('announces and forwards it under the same name', () => {
-    const delegate = read('mobile/ios/App/App/AppDelegate.swift')
+  it('is a launch argument the plugin reads', () => {
     const plugin = read('mobile/plugins/warden-browser/ios/Sources/WardenBrowserPlugin.swift')
+    expect(plugin).toContain('CAPPluginMethod(name: "launchTour"')
+    expect(plugin).toContain('"-wardenTour"')
+    expect(plugin).toContain('ProcessInfo.processInfo.arguments')
 
-    expect(delegate).toContain('Notification.Name("warden.captureTour")')
-    expect(delegate).toContain('url.scheme?.lowercased() == "warden"')
-    expect(plugin).toContain('Notification.Name("warden.captureTour")')
-    expect(plugin).toContain('notifyListeners("tour"')
+    expect(read('mobile/ios/App/App/Info.plist')).not.toContain('CFBundleURLTypes')
+    expect(read('mobile/ios/App/App/AppDelegate.swift')).not.toContain('warden.captureTour')
   })
 
-  it('is what the shell listens for, and both screens come from it', () => {
-    expect(read('mobile/src/warden-browser.ts')).toContain("event: 'tour'")
+  it('is what the shell asks for, and both screens come from it', () => {
+    expect(read('mobile/src/warden-browser.ts')).toContain('launchTour()')
 
     const shell = read('mobile/src/App.tsx')
-    expect(shell).toContain("WardenBrowser.addListener('tour'")
+    expect(shell).toContain('WardenBrowser.launchTour()')
     expect(shell).toContain('parseTourStep')
     expect(shell).toContain('tourUrl={tourUrl}')
-    // Scry reads the surface that is up, so the page has to be closed or the
-    // third shot is the browser with the report hidden behind it.
-    expect(shell).toContain('closeSurface()')
-    expect(read('mobile/plugins/warden-browser/ios/Sources/WardenBrowserPlugin.swift')).toContain(
-      'CAPPluginMethod(name: "close"'
-    )
     // Scry is captured on arrival, not left on an empty field: the shot it
     // takes has to be the report.
     expect(read('mobile/src/panels/ScryPanel.tsx')).toContain('capture(tourUrl)')
@@ -122,13 +111,23 @@ describe('the capture script', () => {
     expect(script).toContain('widths=(2048, 2064)')
   })
 
-  it('drives the app through the addresses the shell answers', () => {
+  it('drives the app through the argument the shell answers', () => {
     expect(script).toContain('warden://{screen}?url=')
     for (const screen of ['browse', 'scry']) {
       expect(script).toContain(`tour_link("${screen}")`)
     }
-    expect(script).toContain('"openurl"')
+    expect(script).toContain('"-wardenTour"')
+    // Each screen is its own launch, so a page or a report cannot leak into the
+    // next shot and a stale prompt cannot cover the app.
+    expect(script).toContain('--terminate-running-process')
     expect(script).toContain('"screenshot"')
+  })
+
+  /** Size alone passed three pictures of the same system prompt. */
+  it('refuses two screens that are the same picture', () => {
+    expect(script).toContain('check_distinct')
+    expect(script).toContain('hashlib.sha256')
+    expect(script).toContain('the app never reached')
   })
 
   /** A file the console would refuse must fail here, not at upload. */

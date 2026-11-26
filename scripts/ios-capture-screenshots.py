@@ -11,13 +11,17 @@ keeps the PNGs — named for the slot each one belongs to.
     python3 scripts/ios-capture-screenshots.py \
       --project mobile/ios/App --out "$RUNNER_TEMP/screenshots"
 
-The walk is not UI automation. `simctl` cannot tap, so the shell answers two
-`warden://` addresses and `simctl openurl` sends them:
+The walk is not UI automation. `simctl` cannot tap, so each screen after the
+first is a launch of the app with a `-wardenTour` argument the shell answers:
 
     warden://browse?url=https://example.com    the page in WARDEN's own surface
     warden://scry?url=https://example.com      Scry's report of that page
 
 Screen one needs neither: it is the app on launch, which is the posture screen.
+A launch argument, not a `warden://` URL sent to the running app: iOS 26 puts an
+"Open in WARDEN Mobile?" prompt in front of the latter, and the first run of this
+script captured that prompt three times because nothing on a simulator can
+dismiss it.
 
 Every capture is checked before it is kept: a portrait PNG 1260, 1290 or 1320
 pixels wide for the phone (the API's APP_IPHONE_67 slot, which App Store Connect
@@ -33,6 +37,7 @@ raises them on a slow machine or a slow page. macOS only: `simctl` and
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -104,6 +109,10 @@ STEPS: tuple[tuple[str, str | None, str], ...] = (
     ("browse", tour_link("browse"), "a page in WARDEN's own surface"),
     ("scry", tour_link("scry"), "Scry's report of that page"),
 )
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def run(command: list[str], capture: bool = False) -> str:
@@ -204,6 +213,22 @@ def png_size(path: Path) -> tuple[int, int]:
     return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
 
 
+def check_distinct(path: Path, seen: dict[str, str]) -> None:
+    """A capture identical to an earlier one means the screen never changed.
+
+    The first run of this script passed every size check with three pictures of
+    the same "Open in WARDEN Mobile?" prompt, because `simctl` cannot tap and the
+    prompt was sitting over the app. Identical bytes are that failure, and it is
+    better found here than in App Store Connect.
+    """
+    earlier = seen.get(digest(path))
+    if earlier is not None:
+        raise SystemExit(
+            f"::error::{path.name} is identical to {earlier}: the app never reached "
+            "that screen. Is the -wardenTour argument still read by the shell?"
+        )
+
+
 def check_slot(path: Path, slot: Slot) -> tuple[int, int]:
     """A file App Store Connect will refuse is a failure here, not at upload."""
     width, height = png_size(path)
@@ -227,16 +252,23 @@ def capture(slot: Slot, app: Path, runtime: str, known: list[dict], out: Path, s
         simctl("boot", udid)
         simctl("bootstatus", udid, "-b")
         simctl("install", udid, str(app))
-        simctl("launch", udid, BUNDLE_ID)
-        time.sleep(settle)
 
-        for index, (name, link, description) in enumerate(STEPS, start=1):
-            if link is not None:
-                simctl("openurl", udid, link)
-                time.sleep(settle)
+        # Every screen is its own launch: the first is the app as it opens, and
+        # the rest are the same app asked for a screen. That also keeps one
+        # shot's session out of the next one's.
+        seen: dict[str, str] = {}
+        for index, (name, tour, description) in enumerate(STEPS, start=1):
+            launch = ["launch", "--terminate-running-process", udid, BUNDLE_ID]
+            if tour is not None:
+                launch += ["-wardenTour", tour]
+            simctl(*launch)
+            time.sleep(settle)
+
             target = out / f"{slot.key}-{index}-{name}.png"
             simctl("io", udid, "screenshot", str(target))
             width, height = check_slot(target, slot)
+            check_distinct(target, seen)
+            seen[digest(target)] = target.name
             print(f"  {target.name}  {width}x{height}  -> {slot.display_type}  ({description})")
     finally:
         quiet(["xcrun", "simctl", "shutdown", udid])

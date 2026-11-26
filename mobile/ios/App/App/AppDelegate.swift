@@ -7,7 +7,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // The shell is dark by design and there is no light mode to agree with.
+        // Whatever the web view does not cover — the strip under it on a
+        // simulator, the moment before its first paint — is the window's colour,
+        // and the window's default is white: the first App Store captures came
+        // back with a white band under the app's own footer. Painting the window
+        // and the web view the shell's background colour removes it.
+        let surface = UIColor(red: 7.0 / 255.0, green: 10.0 / 255.0, blue: 13.0 / 255.0, alpha: 1)
+        window?.backgroundColor = surface
+        window?.rootViewController?.view.backgroundColor = surface
         return true
     }
 
@@ -34,20 +42,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // `warden://…` is the shell's own scheme. It is announced on the same
-        // channel the browser plugin already reports navigation on, and the
-        // plugin forwards it to the screen that asked for it — which is how the
-        // screenshot capture reaches the browser and Scry on a simulator.
-        // Every other scheme still goes through Capacitor's proxy, so an
-        // appUrlOpen listener elsewhere is unaffected.
-        if url.scheme?.lowercased() == "warden" {
-            NotificationCenter.default.post(
-                name: Notification.Name("warden.captureTour"),
-                object: nil,
-                userInfo: ["url": url.absoluteString]
-            )
-            return true
-        }
         // Called when the app was launched with a url. Feel free to add additional processing here,
         // but if you want the App API to support tracking app url opens, make sure to keep this call
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)

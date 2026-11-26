@@ -571,16 +571,22 @@ Capturing them from the build, shortest path — a run, not a desk:
    installed of `iPhone 17 Pro Max`, `16 Pro Max`, `Air`, `16 Plus`, `15 Pro
    Max`; and `iPad Pro 13-inch (M5)/(M4)` or a 12.9-inch), installs the app and
    walks it through three screens.
-2. The walk is not UI automation: `simctl` cannot tap, so the shell answers
-   `warden://browse?url=https://example.com` and
-   `warden://scry?url=https://example.com` — the address is registered in
-   `Info.plist`, `AppDelegate` announces it, and `WardenBrowserPlugin` hands it
-   to the shell, which opens the page or reads it exactly as a tap would. Screen
-   one needs neither: it is the app on launch, the posture screen.
+2. The walk is not UI automation: `simctl` cannot tap, so each screen after the
+   first is its own launch of the app with `-wardenTour
+   warden://browse?url=https://example.com` or `-wardenTour
+   warden://scry?url=https://example.com`. `WardenBrowserPlugin` hands the
+   argument to the shell, which opens the page or reads it exactly as a tap
+   would. Screen one needs neither: it is the app on launch, the posture screen.
+   A launch argument and not a `warden://` URL sent to the running app — iOS 26
+   puts an "Open in WARDEN Mobile?" prompt in front of that, and the first run
+   of this step captured the prompt three times because a simulator cannot tap
+   it. Each screen being its own launch also keeps one shot's session out of the
+   next one's.
 3. Collect the `warden-ios-screenshots` artifact. Each file is named for its
    slot (`iphone-6.9-…`, `ipad-13-…`) and the script fails rather than keep a
    capture that is not a portrait PNG of that slot's width, so a file it hands
-   back is one the console accepts.
+   back is one the console accepts. It also fails when two screens come back
+   byte-identical, which is what a tour that never arrived looks like.
 4. App Store Connect → the 1.0 version → **App Previews and Screenshots**: the
    iPhone files into **iPhone 6.9" Display**, the iPad files into **iPad 13"
    Display**. PNG or JPEG, no transparency, 3–10 per size.
