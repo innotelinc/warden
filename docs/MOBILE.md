@@ -481,7 +481,10 @@ information (name, subtitle, privacy policy URL, primary category), the age
 rating, whether the attached build is the **newest `VALID`** one rather than
 merely some build, and whether the review contact holds a name, a phone **and**
 an email. Each line is `ok` or `GAP`, and the job exits non-zero while anything
-is missing, so a checklist cannot drift from the record. The version page and the build carry independent
+is missing, so a checklist cannot drift from the record. A missing contact field
+names the variable that fills it — `APP_REVIEW_CONTACT_NAME`,
+`APP_REVIEW_CONTACT_PHONE` or `APP_REVIEW_CONTACT_EMAIL` — so a refused
+submission says what to set rather than only that something is missing. The version page and the build carry independent
 numbers: a version page of `1.0` accepts a build stamped `0.2.4`, but keeping
 them equal avoids explaining the difference later.
 

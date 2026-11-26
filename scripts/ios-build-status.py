@@ -725,15 +725,17 @@ def submission_report(bearer: str, app: str) -> int:
     # All three fields, because App Review needs all three to reach anyone: a
     # name, a phone and an address. Reading only the email — this check's first
     # version — went green on a record nobody could call, which is the one thing
-    # it exists to prevent.
+    # it exists to prevent. Each field names the repository variable that fills
+    # it, because a gap that only says "review contact" sends the reader into
+    # the workflow to find out what to set.
     contact = (
-        ("name", ("contactFirstName", "contactLastName")),
-        ("phone", ("contactPhone",)),
-        ("email", ("contactEmail",)),
+        ("name", ("contactFirstName", "contactLastName"), "APP_REVIEW_CONTACT_NAME"),
+        ("phone", ("contactPhone",), "APP_REVIEW_CONTACT_PHONE"),
+        ("email", ("contactEmail",), "APP_REVIEW_CONTACT_EMAIL"),
     )
     missing = [
-        label
-        for label, keys in contact
+        f"{label} (set {variable})"
+        for label, keys, variable in contact
         if not all((review.get(key) or "").strip() for key in keys)
     ]
     rows.append(
