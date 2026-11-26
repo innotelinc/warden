@@ -593,6 +593,14 @@ text that goes into both consoles: titles, descriptions, category, contact and
 privacy URLs, data-safety answers, rating expectations and review notes. Copy
 them in verbatim so the two listings and this repository agree.
 
+Both listings are titled `WARDEN Privacy Browser`, and both descriptions open
+with that name. The App Store record holds that title because `WARDEN Mobile` is
+taken by another account and Apple reserves names across accounts; Play is
+matched to it so one product does not appear under two names. The installed app
+still labels itself `WARDEN Mobile` (`Info.plist`, Android `strings.xml`,
+`capacitor.config.ts`): the store title is the listing's name, not the display
+name.
+
 App icons are in the repository for iOS (above); Android's launcher icons are
 still Capacitor's generated set. Screenshots are the remaining graphics:
 they have to come from the running app, so they are captured once the first
