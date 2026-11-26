@@ -423,14 +423,27 @@ the version is in `PREPARE_FOR_SUBMISSION`, sends `submit_version` to App Review
 through the review-submission API:
 
 ```
+gh workflow run ios-build-status.yml -f submit_for_review=true -f submit_dry_run=true
 gh workflow run ios-build-status.yml -f submit_for_review=true
 gh workflow run ios-build-status.yml -f submit_for_review=true -f submit_version=1.1
 ```
 
+Preview it first: `submit_dry_run=true` runs both gates and prints the submission
+it would reuse or create, the item it would add and the submit it would send,
+then writes nothing. A dry run exits with the status the live run would, so a
+green preview is a rehearsal rather than a promise.
+
+A submission Apple returned with **unresolved issues** stays open and refuses a
+new one with a 409. That is not a dead end: the run reuses that submission —
+printing each item and its state — adds the version if the item is missing, and
+sends it back once the issue is fixed. A 409 that survives that names the state
+it could not get past and says to finish or cancel that submission in App Store
+Connect.
+
 The version's state and every row of the check are read on the runner, so the
 tick cannot submit past a missing review contact, a build that is not the newest
-`VALID` one or a version App Review already holds; either refusal exits non-zero
-and writes nothing. It uses the submission Apple already has open for the app
+`VALID` one or a version App Review already holds; a refusal exits non-zero and
+writes nothing. It uses the submission Apple already has open for the app
 when there is one, adds the version as an item, and PATCHes the submission with
 `submitted: true`, then prints the state the version ended in and writes it to
 the run's summary. The default is off: looking at a build and submitting it are

@@ -17,6 +17,8 @@ name: iOS build status
 # only when the submission check reports zero gaps and the version is in
 # PREPARE_FOR_SUBMISSION. Both are read by the script on the runner, so the tick
 # cannot skip either. It is off by default, and nothing here submits on a tag.
+# `submit_dry_run` runs the same thing and sends nothing, which is how the first
+# live submission is read before it happens.
 
 on:
   workflow_dispatch:
@@ -63,6 +65,10 @@ on:
         description: Marketing version to submit; it has to be the app's newest
         type: string
         default: '1.0'
+      submit_dry_run:
+        description: With submit_for_review, run the gates and print the plan without sending
+        type: boolean
+        default: false
       # Which app a build lands in is decided by a bundle id, and the account can
       # hold records for apps whose code lives elsewhere. This prints them all, so
       # an identifier seen in the portal can be traced to a repository.
@@ -146,4 +152,10 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
           SUBMIT_VERSION: ${{ inputs.submit_version }}
-        run: python3 scripts/ios-submit-for-review.py --version "${SUBMIT_VERSION:-1.0}"
+          SUBMIT_DRY_RUN: ${{ inputs.submit_dry_run }}
+        run: |
+          args=(--version "${SUBMIT_VERSION:-1.0}")
+          if [ "${SUBMIT_DRY_RUN:-false}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 scripts/ios-submit-for-review.py "${args[@]}"

@@ -404,9 +404,38 @@ describe('iOS submit for review', () => {
 
   /** A re-run after a failed PATCH has to reuse the open submission. */
   it('reuses the submission Apple already has open', () => {
-    expect(script).toContain('def open_submission')
-    expect(script).toContain('"filter[state]": OPEN')
-    expect(script).toContain('def holds_version')
+    expect(script).toContain('def open_submissions')
+    expect(script).toContain('",".join(OPEN_STATES)')
+    expect(script).toContain('def carries')
+  })
+
+  /**
+   * A rejected submission is not a dead end. Apple leaves it open in
+   * UNRESOLVED_ISSUES and refuses a new one with a 409, so the run has to send
+   * that submission back rather than try to open a second.
+   */
+  it('resubmits a submission stuck in UNRESOLVED_ISSUES', () => {
+    expect(script).toContain('OPEN_STATES = (READY, UNRESOLVED)')
+    expect(script).toContain('UNRESOLVED = "UNRESOLVED_ISSUES"')
+    expect(script).toContain('refuses a new one while it is open')
+    expect(script).toContain('def describe_items')
+    // The fallback refusal names the step instead of ending on Apple's body.
+    expect(script).toContain('cancel it in App Store Connect')
+    expect(script).toContain('no new one ')
+  })
+
+  it('can be previewed without sending anything', () => {
+    expect(script).toContain('--dry-run')
+    expect(script).toContain('if args.dry_run:')
+    // Below both gates, above every write: a preview that skips the gates would
+    // promise a submission the live run refuses.
+    expect(script.indexOf('if args.dry_run:')).toBeGreaterThan(
+      script.indexOf('if gaps != 0:')
+    )
+    expect(script.indexOf('if args.dry_run:')).toBeLessThan(script.indexOf('created = send('))
+    expect(script.indexOf('if args.dry_run:')).toBeLessThan(
+      script.indexOf('"submitted": True')
+    )
   })
 
   it('is off by default, versioned by input and reported in the run', () => {
@@ -416,6 +445,8 @@ describe('iOS submit for review', () => {
     expect(workflow).toContain("if: ${{ inputs.submit_for_review }}")
     expect(workflow).toContain('python3 scripts/ios-submit-for-review.py')
     expect(workflow).toMatch(/submit_version:[\s\S]*?default: '1\.0'/)
+    expect(workflow).toMatch(/submit_dry_run:[\s\S]*?default: false/)
+    expect(workflow).toContain('args+=(--dry-run)')
     expect(script).toContain('asc.note(')
   })
 })

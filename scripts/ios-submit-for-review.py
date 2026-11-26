@@ -21,20 +21,28 @@ deprecated appStoreVersionSubmissions resource:
   2. add the version as an item, unless the open submission holds it
   3. PATCH the submission with `submitted: true`
 
-An open submission is the one in READY_FOR_REVIEW; submitting it is what moves
-the version to WAITING_FOR_REVIEW. That makes a re-run after a failed PATCH pick
-the same submission up instead of opening a second one, and a re-run after a
-successful submit stop at the state gate.
+An open submission is one in READY_FOR_REVIEW *or* UNRESOLVED_ISSUES. The second
+is the one that used to break this: Apple leaves a rejected submission open, will
+not create another while it exists, and expects the same submission back once the
+issue is fixed — so a new one was refused with a 409. This reuses it, says what
+it is holding, and sends it back. A 409 that survives that (a submission in a
+state this does not handle) is reported with the step it needs, not dumped.
+
+`--dry-run` runs both gates and prints the same plan without writing anything, so
+the first live submission can be read before it is sent. It exits with the status
+the live run would, because a preview that cannot fail is not a preview.
 
     APP_STORE_CONNECT_KEY_ID=... APP_STORE_CONNECT_ISSUER_ID=... \\
       ASC_KEY_PATH=/path/AuthKey.p8 python3 scripts/ios-submit-for-review.py --version 1.0
+    ... python3 scripts/ios-submit-for-review.py --version 1.0 --dry-run
 
 Credentials are the same four repository secrets the other iOS workflows use; the
 token, the check and the HTTP helpers come from scripts/ios-build-status.py,
 which is loaded by path because of the hyphen in its name.
 
-Exit status: 0 the version is submitted, 1 it was refused or App Store Connect
-refused a call. Nothing is submitted unless both gates pass.
+Exit status: 0 the version is submitted (or would be, on a dry run), 1 it was
+refused or App Store Connect refused a call. Nothing is submitted unless both
+gates pass.
 """
 
 from __future__ import annotations
@@ -60,12 +68,24 @@ API = asc.API
 # is either already with App Review or held up by something that has to be fixed
 # in the console first, and submitting through it would blur which happened.
 SUBMITTABLE = "PREPARE_FOR_SUBMISSION"
-# An open submission, as opposed to one already sent: Apple calls the shell it
-# leaves behind READY_FOR_REVIEW, not READY_FOR_SUBMISSION.
-OPEN = "READY_FOR_REVIEW"
+
+# The two states an open submission can be in, and why the second one is here: a
+# submission Apple returned with unresolved issues stays open, blocks a new one
+# with a 409, and is the submission that has to be sent again once the issue is
+# fixed. Looking only for READY_FOR_REVIEW tried to open a second submission and
+# failed on that refusal.
+READY = "READY_FOR_REVIEW"
+UNRESOLVED = "UNRESOLVED_ISSUES"
+OPEN_STATES = (READY, UNRESOLVED)
 
 
-def send(method: str, path: str, bearer: str, payload: dict) -> dict:
+def send(method: str, path: str, bearer: str, payload: dict, conflict: str = "") -> dict:
+    """One JSON:API write call.
+
+    `conflict` is what a 409 or 422 means here rather than Apple's error body
+    alone: every refusal this script can hit has a next step, and printing only
+    the body leaves the reader with a submission they cannot get rid of.
+    """
     request = urllib.request.Request(
         API + path,
         data=json.dumps(payload).encode("utf-8"),
@@ -81,18 +101,20 @@ def send(method: str, path: str, bearer: str, payload: dict) -> dict:
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")
+        if conflict and error.code in (409, 422):
+            raise SystemExit(f"{conflict}\n{detail}")
         raise SystemExit(
             f"App Store Connect returned {error.code} for {method} {path}:\n{detail}"
         )
 
 
-def open_submission(bearer: str, app: str) -> dict | None:
-    """The submission waiting to be sent, if the console or an earlier run made one.
+def open_submissions(bearer: str, app: str) -> list[dict]:
+    """The submissions Apple has open for the app, the blocking one first.
 
-    Creating a second submission for the same version is how a version ends up in
-    review twice, so the open one is reused rather than replaced. `filter[app]`
-    is required by this collection; the platform filter is what keeps an iOS
-    version out of a macOS submission.
+    `filter[app]` is required by this collection; `filter[state]` is applied by
+    Apple, so a submission already with App Review is not offered as open. A
+    submission holding unresolved issues comes before an untouched one because it
+    is the one that refuses a new submission.
     """
     payload = asc.get(
         "/v1/reviewSubmissions",
@@ -100,26 +122,32 @@ def open_submission(bearer: str, app: str) -> dict | None:
         {
             "filter[app]": app,
             "filter[platform]": "IOS",
-            "filter[state]": OPEN,
+            "filter[state]": ",".join(OPEN_STATES),
             "limit": "10",
         },
     )
     rows = payload.get("data") or []
-    return rows[0] if rows else None
+    rows.sort(
+        key=lambda row: (
+            (row.get("attributes") or {}).get("state") != UNRESOLVED,
+            (row.get("attributes") or {}).get("createdDate") or "",
+        )
+    )
+    return rows
 
 
-def holds_version(bearer: str, submission: str, version: str) -> bool:
-    """Whether this submission already carries the version as an item.
-
-    A run that added the item and then failed at the PATCH leaves exactly this
-    state, and adding the item again is refused rather than harmless.
-    """
+def items(bearer: str, submission: str) -> list[dict]:
     payload = asc.get(
         "/v1/reviewSubmissionItems",
         bearer,
         {"filter[reviewSubmission]": submission, "limit": "50"},
     )
-    for item in payload.get("data") or []:
+    return payload.get("data") or []
+
+
+def carries(rows: list[dict], version: str) -> bool:
+    """Whether these submission items already include the version record."""
+    for item in rows:
         relation = (
             (item.get("relationships") or {}).get("appStoreVersion", {}).get("data") or {}
         )
@@ -128,12 +156,33 @@ def holds_version(bearer: str, submission: str, version: str) -> bool:
     return False
 
 
+def describe_items(rows: list[dict]) -> None:
+    """What a stuck submission is holding, one line per item.
+
+    The states are Apple's own: an item that came back REJECTED is why the
+    submission is in UNRESOLVED_ISSUES, and it is the version — not this script —
+    that has to change before the resubmission means anything.
+    """
+    for item in rows:
+        state = (item.get("attributes") or {}).get("state") or "?"
+        relation = (
+            (item.get("relationships") or {}).get("appStoreVersion", {}).get("data") or {}
+        )
+        label = relation.get("id") or item.get("id")
+        print(f"  item {label}  [{state}]")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--version",
         default="1.0",
         help="the marketing version to submit; it has to be the app's newest (default: 1.0)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run the gates and print what would be sent, then send nothing",
     )
     args = parser.parse_args()
 
@@ -195,7 +244,54 @@ def main() -> int:
         asc.note("Not submitted: the submission check still reports gaps.")
         return 1
 
-    submission = open_submission(bearer, app)
+    # Which open submission this belongs to: the one already holding the version
+    # if there is one, otherwise the submission that is blocking a new one.
+    candidates = open_submissions(bearer, app)
+    submission: dict | None = None
+    current: list[dict] = []
+    for candidate in candidates:
+        current = items(bearer, candidate["id"])
+        if carries(current, version["id"]):
+            submission = candidate
+            break
+    if submission is None and candidates:
+        submission = candidates[0]
+        current = items(bearer, submission["id"])
+
+    state = ""
+    if submission is not None:
+        state = (submission.get("attributes") or {}).get("state") or READY
+        if state == UNRESOLVED:
+            print(
+                f"\nsubmission {submission['id']} is [{UNRESOLVED}]: Apple returned it, keeps it "
+                "open, and refuses a new one while it is open."
+            )
+            describe_items(current)
+            print(
+                "Sending that submission back after the fix instead of opening a second one.\n"
+            )
+
+    has_item = submission is not None and carries(current, version["id"])
+
+    if args.dry_run:
+        target = submission["id"] if submission is not None else "a new review submission"
+        print("\ndry run: nothing was sent. The live run would:")
+        print(f"  1. {'reuse' if submission is not None else 'create'} {target}")
+        print(
+            "  2. "
+            + (
+                f"keep version {version['version']} as its item"
+                if has_item
+                else f"add version {version['version']} as an item"
+            )
+        )
+        print("  3. submit it: PATCH the review submission with submitted: true")
+        asc.note(
+            f"Dry run: {version['version']} was not submitted. "
+            f"{'It would reuse' if submission is not None else 'It would create'} {target}."
+        )
+        return 0
+
     if submission is None:
         # No platform attribute: Apple derives it from the app and the items, and
         # current API versions no longer take it on create.
@@ -211,6 +307,11 @@ def main() -> int:
                     },
                 }
             },
+            conflict=(
+                "App Store Connect refused a new review submission (409): one is already "
+                "open for this app in a state this script does not resubmit. Finish or "
+                "cancel it in App Store Connect, then run this again."
+            ),
         )
         submission_id = (created.get("data") or {}).get("id") or ""
         if not submission_id:
@@ -218,10 +319,9 @@ def main() -> int:
         print(f"created review submission {submission_id}")
     else:
         submission_id = submission["id"]
-        state = (submission.get("attributes") or {}).get("state") or OPEN
-        print(f"using the open review submission {submission_id} [{state}]")
+        print(f"using the open review submission {submission_id} [{state or READY}]")
 
-    if holds_version(bearer, submission_id, version["id"]):
+    if has_item:
         print(f"{version['version']} is already an item of submission {submission_id}")
     else:
         send(
@@ -259,6 +359,12 @@ def main() -> int:
                 "attributes": {"submitted": True},
             }
         },
+        conflict=(
+            f"App Store Connect refused to submit submission {submission_id}. The "
+            "submission stays open until Apple accepts a resubmission, and no new one "
+            "can be created while it is open: fix what the issues name in App Store "
+            "Connect, then run this again."
+        ),
     )
     print(f"submitted review submission {submission_id}")
 
@@ -270,14 +376,14 @@ def main() -> int:
         bearer,
         {"fields[reviewSubmissions]": "state,submitted"},
     )
-    state = ((sent.get("data") or {}).get("attributes") or {}).get("state") or "?"
+    final = ((sent.get("data") or {}).get("attributes") or {}).get("state") or "?"
     print(
         f"\nversion {after['version']} is now [{after['state']}]; "
-        f"submission {submission_id} is [{state}]"
+        f"submission {submission_id} is [{final}]"
     )
     asc.note(
         f"Submitted {after['version']} for App Review: the version is {after['state']}, "
-        f"submission {submission_id} is {state}."
+        f"submission {submission_id} is {final}."
     )
     return 0
 
