@@ -442,7 +442,8 @@ Connect.
 
 The version's state and every row of the check are read on the runner, so the
 tick cannot submit past a missing review contact, a build that is not the newest
-`VALID` one or a version App Review already holds; a refusal exits non-zero and
+`VALID` one, a build stamped with another version or a version App Review already
+holds; a refusal exits non-zero and
 writes nothing. It uses the submission Apple already has open for the app
 when there is one, adds the version as an item, and PATCHes the submission with
 `submitted: true`, then prints the state the version ended in and writes it to
@@ -484,9 +485,19 @@ an email. Each line is `ok` or `GAP`, and the job exits non-zero while anything
 is missing, so a checklist cannot drift from the record. A missing contact field
 names the variable that fills it — `APP_REVIEW_CONTACT_NAME`,
 `APP_REVIEW_CONTACT_PHONE` or `APP_REVIEW_CONTACT_EMAIL` — so a refused
-submission says what to set rather than only that something is missing. The version page and the build carry independent
-numbers: a version page of `1.0` accepts a build stamped `0.2.4`, but keeping
-them equal avoids explaining the difference later.
+submission says what to set rather than only that something is missing.
+
+The number on the build is the *build* number, so `build attached` cannot see
+whether the binary is the release at all. App Store Connect files an upload under
+the app **and the version record named by the bundle's version number**
+([Upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds)):
+a `1.0` page filled by a build stamped `0.2.20` would publish a 1.0 whose binary
+reports 0.2.20 in Settings and to App Review. The check therefore reads the
+attached build's own `CFBundleShortVersionString` — its pre-release version — and
+the `build version` row reads `GAP` when the two differ, naming the build number,
+the version it carries and the version page. Attaching it again does not help:
+the fix is a build uploaded as that version, which is what `mobile/package.json`
+gives the archive.
 
 It prints the marketing version, build number, upload time in UTC and the
 processing state (`PROCESSING`, `VALID`, `FAILED`, `INVALID`) with what each one
@@ -667,7 +678,10 @@ Capturing them from the build, shortest path — a run, not a desk:
    `en-US iPhone 6.9" screenshots` and `en-US iPad 13" screenshots` — should read
    `ok`. The build row has to name the newest `VALID` build: a version keeps
    whatever build it was given, so a stale attach reads `GAP` until **iOS
-   listing** runs with `attach_build` set to that number.
+   listing** runs with `attach_build` set to that number. The `build version`
+   row has to read the page's own number: a build stamped `0.2.20` on the `1.0`
+   page is a `GAP` that re-attaching cannot fix — it needs a build uploaded as
+   `1.0`.
 
 On a Mac, the same thing without CI: `npx cap sync ios && pod install`, then
 `python3 scripts/ios-capture-screenshots.py --out /tmp/shots` (add
