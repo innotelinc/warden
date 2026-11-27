@@ -352,9 +352,10 @@ with `web/landing/privacy.html` as the policy URL.
    `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`,
    `APP_STORE_CONNECT_KEY_P8`.
 3. Push a `v*` tag (or run **Mobile (iOS)** by hand). The workflow stamps the
-   version from the tag — the manual run uses `mobile/package.json` — and the
-   build number from the run number, which only ever increases, so every upload
-   of 0.2.4 is accepted.
+   version from the tag — the manual run uses `mobile/package.json`, which for
+   the App Store 1.0 release is `1.0` — and the build number from the run
+   number, which only ever increases, so every upload of the same version is
+   accepted.
 4. A tag push archives with automatic signing, exports with
    `destination=upload` and lands in **TestFlight**; no `altool` or Transporter
    step exists any more. A manual run **stops at the archive** unless it is
@@ -497,7 +498,11 @@ attached build's own `CFBundleShortVersionString` — its pre-release version �
 the `build version` row reads `GAP` when the two differ, naming the build number,
 the version it carries and the version page. Attaching it again does not help:
 the fix is a build uploaded as that version, which is what `mobile/package.json`
-gives the archive.
+gives the archive. That is the whole switch: the archive passes the resolved
+version to `xcodebuild` as `MARKETING_VERSION`, which overrides the one
+committed in `App.xcodeproj`, so the committed `MARKETING_VERSION` and
+`wardenVersionName` in `build.gradle` are what a *local* build stamps and only
+have to stay in step with `mobile/package.json` — a test fails if they drift.
 
 It prints the marketing version, build number, upload time in UTC and the
 processing state (`PROCESSING`, `VALID`, `FAILED`, `INVALID`) with what each one
