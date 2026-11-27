@@ -613,6 +613,30 @@ def unrestricted_web(rating: dict | None) -> tuple[str, bool]:
     return "not exposed by the API", True
 
 
+def build_marketing(bearer: str, build: dict) -> str:
+    """The version a build is stamped with — its CFBundleShortVersionString.
+
+    A build carries two numbers that mean different things: `version` is the
+    build string (CFBundleVersion), which only has to be new for every upload,
+    and its pre-release version is the version number (CFBundleShortVersionString)
+    the installed app reports. Only the build string is on the build resource
+    included with a version page, so this asks for the build directly; an empty
+    answer is the API declining to say rather than a zero, and is reported as
+    such instead of guessed.
+    """
+    payload = get(f"/v1/builds/{build['id']}", bearer, {"include": "preReleaseVersion"})
+    relation = (
+        ((payload.get("data") or {}).get("relationships") or {})
+        .get("preReleaseVersion", {})
+        .get("data")
+        or {}
+    )
+    for item in payload.get("included") or []:
+        if item.get("type") == "preReleaseVersions" and item.get("id") == relation.get("id"):
+            return (item.get("attributes") or {}).get("version") or ""
+    return ""
+
+
 def newest_valid_build(bearer: str, app: str) -> dict | None:
     """The build a release would actually ship.
 
@@ -700,6 +724,10 @@ def submission_report(bearer: str, app: str) -> int:
     # code from before the fix, with the newest screenshots next to it. The
     # comparison is against the newest VALID build, which is what a release
     # would ship.
+    #
+    # A build number is only half of what a build carries, and the half compared
+    # here says nothing about which release the binary *is*. That is the version
+    # it is stamped with, compared in its own row below.
     build = version["build"]
     attached = ((build or {}).get("attributes") or {}).get("version") or ""
     newest = newest_valid_build(bearer, app)
@@ -718,6 +746,29 @@ def submission_report(bearer: str, app: str) -> int:
                 "is the newest VALID build",
             )
         )
+
+    # App Store Connect files an upload under the app *and the version record*
+    # named by the bundle id and the bundle's version number, so the two sides of
+    # a version page have to agree. Build 43 was attached, VALID and newest on a
+    # 1.0 page while carrying 0.2.20 — every row read ok, and a submit would have
+    # released a 1.0 whose binary reports 0.2.20 in Settings and to App Review.
+    # The build number cannot see that, so the build's own marketing version is
+    # read and compared with the page.
+    if build is not None:
+        stamped = build_marketing(bearer, build)
+        if not stamped:
+            rows.append(("build version", True, f"build {attached}: the API reported no version"))
+        elif stamped == version["version"]:
+            rows.append(("build version", True, f"{stamped}, the version being submitted"))
+        else:
+            rows.append(
+                (
+                    "build version",
+                    False,
+                    f"build {attached} is stamped {stamped}, but this version is "
+                    f"{version['version']} — upload a build of {version['version']} and attach it",
+                )
+            )
 
     review = (version["review"] or {}).get("attributes") or {}
     rows.append(("review notes", bool(review.get("notes")), (review.get("notes") or "empty")[:40]))

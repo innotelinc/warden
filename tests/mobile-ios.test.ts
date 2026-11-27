@@ -233,6 +233,23 @@ describe('the submission check refuses a version it cannot vouch for', () => {
   it('does not call an unlisted build stale', () => {
     expect(script).toContain('(nothing VALID listed to compare)')
   })
+
+  /**
+   * The build number and the build's version are two different numbers, and only
+   * the first was compared: build 43 sat on the 1.0 page, newest and VALID, while
+   * the binary was stamped 0.2.20 — every row read ok. App Store Connect files an
+   * upload under the version record its bundle's version names, so submitting
+   * that pair would publish a 1.0 whose binary reports 0.2.20.
+   */
+  it('reads the version the attached build is stamped with', () => {
+    expect(script).toContain('def build_marketing')
+    expect(script).toContain('preReleaseVersion')
+    expect(script).toContain('"build version"')
+    expect(script).toContain('but this version is')
+    // The row compares the build's version with the page's, not with a build
+    // number: the API's `version` on a build is the build string.
+    expect(script).toContain('stamped == version["version"]')
+  })
 })
 
 /**
