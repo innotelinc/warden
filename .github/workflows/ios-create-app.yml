@@ -26,7 +26,7 @@ on:
       app_name:
         description: App Store name (unique across every account)
         type: string
-        default: ZAPIT
+        default: ZAPIT File Transfer
       sku:
         description: Internal SKU
         type: string
