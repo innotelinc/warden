@@ -5,6 +5,13 @@ name: iOS listing
 # URLs, the app name and subtitle, the privacy policy URL, the primary category,
 # the age rating's unrestricted-web-access answer, and the review notes.
 #
+# It also writes the four fields Apple refused the 1.0 submission for: the
+# copyright line on the version page, the app's content-rights declaration,
+# demoAccountRequired = false on the App Review record (there is no account to
+# sign in to), and the Free price. The values come from listing.json so they are
+# reviewed in the repository, and the price is only written when the app has
+# none — a price schedule POST replaces every price with it.
+#
 # It also writes the App Review contact — a name, a phone and an email — from
 # three repository variables: APP_REVIEW_CONTACT_NAME (first and last name),
 # APP_REVIEW_CONTACT_PHONE (country code included) and APP_REVIEW_CONTACT_EMAIL.
@@ -57,6 +64,8 @@ jobs:
           printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
 
       - name: Write the listing
+        # Writes the copy, the review contact, the copyright, the content rights,
+        # the demo-account answer and, if the app has no price, the Free one.
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

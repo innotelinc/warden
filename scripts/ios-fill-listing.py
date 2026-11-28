@@ -16,6 +16,18 @@ It sets, on the newest iOS version page of the app:
   * the age rating's unrestricted-web-access answer
   * the review notes and the review contact, on the version's App Review
     information (skipped when the record already holds the same values)
+  * `demoAccountRequired = false` on the same record: this app has no account,
+    so App Review is told there is nothing to sign in to rather than left to ask
+  * the copyright line on the version page
+  * the content-rights declaration on the app record
+  * the Free price, when listing.json asks for it and the app has no price yet
+
+Those last four are the fields Apple refused the 1.0 submission for
+(copyright, contentRightsDeclaration, demoAccountRequired, APP_PRICING_REQUIRED).
+They live in listing.json beside the copy, rather than in a workflow input,
+because a value that decides whether the app is free or what it claims about
+third-party content should be reviewable in the repository and not typed into a
+run.
 
 The contact is a person's name, a phone and an email, so it does not live in the
 listing file: it comes from three repository variables — APP_REVIEW_CONTACT_NAME,
@@ -62,6 +74,17 @@ _spec.loader.exec_module(asc)
 
 API = asc.API
 LOCALE = "en-US"
+
+# A price is set per base territory, and "free" is one of its price points — a
+# tier, not an amount — so the base territory is named once here.
+FREE_TERRITORY = "USA"
+
+# Apple's two answers to "does this app use third-party content?". The wording is
+# Apple's, and a value it does not recognise is refused at submission time.
+CONTENT_RIGHTS = (
+    "DOES_NOT_USE_THIRD_PARTY_CONTENT",
+    "USES_THIRD_PARTY_CONTENT",
+)
 
 
 def send(method: str, path: str, bearer: str, payload: dict) -> dict:
@@ -186,7 +209,10 @@ def write_review(bearer: str, version: dict, notes: str, contact: dict) -> str:
     """
     detail = version.get("review") or {}
     current = detail.get("attributes") or {}
-    attributes = {"notes": notes, **contact}
+    # The demo account answer travels with the notes and the contact: Apple
+    # refuses a patch of this entity that omits them once a build is attached,
+    # and this app has no account for App Review to be given.
+    attributes = {"notes": notes, "demoAccountRequired": False, **contact}
     if detail.get("id") and all(current.get(key) == value for key, value in attributes.items()):
         return "kept"
     if detail.get("id"):
@@ -218,6 +244,87 @@ def write_review(bearer: str, version: dict, notes: str, contact: dict) -> str:
         },
     )
     return "created"
+
+
+def is_free(customer_price) -> bool:
+    """Whether a price point's `customerPrice` is zero.
+
+    Apple reports it as a decimal string ("0.00"), and the free point comes back
+    with a leading currency symbol in some territories, so it is parsed as a
+    number rather than compared with a literal.
+    """
+    text = str(customer_price or "").replace(",", "").strip().lstrip("$€£¥")
+    try:
+        return float(text) == 0.0
+    except ValueError:
+        return False
+
+
+def free_price(bearer: str, app: str) -> str:
+    """Give the app a Free price in its base territory, unless it has one.
+
+    Apple refuses a submission with STATE_ERROR.APP_PRICING_REQUIRED, and Free is
+    a price: an app whose schedule is empty is refused even though nothing is
+    charged. The price is not an amount but a price point id — it carries the
+    territory and the tier inside it — so it is looked up rather than built.
+
+    A schedule that already holds a price is left exactly as it is. A POST to
+    appPriceSchedules replaces the whole schedule, every territory's manual price
+    with it, so it is only sent when there is nothing to replace.
+    """
+    priced, detail = asc.price(bearer, app)
+    if priced:
+        return f"kept ({detail})"
+
+    points = asc.get(
+        f"/v1/apps/{app}/appPricePoints",
+        bearer,
+        {"filter[territory]": FREE_TERRITORY, "limit": "200"},
+    )
+    free = next(
+        (
+            point
+            for point in points.get("data") or []
+            if is_free((point.get("attributes") or {}).get("customerPrice"))
+        ),
+        None,
+    )
+    if free is None:
+        raise SystemExit(
+            f"this app has no free price point in {FREE_TERRITORY}. App Store Connect -> "
+            "Pricing: Free has to be available there before a submission can use it."
+        )
+
+    post(
+        "/v1/appPriceSchedules",
+        bearer,
+        {
+            "data": {
+                "type": "appPriceSchedules",
+                "relationships": {
+                    "app": {"data": {"type": "apps", "id": app}},
+                    "baseTerritory": {
+                        "data": {"type": "territories", "id": FREE_TERRITORY}
+                    },
+                    "manualPrices": {"data": [{"type": "appPrices", "id": "${free}"}]},
+                },
+            },
+            "included": [
+                {
+                    "type": "appPrices",
+                    "id": "${free}",
+                    # No start date is "from now"; no end date is "and on".
+                    "attributes": {"startDate": None},
+                    "relationships": {
+                        "appPricePoint": {
+                            "data": {"type": "appPricePoints", "id": free["id"]}
+                        }
+                    },
+                }
+            ],
+        },
+    )
+    return f"free in {FREE_TERRITORY}"
 
 
 def version_locale(bearer: str, version: dict) -> dict:
@@ -418,6 +525,20 @@ def main() -> int:
     notes = copy["reviewNotes"]
     print(f"  review notes     {len(notes)} chars, {len(notes.splitlines())} lines")
 
+    copyright_line = (copy.get("copyright") or "").strip()
+    if not copyright_line:
+        raise SystemExit(
+            "listing.json has no copyright line; App Store Connect refuses the "
+            "submission without one. It is the holder shown on the product page."
+        )
+    rights = (copy.get("contentRights") or "").strip()
+    if rights not in CONTENT_RIGHTS:
+        raise SystemExit(
+            f"listing.json's contentRights is {rights!r}; use one of "
+            + ", ".join(CONTENT_RIGHTS)
+        )
+    free_wanted = (copy.get("price") or "").strip().lower() == "free"
+
     contact = review_contact()
     if contact:
         print(
@@ -429,6 +550,15 @@ def main() -> int:
             "  review contact   not set (APP_REVIEW_CONTACT_NAME, _PHONE and _EMAIL) — "
             "App Store Connect keeps whatever it holds"
         )
+
+    print("\nsubmission declarations:")
+    print(f"  copyright        {copyright_line}")
+    print(f"  content rights   {rights}")
+    print("  demo account     not required (demoAccountRequired = false)")
+    print(
+        f"  price            {'free' if free_wanted else 'left alone (no price in listing.json)'}"
+        f" in {FREE_TERRITORY}"
+    )
 
     attached: dict | None = None
     if args.attach_build:
@@ -531,6 +661,45 @@ def main() -> int:
         + ("with the contact" if contact else "contact left alone")
         + ")"
     )
+
+    # --- the fields Apple refused the 1.0 submission for -------------------
+    if copyright_line == version["copyright"]:
+        print(f"copyright already {copyright_line}")
+    else:
+        patch(
+            f"/v1/appStoreVersions/{version['id']}",
+            bearer,
+            {
+                "data": {
+                    "type": "appStoreVersions",
+                    "id": version["id"],
+                    "attributes": {"copyright": copyright_line},
+                }
+            },
+        )
+        print(f"set the copyright to {copyright_line}")
+
+    record = asc.app_record(bearer, app)
+    if record.get("contentRightsDeclaration") == rights:
+        print(f"content rights already {rights}")
+    else:
+        patch(
+            f"/v1/apps/{app}",
+            bearer,
+            {
+                "data": {
+                    "type": "apps",
+                    "id": app,
+                    "attributes": {"contentRightsDeclaration": rights},
+                }
+            },
+        )
+        print(f"declared the content rights: {rights}")
+
+    if free_wanted:
+        print(f"price: {free_price(bearer, app)}")
+    else:
+        print("price: left as it is (listing.json does not ask for free)")
 
     if attached is not None:
         patch(
