@@ -1,18 +1,20 @@
 name: iOS create app
 
-# Creates an App Store Connect app record and the bundle id behind it — the
-# step a build has nowhere to land without. It is a one-time call per app, so
-# the defaults name the app this was written for and a dry run is the default:
-# nothing is written until dry_run is unticked.
+# Registers the bundle id behind an iOS app, and reports whether the app
+# record exists — the steps a build has nowhere to land without. The defaults
+# name the app this was written for, and a dry run is the default: nothing is
+# written until dry_run is unticked.
 #
-# Neither record can be undone. An App ID cannot be renamed or deleted, and an
-# app record reserves its name across every account, so read the plan a dry run
-# prints before applying it. A name Apple has already taken comes back as a 409
-# and is reported as that, not as a crash.
+# Only the bundle id can be made here. Apple's public API refuses CREATE on
+# apps for every role, Admin included (403 FORBIDDEN_ERROR), so the app record
+# is a browser step and this workflow prints the form to fill in rather than
+# failing at it. See scripts/ios-create-app.py.
 #
-# Reads the same four repository secrets as the other iOS workflows. The key
-# needs the Admin or App Manager role: creating an app record is an account
-# write, not an app write.
+# A bundle id cannot be renamed or deleted afterwards, so read the plan a dry
+# run prints before applying it.
+#
+# Reads the same four repository secrets as the other iOS workflows; a Team
+# Key of any role can register identifiers.
 
 on:
   workflow_dispatch:
@@ -62,7 +64,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
 
-      - name: Create the app record
+      - name: Register the bundle id
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

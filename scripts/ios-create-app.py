@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Create an App Store Connect app record, and the bundle id it hangs from.
+"""Register an app's bundle id, and get its App Store Connect record created.
 
-A build has nowhere to land until the app record exists, and Apple exposes no
-way to create one except the API (or the website). This does the two steps, in
-the order Apple requires them:
+Two steps are needed before a build has anywhere to land:
 
   1. the bundle id (`/v1/bundleIds`) — an identifier in the team's developer
      account, e.g. `tech.innotel.zapit`;
@@ -11,24 +9,34 @@ the order Apple requires them:
      on the App Store, an SKU the account uses internally, a primary language
      and that bundle id.
 
-Both steps are idempotent against Apple's own answers, so a re-run reports what
-exists instead of failing: an identifier that is already registered is used, and
-an existing app record stops the run before anything is written. That matters
-because neither can be undone — an App ID cannot be renamed or deleted, and an
-app record reserves its name across every account.
+Step 1 is done here. **Step 2 cannot be done by any API key.** Apple's public
+API refuses `CREATE` on `apps` for every role — an Admin key gets the same
+`403 FORBIDDEN_ERROR: The resource 'apps' does not allow 'CREATE'. Allowed
+operations are: GET_COLLECTION, GET_INSTANCE, UPDATE` that an App Manager key
+gets, and Apple's own forum has that answer. Raising the key's role does not
+change it. The app record is created in App Store Connect, in a browser, and
+this script prints exactly what to type there:
 
-The name is the one thing Apple can refuse: names are unique store-wide. A 409
-here is a fact about the store, not a bug, and the message says so.
+    https://appstoreconnect.apple.com/apps  ->  +  ->  New App
+
+So this is not a one-shot that silently half-finishes: it registers the bundle
+id if it is missing, then reports whether the app record exists, and prints the
+form when it does not. Run it again after creating the record to confirm the
+two line up.
+
+An identifier that is already registered is reused rather than re-registered,
+so a re-run is safe. An App ID cannot be renamed or deleted afterwards, which
+is why the dry run is the default.
 
 Credentials are the same four repository secrets the other iOS workflows read.
 The token and HTTP helpers come from scripts/ios-build-status.py, which is
 already exercised against the live API, rather than being duplicated here.
 
-    DRY_RUN=false APP_STORE_CONNECT_KEY_ID=... APP_STORE_CONNECT_ISSUER_ID=... \\
-      ASC_KEY_PATH=/path/AuthKey.p8 python3 scripts/ios-create-app.py \\
+    APP_STORE_CONNECT_KEY_ID=... APP_STORE_CONNECT_ISSUER_ID=... \
+      ASC_KEY_PATH=/path/AuthKey.p8 python3 scripts/ios-create-app.py \
         --bundle-id tech.innotel.zapit --name ZAPIT --sku ZAPIT-IOS
 
-Exit status: 0 the record exists (or a dry run printed the plan),
+Exit status: 0 the bundle id exists (or a dry run printed the plan),
 1 the API refused something.
 """
 
@@ -70,17 +78,6 @@ def send(method: str, path: str, bearer: str, payload: dict | None = None) -> di
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")
-        if error.code == 409 and "bundle identifier" in detail.lower():
-            raise SystemExit(
-                "App Store Connect refused the bundle id (409). An identifier that "
-                "is already registered can be reused but not re-registered:\n" + detail
-            )
-        if error.code == 409:
-            raise SystemExit(
-                "App Store Connect refused the app record (409). The usual cause is "
-                "the name: App Store names are unique across every account, so pick "
-                "another one (e.g. 'ZAPIT — Zap Files') and run this again.\n" + detail
-            )
         raise SystemExit(f"App Store Connect returned {error.code} for {method} {path}:\n{detail}")
 
 
@@ -98,8 +95,25 @@ def find_app(bearer: str, bundle_id: str) -> dict | None:
     return data[0] if data else None
 
 
+def print_record_steps(name: str, bundle_id: str, sku: str, locale: str) -> None:
+    """The app-record form, because only a browser can submit it."""
+    print()
+    print("The app record does not exist yet. No API key can create one:")
+    print("Apple refuses CREATE on apps for every role, Admin included. Create it")
+    print("in App Store Connect — https://appstoreconnect.apple.com/apps -> + -> New App")
+    print()
+    print("  Platform        iOS")
+    print(f"  Name            {name}")
+    print(f"  Primary language   {locale}")
+    print(f"  Bundle ID       {bundle_id}   (already registered, pick it from the list)")
+    print(f"  SKU             {sku}")
+    print("  User access     Full Access")
+    print()
+    print("Then run this again: it should report the record as existing.")
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create an App Store Connect app record.")
+    parser = argparse.ArgumentParser(description="Register a bundle id and report the app record.")
     parser.add_argument("--bundle-id", required=True, help="e.g. tech.innotel.zapit")
     parser.add_argument("--name", required=True, help="the App Store name, unique store-wide")
     parser.add_argument("--sku", required=True, help="internal SKU, e.g. ZAPIT-IOS")
@@ -107,7 +121,7 @@ def main() -> int:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="write the records; without it the plan is printed and nothing is sent",
+        help="register the bundle id; without it the plan is printed and nothing is sent",
     )
     args = parser.parse_args()
 
@@ -135,9 +149,9 @@ def main() -> int:
     print(f"locale    {args.locale}")
     print()
 
-    existing_id = find_bundle_id(bearer, args.bundle_id)
-    if existing_id:
-        print(f"ok   bundle id   already registered ({existing_id['id']})")
+    bundle = find_bundle_id(bearer, args.bundle_id)
+    if bundle:
+        print(f"ok   bundle id   already registered ({bundle['id']})")
     elif not args.apply:
         print("plan bundle id   register it with Apple (POST /v1/bundleIds)")
     else:
@@ -156,42 +170,19 @@ def main() -> int:
                 }
             },
         )
-        existing_id = created.get("data") or {}
-        print(f"new  bundle id   registered ({existing_id.get('id', '?')})")
+        bundle = created.get("data") or {}
+        print(f"new  bundle id   registered ({bundle.get('id', '?')})")
 
     app = find_app(bearer, args.bundle_id)
     if app:
         attributes = app.get("attributes") or {}
-        print(f"ok   app record  already exists: {attributes.get('name')} ({attributes.get('sku')}) {app['id']}")
-    elif not args.apply:
-        print("plan app record  create it against that bundle id (POST /v1/apps)")
-    else:
-        bundle_resource_id = (existing_id or {}).get("id")
-        if not bundle_resource_id:
-            raise SystemExit("the bundle id has no resource id — re-run once Apple has registered it")
-        created = send(
-            "POST",
-            "/v1/apps",
-            bearer,
-            {
-                "data": {
-                    "type": "apps",
-                    "attributes": {
-                        "name": args.name,
-                        "primaryLocale": args.locale,
-                        "sku": args.sku,
-                    },
-                    "relationships": {
-                        "bundleId": {"data": {"type": "bundleIds", "id": bundle_resource_id}}
-                    },
-                }
-            },
-        )
-        record = created.get("data") or {}
-        print(f"new  app record  created ({record.get('id', '?')})")
+        print(f"ok   app record  exists: {attributes.get('name')} ({attributes.get('sku')}) {app['id']}")
+        return 0
 
+    print("todo app record  missing — it has to be created in App Store Connect")
+    print_record_steps(args.name, args.bundle_id, args.sku, args.locale)
     if not args.apply:
-        print("\nnothing was written: this was a dry run (pass --apply to create)")
+        print("nothing was written: this was a dry run (pass --apply to register the bundle id)")
     return 0
 
 
