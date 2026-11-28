@@ -697,20 +697,24 @@ def app_record(bearer: str, app: str) -> dict:
     return payload.get("data", {}).get("attributes") or {"error": "no attributes"}
 
 
-def privacy(bearer: str, app: str) -> tuple[bool, str]:
+def privacy(bearer: str, app: str) -> tuple[bool | None, str]:
     """Whether the App Privacy questionnaire has been answered.
 
     Apple refuses a submission with STATE_ERROR.APP_DATA_USAGES_REQUIRED when it
     has not, and the answer is app-level, so it is asked once here rather than
-    per version. The endpoint is not in the API's published `fields[apps]` list,
-    so an unreadable answer is reported as unreadable — with the place to answer
-    it — instead of being counted as answered.
+    per version.
+
+    The resource is not in the public API: every path that names it answers 404,
+    which is what the first live run of this check found. So a refusal returns
+    None rather than False — a row that can never turn green would block every
+    submit for a questionnaire somebody answered in the website months ago. It
+    is reported as unverifiable, not counted as answered or as missing.
     """
     payload, error = read(f"/v1/apps/{app}/appDataUsages", bearer, {"limit": "50"})
     if payload is None:
-        return False, (
-            f"not readable through the API ({error}) — App Store Connect -> "
-            "App Privacy answers this, and no submission is accepted before it is"
+        return None, (
+            f"not reported by the API ({error}) — App Store Connect -> App Privacy "
+            "answers this, and no submission is accepted before it is answered"
         )
     usages = payload.get("data") or []
     if not usages:
@@ -768,7 +772,7 @@ def submission_report(bearer: str, app: str) -> int:
         for item in released.get("data") or []
     )
 
-    rows: list[tuple[str, bool, str]] = []
+    rows: list[tuple[str, bool | None, str]] = []
 
     # --- text, per language -------------------------------------------------
     for localization in version["localizations"]:
@@ -967,10 +971,23 @@ def submission_report(bearer: str, app: str) -> int:
     width = max((len(row[0]) for row in rows), default=0)
     print(f"App Store submission for {version['version']}  [{version['state']}]\n")
     for label, ok, detail in rows:
-        print(f"{'ok  ' if ok else 'GAP '} {label.ljust(width)}  {detail}")
+        # None is a field App Store Connect does not report through the API at
+        # all: neither answered nor missing as far as this can tell.
+        print(f"{'ok  ' if ok else '?   ' if ok is None else 'GAP '} {label.ljust(width)}  {detail}")
 
-    gaps = [label for label, ok, _ in rows if not ok]
+    gaps = [label for label, ok, _ in rows if ok is False]
+    unverifiable = [label for label, ok, _ in rows if ok is None]
     print()
+    # A field the API cannot answer is named on its own: passing it silently is
+    # how the 1.0 check went green over five fields Apple then refused.
+    if unverifiable:
+        print(
+            f"{len(unverifiable)} field(s) App Store Connect does not report, so this "
+            "check cannot vouch for them — confirm each in the website:"
+        )
+        for label in unverifiable:
+            print(f"  ? {label}")
+        print()
     if gaps:
         print(f"{len(gaps)} field(s) still needed before this version can be submitted:")
         for gap in gaps:
