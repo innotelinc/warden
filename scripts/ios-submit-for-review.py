@@ -28,6 +28,12 @@ issue is fixed — so a new one was refused with a 409. This reuses it, says wha
 it is holding, and sends it back. A 409 that survives that (a submission in a
 state this does not handle) is reported with the step it needs, not dumped.
 
+A refusal is not always stated on the error itself: adding the version answers
+STATE_ERROR.ENTITY_STATE_INVALID — "this resource cannot be reviewed" — with the
+reason nested in meta.associatedErrors, where it names the App Privacy
+questionnaire. Only the website can answer that one, so it is printed as the
+sentence it is rather than as a JSON body to decode.
+
 `--dry-run` runs both gates and prints the same plan without writing anything, so
 the first live submission can be read before it is sent. It exits with the status
 the live run would, because a preview that cannot fail is not a preview.
@@ -78,6 +84,49 @@ READY = "READY_FOR_REVIEW"
 UNRESOLVED = "UNRESOLVED_ISSUES"
 OPEN_STATES = (READY, UNRESOLVED)
 
+# The refusal Apple sends while the App Privacy questionnaire has no published
+# answers. It never arrives on the error itself: the item POST fails with
+# STATE_ERROR.ENTITY_STATE_INVALID and the reason is nested under
+# meta.associatedErrors, so the top-level message names nothing that can be fixed.
+# The answers are app-level and the API does not serve them (/v1/appDataUsages
+# answers 404), which makes "answer it in the website" the whole of the next step.
+APP_PRIVACY = "STATE_ERROR.APP_DATA_USAGES_REQUIRED"
+
+APP_PRIVACY_REFUSAL = (
+    f"App Store Connect refused: App Privacy has no published answers yet ({APP_PRIVACY}).\n"
+    "Answer the questionnaire in App Store Connect -> App Privacy and publish it — "
+    "'Data Not Collected' is an answer, an empty questionnaire is not. Every "
+    "submission is refused until it is published, and only the website can do it: "
+    "the answers are app-level and no API endpoint holds them."
+)
+
+
+def explained(detail: str) -> list[str]:
+    """A refusal body as the plain lines its associated errors describe.
+
+    Apple states some refusals only through `meta.associatedErrors`, so a reader
+    given the raw body has to find the one entry that can be acted on. Only codes
+    translated here are turned into sentences; anything else returns nothing and
+    is printed exactly as Apple sent it, because a guessed translation of an
+    unknown refusal would send the reader after the wrong thing.
+    """
+    try:
+        body = json.loads(detail)
+    except ValueError:
+        return []
+
+    codes: set[str] = set()
+    for error in body.get("errors") or []:
+        codes.add(error.get("code") or "")
+        nested = (error.get("meta") or {}).get("associatedErrors") or {}
+        for entries in nested.values():
+            for entry in entries or []:
+                codes.add((entry or {}).get("code") or "")
+
+    if APP_PRIVACY in codes:
+        return [APP_PRIVACY_REFUSAL]
+    return []
+
 
 def send(method: str, path: str, bearer: str, payload: dict, conflict: str = "") -> dict:
     """One JSON:API write call.
@@ -101,11 +150,20 @@ def send(method: str, path: str, bearer: str, payload: dict, conflict: str = "")
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")
-        if conflict and error.code in (409, 422):
-            raise SystemExit(f"{conflict}\n{detail}")
-        raise SystemExit(
-            f"App Store Connect returned {error.code} for {method} {path}:\n{detail}"
-        )
+        message = f"App Store Connect returned {error.code} for {method} {path}:\n{detail}"
+        if error.code in (409, 422):
+            plain = explained(detail)
+            if plain:
+                message = "\n".join(plain + ([conflict] if conflict else []))
+            elif conflict:
+                message = f"{conflict}\n{detail}"
+            # The refusal goes to stderr while the check's rows go to stdout, and
+            # a runner logs the two streams as they arrive: rows still sitting in
+            # stdout's buffer would be logged after this refusal, splitting the
+            # table. Flush them first, so the log reads in the order the script
+            # decided things.
+            sys.stdout.flush()
+        raise SystemExit(message)
 
 
 def open_submissions(bearer: str, app: str) -> list[dict]:
@@ -196,6 +254,12 @@ def describe_items(rows: list[dict]) -> None:
 
 
 def main() -> int:
+    # A runner captures this script through a pipe, where Python block-buffers
+    # stdout: the check's rows sat in the buffer and reached the log after a
+    # refusal that was raised later, splitting the table in two. Line buffering
+    # puts each row out as it is decided, in the order it was decided.
+    sys.stdout.reconfigure(line_buffering=True)
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--version",
@@ -367,6 +431,11 @@ def main() -> int:
                     },
                 }
             },
+            conflict=(
+                f"App Store Connect did not add version {version['version']} to "
+                f"submission {submission_id}: the submission was never sent and still "
+                "holds what it held before."
+            ),
         )
         print(f"added version {version['version']} to submission {submission_id}")
 
