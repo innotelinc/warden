@@ -137,23 +137,51 @@ def open_submissions(bearer: str, app: str) -> list[dict]:
 
 
 def items(bearer: str, submission: str) -> list[dict]:
-    payload = asc.get(
-        "/v1/reviewSubmissionItems",
+    """What a submission is holding, one row per item.
+
+    Read through the submission's own relationship, never the
+    reviewSubmissionItems collection: Apple refuses a collection GET there with
+    403 FORBIDDEN_ERROR — "Allowed operations are: CREATE, DELETE, UPDATE" — and
+    the first run that reached this step died on it after both gates had passed,
+    which read as a refused submission rather than a wrong URL.
+
+    The version each item holds is asked for separately when the list does not
+    carry the linkage: the item is what identifies the version, and guessing
+    "not carried" from a missing relationship would add the version twice.
+    """
+    payload, error = asc.read(
+        f"/v1/reviewSubmissions/{submission}/items",
         bearer,
-        {"filter[reviewSubmission]": submission, "limit": "50"},
+        {"limit": "50"},
     )
-    return payload.get("data") or []
+    if payload is None:
+        print(f"\nthe submission's items could not be read ({error}); assuming it holds none.\n")
+        return []
 
-
-def carries(rows: list[dict], version: str) -> bool:
-    """Whether these submission items already include the version record."""
-    for item in rows:
+    rows = []
+    for item in payload.get("data") or []:
         relation = (
             (item.get("relationships") or {}).get("appStoreVersion", {}).get("data") or {}
         )
-        if relation.get("id") == version:
-            return True
-    return False
+        held = relation.get("id") or ""
+        if not held:
+            link, _ = asc.read(
+                f"/v1/reviewSubmissionItems/{item['id']}/appStoreVersion", bearer
+            )
+            held = ((link or {}).get("data") or {}).get("id") or ""
+        rows.append(
+            {
+                "id": item["id"],
+                "state": (item.get("attributes") or {}).get("state") or "?",
+                "version": held,
+            }
+        )
+    return rows
+
+
+def carries(rows: list[dict], version: str) -> bool:
+    """Whether these submission items already hold the version record."""
+    return any(row["version"] == version for row in rows)
 
 
 def describe_items(rows: list[dict]) -> None:
@@ -163,13 +191,8 @@ def describe_items(rows: list[dict]) -> None:
     submission is in UNRESOLVED_ISSUES, and it is the version — not this script —
     that has to change before the resubmission means anything.
     """
-    for item in rows:
-        state = (item.get("attributes") or {}).get("state") or "?"
-        relation = (
-            (item.get("relationships") or {}).get("appStoreVersion", {}).get("data") or {}
-        )
-        label = relation.get("id") or item.get("id")
-        print(f"  item {label}  [{state}]")
+    for row in rows:
+        print(f"  item {row['version'] or row['id']}  [{row['state']}]")
 
 
 def main() -> int:
