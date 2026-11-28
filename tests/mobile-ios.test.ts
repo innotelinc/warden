@@ -458,6 +458,27 @@ describe('iOS submit for review', () => {
     expect(script).toContain('no new one ')
   })
 
+  /**
+   * Two ways this refusal used to arrive unreadable: the App Privacy answers sit
+   * in a generic 409's meta.associatedErrors, so the error itself says only that
+   * the version cannot be reviewed, and the rows it has to be read with are on
+   * stdout while the refusal is on stderr — buffered, they reached the log after
+   * it, splitting the table in two.
+   */
+  it('names the App Privacy refusal and logs the rows before it', () => {
+    expect(script).toContain('STATE_ERROR.APP_DATA_USAGES_REQUIRED')
+    expect(script).toContain('def explained')
+    expect(script).toContain(
+      'Answer the questionnaire in App Store Connect -> App Privacy'
+    )
+    expect(script).toContain('line_buffering=True')
+    // The flush is what keeps the already-printed rows on the near side of the
+    // refusal, whatever the runner does with the two streams.
+    expect(script.indexOf('sys.stdout.flush()')).toBeLessThan(
+      script.indexOf('raise SystemExit(message)')
+    )
+  })
+
   it('can be previewed without sending anything', () => {
     expect(script).toContain('--dry-run')
     expect(script).toContain('if args.dry_run:')
