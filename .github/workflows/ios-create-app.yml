@@ -1,0 +1,80 @@
+name: iOS create app
+
+# Creates an App Store Connect app record and the bundle id behind it — the
+# step a build has nowhere to land without. It is a one-time call per app, so
+# the defaults name the app this was written for and a dry run is the default:
+# nothing is written until dry_run is unticked.
+#
+# Neither record can be undone. An App ID cannot be renamed or deleted, and an
+# app record reserves its name across every account, so read the plan a dry run
+# prints before applying it. A name Apple has already taken comes back as a 409
+# and is reported as that, not as a crash.
+#
+# Reads the same four repository secrets as the other iOS workflows. The key
+# needs the Admin or App Manager role: creating an app record is an account
+# write, not an app write.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: Bundle identifier (e.g. tech.innotel.zapit)
+        type: string
+        default: tech.innotel.zapit
+      app_name:
+        description: App Store name (unique across every account)
+        type: string
+        default: ZAPIT
+      sku:
+        description: Internal SKU
+        type: string
+        default: ZAPIT-IOS
+      primary_locale:
+        description: Primary language
+        type: string
+        default: en-US
+      dry_run:
+        description: Print the plan without creating anything
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Write App Store Connect key
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+        run: |
+          if [ -z "${KEY_P8:-}" ]; then
+            echo "::error::APP_STORE_CONNECT_KEY_P8 is not set — add the App Store Connect secrets first."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+
+      - name: Create the app record
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+          BUNDLE_ID: ${{ inputs.bundle_id }}
+          APP_NAME: ${{ inputs.app_name }}
+          SKU: ${{ inputs.sku }}
+          PRIMARY_LOCALE: ${{ inputs.primary_locale }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args="--bundle-id \"$BUNDLE_ID\" --name \"$APP_NAME\" --sku \"$SKU\" --locale \"$PRIMARY_LOCALE\""
+          if [ "$DRY_RUN" != "true" ]; then
+            args="$args --apply"
+          fi
+          eval python3 scripts/ios-create-app.py $args
