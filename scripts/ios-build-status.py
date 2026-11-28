@@ -144,6 +144,37 @@ def get(path: str, bearer: str, params: dict[str, str] | None = None) -> dict:
         raise SystemExit(f"App Store Connect returned {error.code} for {path}:\n{body}")
 
 
+def read(path: str, bearer: str, params: dict[str, str] | None = None) -> tuple[dict | None, str]:
+    """A GET whose refusal is an answer rather than a crash.
+
+    Three of the fields a submission needs are not guaranteed to be readable:
+    the App Privacy answers are not in the API's published field list at all, a
+    price schedule that was never set answers 404 for its prices, and Apple's
+    schema changes. None of those is a reason to stop reporting everything else,
+    so the failure comes back as text beside a None payload and the row says
+    what could not be read. A 401 stays fatal: a rejected token says nothing
+    about the listing.
+    """
+    url = API + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {bearer}"})
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            return json.load(response), ""
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", "replace")
+        if error.code == 401:
+            raise SystemExit(
+                "App Store Connect refused the token (401). The key id, the issuer id "
+                "or the key itself is wrong, or the key has been revoked.\n" + body
+            )
+        return None, f"HTTP {error.code}"
+    except urllib.error.URLError as error:
+        return None, f"no answer from App Store Connect ({error.reason})"
+
+
 def app_id(bearer: str) -> str:
     found = get("/v1/apps", bearer, {"filter[bundleId]": BUNDLE_ID, "fields[apps]": "bundleId"})
     data = found.get("data") or []
@@ -556,6 +587,9 @@ def newest_version(bearer: str, app: str) -> dict:
         "id": version["id"],
         "version": version["attributes"].get("versionString") or "?",
         "state": version["attributes"].get("appStoreState") or "?",
+        # The copyright line shown on the product page. App Store Connect refuses
+        # the submission without it, and it is not one of the localized fields.
+        "copyright": (version["attributes"].get("copyright") or "").strip(),
         "build": first("builds"),
         "review": first("appStoreReviewDetails"),
         "localizations": [item for item in included if item.get("type") == "appStoreVersionLocalizations"],
@@ -646,6 +680,76 @@ def newest_valid_build(bearer: str, app: str) -> dict | None:
     so it is not a newer candidate yet.
     """
     return next((row for row in builds(bearer, app, 50) if row["state"] == "VALID"), None)
+
+
+def app_record(bearer: str, app: str) -> dict:
+    """The app-level fields a submission is refused for, as opposed to the
+    version page's. `contentRightsDeclaration` lives here: Apple asks every app
+    whether it uses third-party content, and a version cannot go to review while
+    the question is unanswered."""
+    payload, error = read(
+        f"/v1/apps/{app}",
+        bearer,
+        {"fields[apps]": "name,bundleId,contentRightsDeclaration"},
+    )
+    if payload is None:
+        return {"error": error}
+    return payload.get("data", {}).get("attributes") or {"error": "no attributes"}
+
+
+def privacy(bearer: str, app: str) -> tuple[bool, str]:
+    """Whether the App Privacy questionnaire has been answered.
+
+    Apple refuses a submission with STATE_ERROR.APP_DATA_USAGES_REQUIRED when it
+    has not, and the answer is app-level, so it is asked once here rather than
+    per version. The endpoint is not in the API's published `fields[apps]` list,
+    so an unreadable answer is reported as unreadable — with the place to answer
+    it — instead of being counted as answered.
+    """
+    payload, error = read(f"/v1/apps/{app}/appDataUsages", bearer, {"limit": "50"})
+    if payload is None:
+        return False, (
+            f"not readable through the API ({error}) — App Store Connect -> "
+            "App Privacy answers this, and no submission is accepted before it is"
+        )
+    usages = payload.get("data") or []
+    if not usages:
+        return False, (
+            "no answers yet — App Store Connect -> App Privacy; 'Data Not Collected' "
+            "is an answer, an empty questionnaire is not"
+        )
+    return True, f"{len(usages)} data usage(s) declared"
+
+
+def price(bearer: str, app: str) -> tuple[bool, str]:
+    """Whether the app has a price, which Apple enforces with
+    STATE_ERROR.APP_PRICING_REQUIRED.
+
+    Free is a price: an app with no price schedule at all is refused, so the
+    schedule and its first base-territory price are read rather than the amount.
+    A schedule that exists but holds no current price answers 404 for its prices.
+    """
+    schedule, error = read(f"/v1/apps/{app}/appPriceSchedule", bearer, {"include": "baseTerritory"})
+    if schedule is None:
+        return False, f"no price schedule could be read ({error}) — App Store Connect -> Pricing"
+    data = schedule.get("data") or {}
+    territory = next(
+        (item for item in schedule.get("included") or [] if item.get("type") == "territories"),
+        None,
+    )
+    base = (territory or {}).get("id") or "?"
+    prices, error = read(
+        f"/v1/appPriceSchedules/{data.get('id') or app}/manualPrices",
+        bearer,
+        {"limit": "10"},
+    )
+    rows = (prices or {}).get("data") or []
+    if not rows:
+        return False, (
+            f"no price set in {base} ({error or 'the schedule holds no price'}) — "
+            "App Store Connect -> Pricing; Free is a price too"
+        )
+    return True, f"{len(rows)} price(s) from {base}"
 
 
 def submission_report(bearer: str, app: str) -> int:
@@ -770,6 +874,15 @@ def submission_report(bearer: str, app: str) -> int:
                 )
             )
 
+    rows.append(
+        (
+            "copyright",
+            bool(version["copyright"]),
+            version["copyright"][:40]
+            or "empty — Apple refuses the submission without the copyright line",
+        )
+    )
+
     review = (version["review"] or {}).get("attributes") or {}
     rows.append(("review notes", bool(review.get("notes")), (review.get("notes") or "empty")[:40]))
 
@@ -796,6 +909,60 @@ def submission_report(bearer: str, app: str) -> int:
             ("missing " + ", ".join(missing)) if missing else "name, phone and email",
         )
     )
+
+    # App Review needs a way into the app: either credentials, or an explicit
+    # statement that there is nothing to sign in to. A version with neither is
+    # refused after the submit — the one refusal that reads like a form error and
+    # costs a whole round trip. Only the presence of each field is reported;
+    # the password itself is never printed.
+    demo_name = (review.get("demoAccountName") or "").strip()
+    demo_password = (review.get("demoAccountPassword") or "").strip()
+    if review.get("demoAccountRequired") is False:
+        rows.append(("demo account", True, "not required (demoAccountRequired = false)"))
+    elif demo_name and demo_password:
+        rows.append(("demo account", True, "name and password set"))
+    else:
+        rows.append(
+            (
+                "demo account",
+                False,
+                "missing demoAccountRequired = false, or demoAccountName and "
+                "demoAccountPassword",
+            )
+        )
+
+    # --- the app record -----------------------------------------------------
+    # These three are app-level, so they are not on the version page and every
+    # other row could read ok while Apple refuses the submission for them. They
+    # are read here because this check is what the submit gate trusts.
+    record = app_record(bearer, app)
+    if "contentRightsDeclaration" not in record:
+        rows.append(
+            (
+                "content rights",
+                False,
+                f"could not be read ({record.get('error') or 'no attribute'}) — "
+                "answer it on the app record in App Store Connect",
+            )
+        )
+    else:
+        declaration = record.get("contentRightsDeclaration") or ""
+        rows.append(
+            (
+                "content rights",
+                bool(declaration),
+                {
+                    "USES_THIRD_PARTY_CONTENT": "uses third-party content",
+                    "DOES_NOT_USE_THIRD_PARTY_CONTENT": "does not use third-party content",
+                }.get(declaration, declaration or "not declared — Apple refuses the submission without it"),
+            )
+        )
+
+    answered, detail = privacy(bearer, app)
+    rows.append(("app privacy answers", answered, detail))
+
+    priced, detail = price(bearer, app)
+    rows.append(("price", priced, detail))
 
     width = max((len(row[0]) for row in rows), default=0)
     print(f"App Store submission for {version['version']}  [{version['state']}]\n")
