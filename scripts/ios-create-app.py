@@ -34,7 +34,7 @@ already exercised against the live API, rather than being duplicated here.
 
     APP_STORE_CONNECT_KEY_ID=... APP_STORE_CONNECT_ISSUER_ID=... \
       ASC_KEY_PATH=/path/AuthKey.p8 python3 scripts/ios-create-app.py \
-        --bundle-id tech.innotel.zapit --name ZAPIT --sku ZAPIT-IOS
+        --bundle-id tech.innotel.zapit --name 'ZAPIT File Transfer' --sku ZAPIT-IOS
 
 Exit status: 0 the bundle id exists (or a dry run printed the plan),
 1 the API refused something.
