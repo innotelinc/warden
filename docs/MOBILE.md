@@ -476,8 +476,10 @@ sign in to) and, when the app has no price at all, the Free price in the USA.
 The price is only written when the schedule is empty: `POST appPriceSchedules`
 replaces every price on the app, so a run never overwrites pricing somebody
 chose. The App Privacy questionnaire is the one thing no API writes — it is
-answered in App Store Connect → App Privacy, and the submission check reports it
-as unverifiable rather than guessing.
+answered in App Store Connect → App Privacy and **published**, not merely saved
+(the exact clicks are under **App Privacy** in *Submitting to the App Store*
+below) — and the submission check reports it as unverifiable rather than
+guessing.
 
 The contact is typed once into **Settings → Secrets and variables → Actions →
 Variables**, not into App Store Connect: `APP_REVIEW_CONTACT_NAME` (`Ada
@@ -624,6 +626,22 @@ only if the app or an SDK actually logs or uploads visited URLs. It does not.
 `App/PrivacyInfo.xcprivacy` states the same inside the bundle, and Capacitor
 ships its own manifest, so the listed-SDK expectation is met.
 
+No workflow writes this one, so the click path is here in full: App Store
+Connect → **My Apps** → **WARDEN Privacy Browser** → **App Privacy** in the
+sidebar → **Get Started** (**Edit**, on an app whose questionnaire was opened
+before) → answer the collection question *No, we do not collect data from this
+app* → **Save** → **Publish**. The last click is the one that counts: saving
+keeps a draft, and Apple refuses every submission while the answers are
+unpublished, so a questionnaire that was only saved still ends at
+`POST /v1/reviewSubmissionItems` with `STATE_ERROR.APP_DATA_USAGES_REQUIRED` —
+*"You must have published answers to your app's data usages"* — which
+`scripts/ios-submit-for-review.py` prints as a line naming this page instead of
+as a JSON body. The questionnaire is answered once the page shows the answers as
+published and no longer offers Publish. Nothing reads them back afterwards
+(`/v1/appDataUsages` answers 404), so the submission check keeps printing
+`? app privacy answers` even when this is done: the live submit getting past the
+item step is the proof that it took.
+
 **Version page**
 
 | Field | Value | Limit |
@@ -635,8 +653,8 @@ ships its own manifest, so the listed-SDK expectation is met.
 | Marketing URL | `https://innotelinc.github.io/warden/` | optional |
 | Privacy Policy URL | `https://innotelinc.github.io/warden/privacy.html` | required |
 | Copyright | `Denovo Credit Corporation` — the holder line, from `listing.json` | required |
-| What's New | blank for 0.2.4 — it is the first version | 4,000 |
-| Build | select `0.2.4 (9)` once it is `VALID` | — |
+| What's New | blank for 1.0 — it is the first version | 4,000 |
+| Build | `1.0 (48)` — attached, the newest `VALID` build | — |
 | Sign-in required | **No** — no demo account to supply | — |
 | Review notes | from `listing.json` | 4,000 |
 
