@@ -468,6 +468,17 @@ variables — the App Review contact. It leaves the app name and the screenshots
 alone: a taken name is Apple's decision, and the screenshots have to come from
 the running app.
 
+A run also writes the four fields Apple refused the 1.0 submission for, all of
+them read from `listing.json` except the demo answer: the copyright line, the
+`DOES_NOT_USE_THIRD_PARTY_CONTENT` content-rights declaration on the app record,
+`demoAccountRequired = false` on the App Review record (the app has no account to
+sign in to) and, when the app has no price at all, the Free price in the USA.
+The price is only written when the schedule is empty: `POST appPriceSchedules`
+replaces every price on the app, so a run never overwrites pricing somebody
+chose. The App Privacy questionnaire is the one thing no API writes — it is
+answered in App Store Connect → App Privacy, and the submission check reports it
+as unverifiable rather than guessing.
+
 The contact is typed once into **Settings → Secrets and variables → Actions →
 Variables**, not into App Store Connect: `APP_REVIEW_CONTACT_NAME` (`Ada
 Lovelace` — first and last), `APP_REVIEW_CONTACT_PHONE` (country code included)
@@ -623,7 +634,7 @@ ships its own manifest, so the listed-SDK expectation is met.
 | Support URL | `https://github.com/innotelinc/warden/issues` | required |
 | Marketing URL | `https://innotelinc.github.io/warden/` | optional |
 | Privacy Policy URL | `https://innotelinc.github.io/warden/privacy.html` | required |
-| Copyright | `2026 Innotel` | required |
+| Copyright | `Denovo Credit Corporation` — the holder line, from `listing.json` | required |
 | What's New | blank for 0.2.4 — it is the first version | 4,000 |
 | Build | select `0.2.4 (9)` once it is `VALID` | — |
 | Sign-in required | **No** — no demo account to supply | — |

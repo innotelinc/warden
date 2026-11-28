@@ -29,6 +29,8 @@ interface Listing {
   privacyPolicyUrl: string
   ageRating: { expected: string; answers: Record<string, string> }
   copyright: string
+  contentRights: string
+  price: string
 }
 
 const listing = JSON.parse(read('mobile/store/ios/listing.json')) as Listing
@@ -52,7 +54,19 @@ describe('iOS store listing', () => {
   it('supplies the fields a first submission requires', () => {
     expect(listing.supportUrl).toMatch(/^https:\/\//)
     expect(listing.privacyPolicyUrl).toMatch(/^https:\/\//)
-    expect(listing.copyright).toMatch(/\d{4}/)
+    // The copyright is the holder line shown on the product page, and Apple
+    // refuses a submission without one. The year is not tested: the holder was
+    // supplied as a company name, and a year checked here would be one this
+    // repository invented.
+    expect(listing.copyright.trim().length).toBeGreaterThan(2)
+    // Apple refuses a version whose app has no content-rights answer, and only
+    // these two values are answers.
+    expect(['USES_THIRD_PARTY_CONTENT', 'DOES_NOT_USE_THIRD_PARTY_CONTENT']).toContain(
+      listing.contentRights
+    )
+    // Free is a price, and a free app still has to say so: Apple refuses a
+    // submission with APP_PRICING_REQUIRED otherwise.
+    expect(listing.price).toBe('free')
     expect(listing.keywords.split(',').length).toBeGreaterThan(3)
   })
 
